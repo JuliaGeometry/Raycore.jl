@@ -91,14 +91,18 @@ function create_triangle_mesh(
 end
 
 function create_triangle_mesh(mesh::GeometryBasics.Mesh, core::ShapeCore=ShapeCore())
-    fs = decompose(TriangleFace{UInt32}, mesh)
-    vertices = decompose(Point3f, mesh)
-    normals = Normal3f.(decompose_normals(mesh))
-    uvs = Point2f.(GeometryBasics.decompose_uv(mesh))
+    nmesh = GeometryBasics.expand_faceviews(mesh)
+    fs = decompose(TriangleFace{UInt32}, nmesh)
+    vertices = decompose(Point3f, nmesh)
+    normals = Normal3f.(decompose_normals(nmesh))
+    uvs = GeometryBasics.decompose_uv(nmesh)
+    if isnothing(uvs)
+        uvs = Point2f[]
+    end
     indices = collect(reinterpret(UInt32, fs))
     return TriangleMesh(
         core.object_to_world, indices, vertices,
-        normals, Vec3f[], uvs,
+        normals, Vec3f[], Point2f.(uvs),
     )
 end
 

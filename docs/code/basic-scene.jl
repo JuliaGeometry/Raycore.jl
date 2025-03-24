@@ -48,7 +48,7 @@ begin
     l = tmesh(Rect3f(Vec3f(-2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
     r = tmesh(Rect3f(Vec3f(2, -5, 0), Vec3f(0.01, 10, 10)), material_blue)
 
-    bvh = Trace.BVHAccel([s1, s2, s3, s4, ground, back, l, r], 1);
+    bvh = Trace.BVHAccel([s1, s2, s3, s4, #=ground, back, l, r=#], 1);
 
     lights = (
         # Trace.PointLight(Vec3f(0, -1, 2), Trace.RGBSpectrum(22.0f0)),
@@ -58,10 +58,10 @@ begin
     scene = Trace.Scene([lights...], bvh);
     resolution = Point2f(1024)
     f = Trace.LanczosSincFilter(Point2f(1.0f0), 3.0f0)
+
     film = Trace.Film(resolution,
         Trace.Bounds2(Point2f(0.0f0), Point2f(1.0f0)),
         f, 1.0f0, 1.0f0,
-        "shadows_sppm_res.png",
     )
     screen_window = Trace.Bounds2(Point2f(-1), Point2f(1))
     cam = Trace.PerspectiveCamera(
@@ -69,6 +69,8 @@ begin
         screen_window, 0.0f0, 1.0f0, 0.0f0, 1.0f6, 45.0f0, film,
     )
 end
+using GeometryBasics
+
 
 # begin
 #     Trace.clear!(film)
