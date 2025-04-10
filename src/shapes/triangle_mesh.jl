@@ -25,6 +25,7 @@ struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<
         )
     end
 end
+
 function TriangleMesh(
         object_to_world::Transformation,
         indices::Vector{UInt32},

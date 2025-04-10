@@ -1,4 +1,4 @@
-using GeometryBasics, LinearAlgebra, Trace, BenchmarkTools
+using GeometryBasics, LinearAlgebra, RayCaster, BenchmarkTools
 using ImageShow
 using Makie
 using KernelAbstractions
@@ -18,13 +18,13 @@ function tmesh(prim, material)
 
     prim =  prim isa Sphere ? Tesselation(prim, 64) : prim
     mesh = normal_mesh(prim)
-    m = Trace.create_triangle_mesh(mesh)
-    return Trace.GeometricPrimitive(m, material)
+    m = RayCaster.create_triangle_mesh(mesh)
+    return RayCaster.GeometricPrimitive(m, material)
 end
 
-material_red = Trace.MatteMaterial(
-    Trace.ConstantTexture(Trace.RGBSpectrum(0.796f0, 0.235f0, 0.2f0)),
-    Trace.ConstantTexture(0.0f0),
+material_red = RayCaster.MatteMaterial(
+    RayCaster.ConstantTexture(RayCaster.RGBSpectrum(0.796f0, 0.235f0, 0.2f0)),
+    RayCaster.ConstantTexture(0.0f0),
 )
 
 
@@ -38,24 +38,24 @@ begin
     back = tmesh(Rect3f(Vec3f(-5, -3, 0), Vec3f(10, 0.01, 10)), material_red)
     l = tmesh(Rect3f(Vec3f(-2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
     r = tmesh(Rect3f(Vec3f(2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
-    bvh = Trace.BVHAccel([s1, s2, s3, s4, ground, back, l, r]);
+    bvh = RayCaster.BVHAccel([s1, s2, s3, s4, ground, back, l, r]);
     res = 512
     resolution = Point2f(res)
-    f = Trace.LanczosSincFilter(Point2f(1.0f0), 3.0f0)
-    film = Trace.Film(resolution,
-        Trace.Bounds2(Point2f(0.0f0), Point2f(1.0f0)),
+    f = RayCaster.LanczosSincFilter(Point2f(1.0f0), 3.0f0)
+    film = RayCaster.Film(resolution,
+        RayCaster.Bounds2(Point2f(0.0f0), Point2f(1.0f0)),
         f, 1.0f0, 1.0f0,
         "shadows_sppm_res.png",
     )
-    screen_window = Trace.Bounds2(Point2f(-1), Point2f(1))
-    cam = Trace.PerspectiveCamera(
-        Trace.look_at(Point3f(0, 4, 2), Point3f(0, -4, -1), Vec3f(0, 0, 1)),
+    screen_window = RayCaster.Bounds2(Point2f(-1), Point2f(1))
+    cam = RayCaster.PerspectiveCamera(
+        RayCaster.look_at(Point3f(0, 4, 2), Point3f(0, -4, -1), Vec3f(0, 0, 1)),
         screen_window, 0.0f0, 1.0f0, 0.0f0, 1.0f6, 45.0f0, film,
     )
     lights = (
-        # Trace.PointLight(Vec3f(0, -1, 2), Trace.RGBSpectrum(22.0f0)),
-        Trace.PointLight(Vec3f(0, 0, 2), Trace.RGBSpectrum(10.0f0)),
-        Trace.PointLight(Vec3f(0, 3, 3), Trace.RGBSpectrum(25.0f0)),
+        # RayCaster.PointLight(Vec3f(0, -1, 2), RayCaster.RGBSpectrum(22.0f0)),
+        RayCaster.PointLight(Vec3f(0, 0, 2), RayCaster.RGBSpectrum(10.0f0)),
+        RayCaster.PointLight(Vec3f(0, 3, 3), RayCaster.RGBSpectrum(25.0f0)),
     )
     img = zeros(RGBf, res, res)
 end
@@ -63,22 +63,22 @@ end
 @inline function get_camera_sample(p_raster::Point2)
     p_film = p_raster .+ rand(Point2f)
     p_lens = rand(Point2f)
-    Trace.CameraSample(p_film, p_lens, rand(Float32))
+    RayCaster.CameraSample(p_film, p_lens, rand(Float32))
 end
 
-# ray = Trace.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0))
-# l = Trace.RGBSpectrum(0.0f0)
+# ray = RayCaster.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0))
+# l = RayCaster.RGBSpectrum(0.0f0)
 # open("test3.llvm", "w") do io
-#     code_llvm(io, simple_shading, typeof.((bvh, bvh.primitives[1], Trace.RayDifferentials(ray), Trace.SurfaceInteraction(), l, 1, 1, lights)))
+#     code_llvm(io, simple_shading, typeof.((bvh, bvh.primitives[1], RayCaster.RayDifferentials(ray), RayCaster.SurfaceInteraction(), l, 1, 1, lights)))
 # end
 
 @inline function trace_pixel(camera, scene, xy)
     pixel = Point2f(Tuple(xy))
-    s = Trace.UniformSampler(8)
-    camera_sample = @inline Trace.get_camera_sample(s, pixel)
-    ray, ω = Trace.generate_ray_differential(camera, camera_sample)
+    s = RayCaster.UniformSampler(8)
+    camera_sample = @inline RayCaster.get_camera_sample(s, pixel)
+    ray, ω = RayCaster.generate_ray_differential(camera, camera_sample)
     if ω > 0.0f0
-        l = @inline Trace.li(s, 5, ray, scene, 1)
+        l = @inline RayCaster.li(s, 5, ray, scene, 1)
     end
     return l
 end
@@ -212,13 +212,13 @@ v3 = Vec3f(0.0, 1.0, 0.0)
 ray_origin = Vec3f(0.5, 0.5, 1.0)
 ray_direction = Vec3f(0.0, 0.0, -1.0)
 
-using Trace: Normal3f
-m = Trace.create_triangle_mesh(Trace.ShapeCore(), UInt32[1, 2, 3], Point3f[v1, v2, v3], [Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0)])
+using RayCaster: Normal3f
+m = RayCaster.create_triangle_mesh(RayCaster.ShapeCore(), UInt32[1, 2, 3], Point3f[v1, v2, v3], [Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0)])
 
-t = Trace.Triangle(m, 1)
-r = Trace.Ray(o=Point3f(ray_origin), d=ray_direction)
-Trace.intersect_p(t, r)
-Trace.intersect_triangle(r.o, r.d, t.vertices...)
+t = RayCaster.Triangle(m, 1)
+r = RayCaster.Ray(o=Point3f(ray_origin), d=ray_direction)
+RayCaster.intersect_p(t, r)
+RayCaster.intersect_triangle(r.o, r.d, t.vertices...)
 
 # function launch_trace_image_ir!(img, camera, bvh, lights)
 #     backend = KA.get_backend(img)
@@ -232,20 +232,20 @@ Trace.intersect_triangle(r.o, r.d, t.vertices...)
 #     return img
 # end
 
-ray = Trace.RayDifferentials(Trace.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0)))
+ray = RayCaster.RayDifferentials(RayCaster.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0)))
 open("li.llvm", "w") do io
-    code_llvm(io, Trace.li, typeof.((Trace.UniformSampler(8), 5, ray, scene, 1)))
+    code_llvm(io, RayCaster.li, typeof.((RayCaster.UniformSampler(8), 5, ray, scene, 1)))
 end
 
 open("li-wt.jl", "w") do io
-    code_warntype(io, Trace.li, typeof.((Trace.UniformSampler(8), 5, ray, scene, 1)))
+    code_warntype(io, RayCaster.li, typeof.((RayCaster.UniformSampler(8), 5, ray, scene, 1)))
 end
 
-camera_sample = Trace.get_camera_sample(integrator.sampler, Point2f(512))
-ray, ω = Trace.generate_ray_differential(integrator.camera, camera_sample)
+camera_sample = RayCaster.get_camera_sample(integrator.sampler, Point2f(512))
+ray, ω = RayCaster.generate_ray_differential(integrator.camera, camera_sample)
 
-@btime Trace.intersect_p(bvh, ray)
-@btime Trace.intersect!(bvh, ray)
+@btime RayCaster.intersect_p(bvh, ray)
+@btime RayCaster.intersect!(bvh, ray)
 
 ###
 # Int32 always

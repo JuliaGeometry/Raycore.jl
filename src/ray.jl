@@ -57,3 +57,15 @@ apply(r::AbstractRay, t::Number) = r.o + r.d * t
         ry_direction = rd.d + (rd.ry_direction - rd.d) * s
     )
 end
+
+increase_hit(ray::Ray, t_hit) = Ray(ray; t_max=t_hit)
+increase_hit(ray::RayDifferentials, t_hit) = RayDifferentials(ray; t_max=t_hit)
+
+@inline function intersect_p!(
+        shape::AbstractShape, ray::R,
+    )::Tuple{Bool, R, SurfaceInteraction} where {R<:AbstractRay}
+    intersects, t_hit, interaction = intersect(shape, ray)
+    !intersects && return false, ray, interaction
+    ray = increase_hit(ray, t_hit)
+    return true, ray, interaction
+end

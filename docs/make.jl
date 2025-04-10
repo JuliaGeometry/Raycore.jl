@@ -1,12 +1,12 @@
 using Documenter
 using DocumenterVitepress
-using Trace
+using RayCaster
 
-makedocs(; sitename = "Trace", authors = "Anton Smirnov and contributors",
-    modules = [Trace],
+makedocs(; sitename = "RayCaster", authors = "Anton Smirnov, Simon Danisch and contributors",
+    modules = [RayCaster],
     checkdocs = :all,
     format = DocumenterVitepress.MarkdownVitepress(
-        repo = "github.com/pxl-th/Trace.jl", # this must be the full URL!
+        repo = "github.com/JuliaGeometry/RayCaster.jl", # this must be the full URL!
         devbranch = "master",
         devurl = "dev";
     ),
@@ -23,7 +23,7 @@ makedocs(; sitename = "Trace", authors = "Anton Smirnov and contributors",
 )
 
 deploydocs(;
-    repo = "github.com/pxl-th/Trace.jl",
+    repo = "github.com/JuliaGeometry/RayCaster.jl",
     target = "build", # this is where Vitepress stores its output
     branch = "gh-pages",
     devbranch = "master",
