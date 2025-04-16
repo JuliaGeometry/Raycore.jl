@@ -243,7 +243,7 @@ end
 
 @inline function intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
     hit = false
-    interaction = SurfaceInteraction()
+    bary = Point3f(0.0)
     ray = check_direction(ray)
     inv_dir = 1f0 ./ ray.d
     dir_is_neg = is_dir_negative(ray.d)
@@ -261,12 +261,10 @@ end
                 for i in Int32(0):ln.n_primitives - Int32(1)
                     offset = ln.offset % Int32
                     tmp_primitive = primitives[offset+i]
-                    tmp_hit, ray, tmp_interaction = intersect_p!(
-                        tmp_primitive, ray,
-                    )
+                    tmp_hit, ray, tmp_bary = intersect_p!(tmp_primitive, ray)
                     if tmp_hit
                         hit = tmp_hit
-                        interaction = tmp_interaction
+                        bary = tmp_bary
                         primitive = tmp_primitive
                     end
                 end
@@ -289,7 +287,7 @@ end
             current_node_i = nodes_to_visit[to_visit_offset]
         end
     end
-    return hit, primitive, interaction
+    return hit, primitive, bary
 end
 
 @inline function intersect_p(bvh::BVHAccel, ray::AbstractRay)

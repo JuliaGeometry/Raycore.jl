@@ -85,7 +85,7 @@ end
 """
 Compute partial derivatives of intersection point in parametric form.
 """
-function ∂p(s::Sphere, p::Point3f, θ::Float32, sin_ϕ::Float32, cos_ϕ::Float32)
+function partial_derivatives(s::Sphere, p::Point3f, θ::Float32, sin_ϕ::Float32, cos_ϕ::Float32)
     ∂p∂u = Vec3f(-s.ϕ_max * p[2], s.ϕ_max * p[1], 0f0)
     ∂p∂v = (s.θ_max - s.θ_min) * Vec3f(
         p[3] * cos_ϕ, p[3] * sin_ϕ, -s.radius * sin(θ),
@@ -93,7 +93,7 @@ function ∂p(s::Sphere, p::Point3f, θ::Float32, sin_ϕ::Float32, cos_ϕ::Float
     ∂p∂u, ∂p∂v, sin_ϕ, cos_ϕ
 end
 
-function ∂n(
+function normal_derivatives(
     s::Sphere, p::Point3f,
     sin_ϕ::Float32, cos_ϕ::Float32,
     ∂p∂u::Vec3f, ∂p∂v::Vec3f,
@@ -154,8 +154,8 @@ function intersect(
     v = (θ - s.θ_min) / (s.θ_max - s.θ_min)
 
     sin_ϕ, cos_ϕ = precompute_ϕ(hit_point)
-    ∂p∂u, ∂p∂v = ∂p(s, hit_point, θ, sin_ϕ, cos_ϕ)
-    ∂n∂u, ∂n∂v = ∂n(s, hit_point, sin_ϕ, cos_ϕ, ∂p∂u, ∂p∂v)
+    ∂p∂u, ∂p∂v = partial_derivatives(s, hit_point, θ, sin_ϕ, cos_ϕ)
+    ∂n∂u, ∂n∂v = normal_derivatives(s, hit_point, sin_ϕ, cos_ϕ, ∂p∂u, ∂p∂v)
     reverse_normal = (s.core.reverse_orientation ⊻ s.core.transform_swaps_handedness)
     si = SurfaceInteraction(
         hit_point, ray.time, -ray.d, Point2f(u, v),

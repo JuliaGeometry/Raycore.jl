@@ -178,7 +178,7 @@ end
     return SVector{3, Point3f}(tvs), shear
 end
 
-@inline function ∂p(
+@inline function partial_derivatives(
         ::Triangle, vs::AbstractVector{Point3f}, uv::AbstractVector{Point2f},
     )::Tuple{Vec3f,Vec3f,Vec3f,Vec3f}
 
@@ -202,7 +202,7 @@ end
 end
 
 
-@inline function ∂n(
+@inline function normal_derivatives(
         t::Triangle, uv::AbstractVector{Point2f},
     )::Tuple{Normal3f,Normal3f}
     t_normals = normals(t)
@@ -220,97 +220,88 @@ end
 end
 
 
-@inline function _init_triangle_shading_geometry(
-        t::Triangle, si::SurfaceInteraction,
-        barycentric::Point3f, uv::AbstractVector{Point2f},
+@inline function init_triangle_shading_geometry(
+        triangle::Triangle, surf_interact::SurfaceInteraction,
+        bary_coords::Point3f, tex_coords::AbstractVector{Point2f},
     )
-    has_normals = _all(x -> _all(isfinite, x), t.normals)
-    has_tangents = _all(x -> _all(isfinite, x), t.tangents)
-    !has_normals && !has_tangents && return si
-    # Initialize triangle shading geometry.
-    # Compute shading normal, tangent & bitangent.
-    ns = si.core.n
+    # Check if the triangle has valid normal and tangent vectors
+    has_normals = _all(x -> _all(isfinite, x), triangle.normals)
+    has_tangents = _all(x -> _all(isfinite, x), triangle.tangents)
+
+    # If no valid shading geometry exists, return the original surface interaction
+    !has_normals && !has_tangents && return surf_interact
+
+    # Initialize triangle shading geometry by computing shading normal, tangent & bitangent
+    shading_normal = surf_interact.core.n  # Start with geometric normal
+
+    # If we have valid normals, interpolate them using barycentric coordinates
     if has_normals
-        ns = normalize(sum_mul(barycentric, t.normals))
+        shading_normal = normalize(sum_mul(bary_coords, triangle.normals))
     end
+
+    # Calculate shading tangent - either from triangle tangents or from position derivatives
+    shading_tangent = Vector3f(0)
     if has_tangents
-        ss = normalize(sum_mul(barycentric, t.tangents))
+        shading_tangent = normalize(sum_mul(bary_coords, triangle.tangents))
     else
-        ss = normalize(si.∂p∂u)
+        shading_tangent = normalize(surf_interact.pos_deriv_u)  # Assuming ∂p∂u was renamed to pos_deriv_u
     end
-    ts = ns × ss
-    if (ts ⋅ ts) > 0f0
-        ts = Vec3f(normalize(ts))
-        ss = Vec3f(ts × ns)
+
+    # Calculate shading bitangent from normal and tangent
+    shading_bitangent = shading_normal × shading_tangent
+
+    # Check if bitangent is valid, otherwise create a new coordinate system
+    if (shading_bitangent ⋅ shading_bitangent) > 0f0
+        shading_bitangent = Vec3f(normalize(shading_bitangent))
+        shading_tangent = Vec3f(shading_bitangent × shading_normal)  # Ensure orthogonality
     else
-        _, ss, ts = coordinate_system(Vec3f(ns))
+        # Create a new coordinate system if the vectors are nearly parallel
+        _, shading_tangent, shading_bitangent = coordinate_system(Vec3f(shading_normal))
     end
-    ∂n∂u, ∂n∂v = ∂n(t, uv)
-    return set_shading_geometry(si, ss, ts, ∂n∂u, ∂n∂v, true)
-end
 
+    # Calculate normal derivatives
+    nd_u, nd_v = normal_derivatives(triangle, tex_coords)
 
-@inline function intersect(
-        t::Triangle, ray::AbstractRay, ::Bool = false,
-    )::Tuple{Bool,Float32,SurfaceInteraction}
-
-    vs = vertices(t)
-    hit, t_hit, barycentric = intersect_triangle(vs, ray)
-    !hit && return false, t_hit, SurfaceInteraction()
-    # TODO check that t_hit > 0
-    uv = uvs(t)
-    ∂p∂u, ∂p∂v, δp_13, δp_23 = ∂p(t, vs, uv)
-    # Interpolate (u, v) paramteric coordinates and hit point.
-    hit_point = sum_mul(barycentric, vs)
-    uv_hit = sum_mul(barycentric, uv)
-    normal = normalize(δp_13 × δp_23)
-
-    si = SurfaceInteraction(
-        normal, hit_point, ray.time, -ray.d, uv_hit,
-        ∂p∂u, ∂p∂v, Normal3f(0f0), Normal3f(0f0)
+    # Set the shading geometry on the surface interaction
+    return set_shading_geometry(
+        surf_interact,
+        shading_tangent,
+        shading_bitangent,
+        nd_u,
+        nd_v,
+        true
     )
-    si = _init_triangle_shading_geometry(t, si, barycentric, uv)
+end
+
+
+function surface_interaction(triangle, ray, bary_coords)
+
+    verts = vertices(triangle)
+    tex_coords = uvs(triangle)  # Get texture coordinates
+
+    # Calculate position derivatives and triangle edges
+    pos_deriv_u, pos_deriv_v, edge1, edge2 = partial_derivatives(triangle, verts, tex_coords)
+
+    # Interpolate hit point and texture coordinates using barycentric coordinates
+    hit_point = sum_mul(bary_coords, verts)
+    hit_uv = sum_mul(bary_coords, tex_coords)
+
+    # Calculate surface normal from triangle edges
+    normal = normalize(edge1 × edge2)
+
+    # Create surface interaction data at hit point
+    surf_interact = SurfaceInteraction(
+        normal, hit_point, ray.time, -ray.d, hit_uv,
+        pos_deriv_u, pos_deriv_v, Normal3f(0f0), Normal3f(0f0)
+    )
     # TODO test against alpha texture if present.
-    return true, t_hit, si
+    return init_triangle_shading_geometry(triangle, surf_interact, bary_coords, tex_coords)
 end
 
-function intersect_triangle(
-    ray_origin::Point3f,
-    ray_direction::Vec3f,
-    v0::Point3f,
-    v1::Point3f,
-    v2::Point3f)
-
-    edge1 = v1 - v0
-    edge2 = v2 - v0
-
-    h = cross(ray_direction, edge2)
-    determinant = dot(edge1, h)
-
-    if abs(determinant) < 1e-6
-        return (false, 0.0f0, 0f0)
-    end
-
-    inv_determinant = 1f0 / determinant
-    s = ray_origin - v0
-    u = inv_determinant * dot(s, h)
-
-    if u < 0.0f0  || u > 1.0f0
-        return (false, 0.0f0, 0.0f0)
-    end
-
-    edge1_cross_s = cross(s, edge1)
-    barycentric_v = inv_determinant * dot(ray_direction, edge1_cross_s)
-
-    if barycentric_v < 0.0f0 || u + barycentric_v > 1.0f0
-        return (false, 0.0f0, 0.0f0)
-    end
-
-    intersection_distance = inv_determinant * dot(edge2, edge1_cross_s)
-
-    return (true, intersection_distance, inv_determinant)
+@inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,SurfaceInteraction}
+    verts = vertices(triangle)  # Get triangle vertices
+    return intersect_triangle(verts, ray)  # Check if ray hits triangle
 end
-
 
 @inline function intersect_p(t::Triangle, ray::Union{Ray,RayDifferentials}, ::Bool=false)
     intersect_triangle(t.vertices, ray)[1]
@@ -331,6 +322,7 @@ end
     # Perform triangle edge & determinant tests.
     # Point is inside a triangle if all edges have the same sign.
     any(edges .< 0.0f0) && any(edges .> 0.0f0) && return false, t_hit, barycentric
+
     det = sum(edges)
     det ≈ 0f0 && return false, t_hit, barycentric
     # Compute scaled hit distance to triangle.

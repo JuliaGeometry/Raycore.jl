@@ -33,9 +33,11 @@ begin
     f, ax, pl = mesh(world_mesh, color=:blue)
     per_face_vf = FaceView((viewfacts), [GLTriangleFace(i) for i in 1:N])
     viewfact_mesh = GeometryBasics.mesh(world_mesh, color=per_face_vf)
-    pl = Makie.mesh(f[1, 2],
+    pl = Makie.mesh(
+        f[1, 2],
         viewfact_mesh, colormap=[:black, :red], axis=(; show_axis=false),
-        shading=false, highclip=:red, lowclip=:black)
+        shading=false, highclip=:red, lowclip=:black
+    )
 
     # Centroid
     cax, pl = Makie.mesh(f[2, 1], world_mesh, color=(:blue, 0.5), axis=(; show_axis=false), transparency=true)
