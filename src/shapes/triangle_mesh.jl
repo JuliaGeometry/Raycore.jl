@@ -298,7 +298,7 @@ function surface_interaction(triangle, ray, bary_coords)
     return init_triangle_shading_geometry(triangle, surf_interact, bary_coords, tex_coords)
 end
 
-@inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,SurfaceInteraction}
+@inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
     verts = vertices(triangle)  # Get triangle vertices
     return intersect_triangle(verts, ray)  # Check if ray hits triangle
 end

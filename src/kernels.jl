@@ -12,8 +12,9 @@ function hits_from_grid(bvh, viewdir; grid_size=32)
     Threads.@threads for idx in CartesianIndices(ray_origins)
         o = ray_origins[idx]
         ray = RayCaster.Ray(; o=o, d=ray_direction)
-        hit, prim, si = RayCaster.intersect!(bvh, ray)
-        @inbounds result[idx] = RayHit(hit, si.core.p, prim.material_idx)
+        hit, prim, bary = RayCaster.intersect!(bvh, ray)
+        hitpoint = sum_mul(bary, prim.vertices)
+        @inbounds result[idx] = RayHit(hit, hitpoint, prim.material_idx)
     end
     return result
 end
@@ -34,7 +35,7 @@ function view_factors!(result, bvh, rays_per_triangle=10000)
                 point_on_triangle = random_triangle_point(triangle)
                 o = point_on_triangle .+ (normal .* 0.01f0) # Offset so it doesn't self intersect
                 ray = Ray(; o=o, d=random_hemisphere_uniform(normal, u, v))
-                hit, prim, si = intersect!(bvh, ray)
+                hit, prim, _ = intersect!(bvh, ray)
                 if hit && prim.material_idx != triangle.material_idx
                     # weigh by angle?
                     result[triangle.material_idx, prim.material_idx] += 1

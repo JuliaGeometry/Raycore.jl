@@ -241,98 +241,151 @@ end
     length(bvh.nodes) > Int32(0) ? bvh.nodes[1].bounds : Bounds3()
 end
 
-@inline function intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
-    hit = false
-    bary = Point3f(0.0)
+"""
+    _traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F<:Function}
+
+Internal function that traverses the BVH to find ray-primitive intersections.
+Uses a callback pattern to handle different intersection behaviors.
+
+Arguments:
+- `bvh`: The BVH acceleration structure
+- `ray`: The ray to test for intersections
+- `hit_callback`: Function called when primitive is tested. Signature:
+   hit_callback(primitive, ray) -> (continue_traversal::Bool, ray::AbstractRay, results::Any)
+
+Returns:
+- The final result from the hit_callback
+"""
+@inline function traverse_bvh(hit_callback::F, bvh::BVHAccel{P}, ray::AbstractRay) where {P, F<:Function}
+    # Early return if BVH is empty
+    if length(bvh.nodes) == 0
+        return false, ray, nothing
+    end
+
+    # Prepare ray for traversal
     ray = check_direction(ray)
     inv_dir = 1f0 ./ ray.d
     dir_is_neg = is_dir_negative(ray.d)
 
-    to_visit_offset, current_node_i = Int32(1), Int32(1)
+    # Initialize traversal stack
+    to_visit_offset = Int32(1)
+    current_node_idx = Int32(1)
     nodes_to_visit = zeros(MVector{64,Int32})
     primitives = bvh.primitives
-    @_inbounds primitive = primitives[1]
     nodes = bvh.nodes
+
+    # State variables to hold callback results
+    continue_search = true
+    prim1 = primitives[1]
+    result = hit_callback(prim1, ray, nothing)
+
+    # Traverse BVH
     @_inbounds while true
-        ln = nodes[current_node_i]
-        if intersect_p(ln.bounds, ray, inv_dir, dir_is_neg)
-            if !ln.is_interior && ln.n_primitives > Int32(0)
-                # Intersect ray with primitives in node.
-                for i in Int32(0):ln.n_primitives - Int32(1)
-                    offset = ln.offset % Int32
-                    tmp_primitive = primitives[offset+i]
-                    tmp_hit, ray, tmp_bary = intersect_p!(tmp_primitive, ray)
-                    if tmp_hit
-                        hit = tmp_hit
-                        bary = tmp_bary
-                        primitive = tmp_primitive
+        current_node = nodes[current_node_idx]
+
+        # Test ray against current node's bounding box
+        if intersect_p(current_node.bounds, ray, inv_dir, dir_is_neg)
+            if !current_node.is_interior && current_node.n_primitives > Int32(0)
+                # Leaf node - test all primitives
+                offset = current_node.offset % Int32
+
+                for i in Int32(0):(current_node.n_primitives - Int32(1))
+                    primitive = primitives[offset + i]
+
+                    # Call the callback for this primitive
+                    continue_search, ray, result = hit_callback(primitive, ray, result)
+
+                    # Early exit if callback requests it
+                    if !continue_search
+                        return false, ray, result
                     end
                 end
-                to_visit_offset == Int32(1) && break
+
+                # Done with leaf, pop next node from stack
+                if to_visit_offset == Int32(1)
+                    break
+                end
                 to_visit_offset -= Int32(1)
-                current_node_i = nodes_to_visit[to_visit_offset]
+                current_node_idx = nodes_to_visit[to_visit_offset]
             else
-                if dir_is_neg[ln.split_axis] == Int32(2)
-                    nodes_to_visit[to_visit_offset] = current_node_i + Int32(1)
-                    current_node_i = ln.offset % Int32
+                # Interior node - push children to stack
+                if dir_is_neg[current_node.split_axis] == Int32(2)
+                    nodes_to_visit[to_visit_offset] = current_node_idx + Int32(1)
+                    current_node_idx = current_node.offset % Int32
                 else
-                    nodes_to_visit[to_visit_offset] = ln.offset % Int32
-                    current_node_i += Int32(1)
+                    nodes_to_visit[to_visit_offset] = current_node.offset % Int32
+                    current_node_idx += Int32(1)
                 end
                 to_visit_offset += Int32(1)
             end
         else
-            to_visit_offset == 1 && break
+            # Miss - pop next node from stack
+            if to_visit_offset == Int32(1)
+                break
+            end
             to_visit_offset -= Int32(1)
-            current_node_i = nodes_to_visit[to_visit_offset]
+            current_node_idx = nodes_to_visit[to_visit_offset]
         end
     end
-    return hit, primitive, bary
+
+    # Return final state
+    return continue_search, ray, result
 end
 
-@inline function intersect_p(bvh::BVHAccel, ray::AbstractRay)
+# Initialization
+closest_hit_callback(primitive, ray, ::Nothing) = (false, primitive, Point3f(0.0))
 
-    length(bvh.nodes) == Int32(0) && return false
+function closest_hit_callback(primitive, ray, prev_result::Tuple{Bool, P, Point3f}) where {P}
+    # Test intersection and update if closer
+    tmp_hit, ray, tmp_bary = intersect_p!(primitive, ray)
+    # Always continue search to find closest
+    return true, ray, ifelse(tmp_hit,  (true, primitive, tmp_bary), prev_result)
+end
 
-    ray = check_direction(ray)
-    inv_dir = 1f0 ./ ray.d
-    dir_is_neg = is_dir_negative(ray.d)
+"""
+    intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
 
-    to_visit_offset, current_node_i = Int32(1), Int32(1)
-    nodes_to_visit = zeros(MVector{64,Int32})
-    primitives = bvh.primitives
-    @_inbounds while true
-        ln = bvh.nodes[current_node_i]
-        if intersect_p(ln.bounds, ray, inv_dir, dir_is_neg)
-            if !ln.is_interior && ln.n_primitives > Int32(0)
-                for i in Int32(0):ln.n_primitives-Int32(1)
-                    offset = ln.offset % Int32
-                    intersect_p(
-                        primitives[offset + i], ray,
-                    ) && return true
-                end
-                to_visit_offset == 1 && break
-                to_visit_offset -= Int32(1)
-                current_node_i = nodes_to_visit[to_visit_offset]
-            else
-                if dir_is_neg[ln.split_axis] == Int32(2)
-                    # @setindex 64 nodes_to_visit[to_visit_offset] = Int32(current_node_i + 1)
-                    nodes_to_visit[to_visit_offset] = current_node_i + Int32(1)
-                    current_node_i = ln.offset % Int32
-                else
-                    # @setindex 64 nodes_to_visit[to_visit_offset] = Int32(ln.offset)
-                    nodes_to_visit[to_visit_offset] = ln.offset % Int32
-                    current_node_i += Int32(1)
-                end
-                to_visit_offset += Int32(1)
-            end
-        else
-            to_visit_offset == Int32(1) && break
-            to_visit_offset -= Int32(1)
-            current_node_i = Int32(nodes_to_visit[to_visit_offset])
-        end
+Find the closest intersection between a ray and the primitives stored in a BVH.
+
+Returns:
+- `hit_found`: Boolean indicating if an intersection was found
+- `hit_primitive`: The primitive that was hit (if any)
+- `barycentric_coords`: Barycentric coordinates of the hit point
+"""
+@inline function intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
+    # Traverse BVH with closest-hit callback
+    _, _, result = traverse_bvh(closest_hit_callback, bvh, ray)
+    return result
+end
+
+
+any_hit_callback(primitive, current_ray, result::Nothing) = ()
+
+# Define any-hit callback
+function any_hit_callback(primitive, current_ray, ::Tuple{})
+    # Test for intersection
+    if intersect_p(primitive, current_ray)
+        # Stop traversal on first hit
+        return false, current_ray, true
     end
-    false
+    # Continue search if no hit
+    return true, current_ray, false
+end
+
+"""
+    intersect_p(bvh::BVHAccel, ray::AbstractRay)
+
+Test if a ray intersects any primitive in the BVH (without finding the closest hit).
+
+Returns:
+- `hit_found`: Boolean indicating if any intersection was found
+"""
+@inline function intersect_p(bvh::BVHAccel, ray::AbstractRay)
+    # Traverse BVH with any-hit callback
+    continue_search, _, result = traverse_bvh(any_hit_callback, bvh, ray)
+    # If traversal completed without finding a hit, return false
+    # Otherwise return the hit result (true)
+    return !continue_search ? result : false
 end
 
 function calculate_ray_grid_bounds(bounds::GeometryBasics.Rect, ray_direction::Vec3f)
