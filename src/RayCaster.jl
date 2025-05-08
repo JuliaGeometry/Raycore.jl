@@ -3,7 +3,6 @@ module RayCaster
 using GeometryBasics
 using LinearAlgebra
 using StaticArrays
-using StructArrays
 using Atomix
 using KernelAbstractions
 import GeometryBasics as GB
@@ -48,6 +47,5 @@ include("shapes/Shape.jl")
 include("bvh.jl")
 include("kernel-abstractions.jl")
 include("kernels.jl")
-
 
 end
