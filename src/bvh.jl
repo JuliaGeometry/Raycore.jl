@@ -355,7 +355,7 @@ Returns:
 @inline function intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
     # Traverse BVH with closest-hit callback
     _, _, result = traverse_bvh(closest_hit_callback, bvh, ray)
-    return result
+    return result::Tuple{Bool, Triangle, Point3f}
 end
 
 

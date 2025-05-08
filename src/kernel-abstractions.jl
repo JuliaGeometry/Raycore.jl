@@ -19,6 +19,5 @@ end
 function to_gpu(ArrayType, bvh::RayCaster.BVHAccel; preserve=[])
     primitives = to_gpu(ArrayType, bvh.primitives; preserve=preserve)
     nodes = to_gpu(ArrayType, bvh.nodes; preserve=preserve)
-    materials = to_gpu(ArrayType, to_gpu.((ArrayType,), bvh.materials; preserve=preserve); preserve=preserve)
-    return RayCaster.BVHAccel(primitives, materials, bvh.max_node_primitives, nodes)
+    return RayCaster.BVHAccel(primitives, bvh.max_node_primitives, nodes)
 end
