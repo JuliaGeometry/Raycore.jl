@@ -1,31 +1,19 @@
 using Documenter
-using DocumenterVitepress
 using RayCaster
+using Bonito
 
-makedocs(; sitename = "RayCaster", authors = "Anton Smirnov, Simon Danisch and contributors",
+makedocs(;
     modules = [RayCaster],
-    checkdocs = :all,
-    format = DocumenterVitepress.MarkdownVitepress(
-        repo = "github.com/JuliaGeometry/RayCaster.jl", # this must be the full URL!
-        devbranch = "master",
-        devurl = "dev";
-    ),
-    draft = false,
-    source = "src",
-    build = "build",
-    warnonly = true,
+    sitename = "RayCaster",
+    clean = false,
+    format=Documenter.HTML(prettyurls=false, size_threshold=300000),
+    authors = "Anton Smirnov, Simon Danisch and contributors",
     pages = [
         "Home" => "index.md",
-        "Get Started" => "get_started.md",
-        "Shadows" => "shadows.md",
-        "API" => "api.md",
     ],
 )
 
 deploydocs(;
     repo = "github.com/JuliaGeometry/RayCaster.jl",
-    target = "build", # this is where Vitepress stores its output
-    branch = "gh-pages",
-    devbranch = "master",
     push_preview = true,
 )

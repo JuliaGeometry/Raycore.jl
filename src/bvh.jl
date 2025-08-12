@@ -107,8 +107,6 @@ function BVHAccel(
     return BVHAccel(ordered_primitives, UInt8(max_prim), nodes)
 end
 
-
-
 mutable struct BucketInfo
     count::UInt32
     bounds::Bounds3

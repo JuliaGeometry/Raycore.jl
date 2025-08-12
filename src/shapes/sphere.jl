@@ -162,7 +162,7 @@ function intersect(
         ∂p∂u, ∂p∂v, ∂n∂u, ∂n∂v, reverse_normal
     )
     si = apply(s.core.object_to_world, si)
-    true, shape_hit, sf
+    true, shape_hit, si
 end
 
 function intersect_p(
