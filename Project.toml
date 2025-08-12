@@ -15,6 +15,6 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 GeometryBasics = "0.5"
-RandomNumbers = "1.6.0"
+RandomNumbers = "1"
 StaticArrays = "1.9.7"
-Statistics = "1.11.1"
+Statistics = "1"

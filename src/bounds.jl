@@ -33,7 +33,7 @@ end
 
 function Base.length(b::Bounds2)::Int64
     δ = ceil.(b.p_max .- b.p_min .+ 1f0)
-    u_int32(δ[1] * δ[2])
+    UInt32(δ[1] * δ[2])
 end
 
 function Base.iterate(
