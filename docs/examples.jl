@@ -17,7 +17,7 @@ begin
     bvh = RayCaster.BVHAccel([s1, s2, s3, s4, cat]);
     world_mesh = GeometryBasics.Mesh(bvh)
     f, ax, pl = Makie.mesh(world_mesh; color=:teal)
-    display(f)
+    center!(ax.scene)
     viewdir = normalize(ax.scene.camera.view_direction[])
 end
 
@@ -39,9 +39,8 @@ begin
     pl = Makie.mesh(
         f[1, 2],
         viewfact_mesh, colormap=[:black, :red], axis=(; show_axis=false),
-        shading=false, highclip=:red, lowclip=:black
+        shading=false, highclip=:red, lowclip=:black,  colorscale=sqrt,
     )
-
     # Centroid
     cax, pl = Makie.mesh(f[2, 1], world_mesh, color=(:blue, 0.5), axis=(; show_axis=false), transparency=true)
 
@@ -51,10 +50,10 @@ begin
     meshscatter!(cax, centroid, color=:red, markersize=0.05)
 
     # Illum
-    per_face = FaceView(100f0 .* (illum ./ areas), [GLTriangleFace(i) for i in 1:N])
-    illum_mesh = GeometryBasics.mesh(world_mesh, color=per_face)
+    pf = FaceView(100f0 .* (illum ./ areas), [GLTriangleFace(i) for i in 1:N])
+    illum_mesh = GeometryBasics.mesh(world_mesh, color=pf)
 
-    Makie.mesh(f[2, 2], illum_mesh, colormap=[:black, :yellow], shading=false, axis=(; show_axis=false))
+    Makie.mesh(f[2, 2], illum_mesh, colormap=[:black, :yellow], colorscale=sqrt, shading=false, axis=(; show_axis=false))
 
     Label(f[0, 1], "Scene ($(length(bvh.primitives)) triangles)", tellwidth=false, fontsize=20)
     Label(f[0, 2], "Viewfactors", tellwidth=false, fontsize=20)
