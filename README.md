@@ -12,7 +12,7 @@ To get started with RayCaster.jl, first add the package to your Julia environmen
 
 ```julia
 using Pkg
-Pkg.add("RayCaster")
+Pkg.add(url="https://github.com/JuliaGeometry/RayCaster.jl")
 ```
 
 Then you can create a basic ray intersection scene:
