@@ -38,11 +38,3 @@ end
     @test sb[1] == Point3f(-1f0)
     @test sb[2] == Point3f(1f0)
 end
-
-# LanczosSincFilter functionality removed in refactored RayCaster
-
-# Film functionality removed in refactored RayCaster
-
-# FilmTile functionality removed in refactored RayCaster
-
-# Camera functionality removed in refactored RayCaster

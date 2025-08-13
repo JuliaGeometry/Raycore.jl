@@ -104,28 +104,23 @@ end
     # In the refactored API, object_bound returns world bounds since transformation is applied during creation
     @test RayCaster.object_bound(triangle) ≈ target_wb
 
-    # Test ray intersection.
+    # Test ray intersection - API has changed: intersect now returns (Bool, Float32, Point3f) with barycentric coords
     ray = RayCaster.Ray(o = Point3f(0, 0, -2), d = Vec3f(0, 0, 1))
     intersects_p = RayCaster.intersect_p(triangle, ray)
-    intersects, t_hit, interaction = RayCaster.intersect(triangle, ray)
+    intersects, t_hit, bary_coords = RayCaster.intersect(triangle, ray)
     @test intersects_p == intersects == true
     @test t_hit ≈ 4f0
-    @test RayCaster.apply(ray, t_hit) ≈ interaction.core.p ≈ Point3f(0, 0, 2)
-    @test interaction.uv ≈ Point2f(0)
-    # Normal is flipped in the refactored API
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, 0, 1)
-    @test interaction.core.wo ≈ -ray.d
-    # Test ray intersection (lower-left corner).
-    ray = RayCaster.Ray(o = Point3f(1, 0.5, 0), d = Vec3f(0, 0, 1))
+    @test RayCaster.apply(ray, t_hit) ≈ Point3f(0, 0, 2)
+    # Barycentric coordinates for vertex 0 (corner hit)
+    @test bary_coords ≈ Point3f(1, 0, 0)
+    
+    # Test ray intersection (different point).
+    ray = RayCaster.Ray(o = Point3f(0.5, 0.25, 0), d = Vec3f(0, 0, 1))
     intersects_p = RayCaster.intersect_p(triangle, ray)
-    intersects, t_hit, interaction = RayCaster.intersect(triangle, ray)
+    intersects, t_hit, bary_coords = RayCaster.intersect(triangle, ray)
     @test intersects_p == intersects == true
     @test t_hit ≈ 2f0
-    @test RayCaster.apply(ray, t_hit) ≈ interaction.core.p ≈ Point3f(1, 0.5, 2)
-    @test interaction.uv ≈ Point2f(1, 0.5)
-    # Normal is flipped in the refactored API
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, 0, 1)
-    @test interaction.core.wo ≈ -ray.d
+    @test RayCaster.apply(ray, t_hit) ≈ Point3f(0.5, 0.25, 2)
 end
 
 # BVH tests with spheres removed - refactored RayCaster only supports triangle meshes in BVH
