@@ -25,7 +25,7 @@ end
 function Base.getindex(b::Union{Bounds2,Bounds3}, i::Integer)
     i == 1 && return b.p_min
     i == 2 && return b.p_max
-    # error("Invalid index `$i`. Only `1` & `2` are valid.")
+    error("Invalid index `$i`. Only `1` & `2` are valid.")
 end
 function is_valid(b::Bounds3)::Bool
     all(b.p_min .!= Inf32) && all(b.p_max .!= -Inf32)
@@ -49,11 +49,10 @@ end
 # Index through 8 corners.
 function corner(b::Bounds3, c::Integer)
     c -= Int32(1)
-    Point3f(
-        b[(c&1)+1][1],
-        b[(c & 2) != 0 ? 2 : 1][2],
-        b[(c & 4) != 0 ? 2 : 1][3],
-    )
+    x = (c & Int32(1)) == Int32(0) ? b.p_min[1] : b.p_max[1]
+    y = (c & Int32(2)) == Int32(0) ? b.p_min[2] : b.p_max[2]
+    z = (c & Int32(4)) == Int32(0) ? b.p_min[3] : b.p_max[3]
+    Point3f(x, y, z)
 end
 
 function Base.union(b1::B, b2::B) where B<:Union{Bounds2,Bounds3}

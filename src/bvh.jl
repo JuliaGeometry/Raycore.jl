@@ -47,6 +47,7 @@ end
 function LinearBVHLeaf(bounds::Bounds3, primitives_offset::Integer, n_primitives::Integer)
     LinearBVH(bounds, primitives_offset, n_primitives, 0, false)
 end
+
 function LinearBVHInterior(bounds::Bounds3, second_child_offset::Integer, split_axis::Integer)
     LinearBVH(bounds, second_child_offset, 0, split_axis, true)
 end
@@ -94,13 +95,11 @@ function BVHAccel(
         primitives::AbstractVector{P}, max_node_primitives::Integer=1,
     ) where {P}
     triangles = Triangle[]
-    prim_idx = 1
     for (mi, prim) in enumerate(primitives)
         triangle_mesh = to_triangle_mesh(prim)
         vertices = triangle_mesh.vertices
         for i in 1:div(length(triangle_mesh.indices), 3)
-            push!(triangles, Triangle(triangle_mesh, i, prim_idx))
-            prim_idx += 1
+            push!(triangles, Triangle(triangle_mesh, i, mi))
         end
     end
     ordered_primitives, max_prim, nodes = primitives_to_bvh(triangles, max_node_primitives)
@@ -240,7 +239,7 @@ end
 end
 
 """
-    _traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F<:Function}
+    traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F<:Function}
 
 Internal function that traverses the BVH to find ray-primitive intersections.
 Uses a callback pattern to handle different intersection behaviors.
@@ -255,9 +254,10 @@ Returns:
 - The final result from the hit_callback
 """
 @inline function traverse_bvh(hit_callback::F, bvh::BVHAccel{P}, ray::AbstractRay) where {P, F<:Function}
-    # Early return if BVH is empty
     if length(bvh.nodes) == 0
-        return false, ray, nothing
+        # We dont handle the empty case yet, since its not that easy to make it type stable
+        # Its possible, but why would we intersect an empty BVH?
+        error("BVH is empty; cannot traverse.")
     end
 
     # Prepare ray for traversal
@@ -275,7 +275,7 @@ Returns:
     # State variables to hold callback results
     continue_search = true
     prim1 = primitives[1]
-    result = hit_callback(prim1, ray, nothing)
+    _, ray, result = hit_callback(prim1, ray, nothing)
 
     # Traverse BVH
     @_inbounds while true
@@ -331,59 +331,70 @@ Returns:
 end
 
 # Initialization
-closest_hit_callback(primitive, ray, ::Nothing) = (false, primitive, Point3f(0.0))
+closest_hit_callback(primitive, ray, ::Nothing) = false, ray, (false, primitive, 0.0f0, Point3f(0.0))
 
-function closest_hit_callback(primitive, ray, prev_result::Tuple{Bool, P, Point3f}) where {P}
+function closest_hit_callback(primitive, ray, prev_result::Tuple{Bool, P, Float32, Point3f}) where {P}
     # Test intersection and update if closer
     tmp_hit, ray, tmp_bary = intersect_p!(primitive, ray)
+    if tmp_hit
+        # Calculate distance from ray origin to hit point
+        distance = ray.t_max
+        return true, ray, (true, primitive, distance, tmp_bary)
+    end
     # Always continue search to find closest
-    return true, ray, ifelse(tmp_hit,  (true, primitive, tmp_bary), prev_result)
+    return true, ray, prev_result
 end
 
 """
-    intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
+    closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
 
 Find the closest intersection between a ray and the primitives stored in a BVH.
 
 Returns:
 - `hit_found`: Boolean indicating if an intersection was found
 - `hit_primitive`: The primitive that was hit (if any)
+- `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
 - `barycentric_coords`: Barycentric coordinates of the hit point
 """
-@inline function intersect!(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
+@inline function closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
     # Traverse BVH with closest-hit callback
     _, _, result = traverse_bvh(closest_hit_callback, bvh, ray)
-    return result::Tuple{Bool, Triangle, Point3f}
+    return result::Tuple{Bool, Triangle, Float32, Point3f}
 end
 
 
-any_hit_callback(primitive, current_ray, result::Nothing) = ()
+any_hit_callback(primitive, current_ray, result::Nothing) = (false, current_ray, (false, primitive, 0.0f0, Point3f(0.0)))
 
 # Define any-hit callback
-function any_hit_callback(primitive, current_ray, ::Tuple{})
+function any_hit_callback(primitive, current_ray, prev_result::Tuple{Bool, P, Float32, Point3f}) where {P}
     # Test for intersection
-    if intersect_p(primitive, current_ray)
-        # Stop traversal on first hit
-        return false, current_ray, true
+    tmp_hit, tmp_ray, tmp_bary = intersect_p!(primitive, current_ray)
+    if tmp_hit
+        # Stop traversal on first hit and return hit info
+        distance = tmp_ray.t_max
+        return false, tmp_ray, (true, primitive, distance, tmp_bary)
     end
     # Continue search if no hit
-    return true, current_ray, false
+    return true, current_ray, prev_result
 end
 
 """
-    intersect_p(bvh::BVHAccel, ray::AbstractRay)
+    any_hit(bvh::BVHAccel, ray::AbstractRay)
 
 Test if a ray intersects any primitive in the BVH (without finding the closest hit).
+This function stops at the first intersection found, making it faster than closest_hit
+when you only need to know if there's an intersection.
 
 Returns:
 - `hit_found`: Boolean indicating if any intersection was found
+- `hit_primitive`: The primitive that was hit (if any)
+- `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
+- `barycentric_coords`: Barycentric coordinates of the hit point
 """
-@inline function intersect_p(bvh::BVHAccel, ray::AbstractRay)
+@inline function any_hit(bvh::BVHAccel, ray::AbstractRay)
     # Traverse BVH with any-hit callback
     continue_search, _, result = traverse_bvh(any_hit_callback, bvh, ray)
-    # If traversal completed without finding a hit, return false
-    # Otherwise return the hit result (true)
-    return !continue_search ? result : false
+    return result::Tuple{Bool, Triangle, Float32, Point3f}
 end
 
 function calculate_ray_grid_bounds(bounds::GeometryBasics.Rect, ray_direction::Vec3f)
