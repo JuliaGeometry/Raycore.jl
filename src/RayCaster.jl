@@ -47,5 +47,8 @@ include("shapes/Shape.jl")
 include("bvh.jl")
 include("kernel-abstractions.jl")
 include("kernels.jl")
+include("ray_intersection_session.jl")
+
+export RayIntersectionSession, hit_points, hit_distances, hit_count, miss_count
 
 end
