@@ -1,34 +1,18 @@
 using GeometryBasics, LinearAlgebra, RayCaster, BenchmarkTools
-using ImageShow
-using Makie
-using KernelAbstractions
-import KernelAbstractions as KA
-using KernelAbstractions.Extras.LoopInfo: @unroll
-using AMDGPU
 
-ArrayType = ROCArray
 # using CUDA
 # ArrayType = CuArray
-
-include("./../src/gpu-support.jl")
 
 LowSphere(radius, contact=Point3f(0)) = Sphere(contact .+ Point3f(0, 0, radius), radius)
 
 function tmesh(prim, material)
-
     prim =  prim isa Sphere ? Tesselation(prim, 64) : prim
-    mesh = normal_mesh(prim)
-    m = RayCaster.create_triangle_mesh(mesh)
-    return RayCaster.GeometricPrimitive(m, material)
+    return normal_mesh(prim)
 end
-
-material_red = RayCaster.MatteMaterial(
-    RayCaster.ConstantTexture(RayCaster.RGBSpectrum(0.796f0, 0.235f0, 0.2f0)),
-    RayCaster.ConstantTexture(0.0f0),
-)
 
 
 begin
+    material_red = nothing
     s1 = tmesh(LowSphere(0.5f0), material_red)
     s2 = tmesh(LowSphere(0.3f0, Point3f(0.5, 0.5, 0)), material_red)
     s3 = tmesh(LowSphere(0.3f0, Point3f(-0.5, 0.5, 0)), material_red)
@@ -39,65 +23,8 @@ begin
     l = tmesh(Rect3f(Vec3f(-2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
     r = tmesh(Rect3f(Vec3f(2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
     bvh = RayCaster.BVHAccel([s1, s2, s3, s4, ground, back, l, r]);
-    res = 512
-    resolution = Point2f(res)
-    f = RayCaster.LanczosSincFilter(Point2f(1.0f0), 3.0f0)
-    film = RayCaster.Film(resolution,
-        RayCaster.Bounds2(Point2f(0.0f0), Point2f(1.0f0)),
-        f, 1.0f0, 1.0f0,
-        "shadows_sppm_res.png",
-    )
-    screen_window = RayCaster.Bounds2(Point2f(-1), Point2f(1))
-    cam = RayCaster.PerspectiveCamera(
-        RayCaster.look_at(Point3f(0, 4, 2), Point3f(0, -4, -1), Vec3f(0, 0, 1)),
-        screen_window, 0.0f0, 1.0f0, 0.0f0, 1.0f6, 45.0f0, film,
-    )
-    lights = (
-        # RayCaster.PointLight(Vec3f(0, -1, 2), RayCaster.RGBSpectrum(22.0f0)),
-        RayCaster.PointLight(Vec3f(0, 0, 2), RayCaster.RGBSpectrum(10.0f0)),
-        RayCaster.PointLight(Vec3f(0, 3, 3), RayCaster.RGBSpectrum(25.0f0)),
-    )
-    img = zeros(RGBf, res, res)
 end
 
-@inline function get_camera_sample(p_raster::Point2)
-    p_film = p_raster .+ rand(Point2f)
-    p_lens = rand(Point2f)
-    RayCaster.CameraSample(p_film, p_lens, rand(Float32))
-end
-
-# ray = RayCaster.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0))
-# l = RayCaster.RGBSpectrum(0.0f0)
-# open("test3.llvm", "w") do io
-#     code_llvm(io, simple_shading, typeof.((bvh, bvh.primitives[1], RayCaster.RayDifferentials(ray), RayCaster.SurfaceInteraction(), l, 1, 1, lights)))
-# end
-
-@inline function trace_pixel(camera, scene, xy)
-    pixel = Point2f(Tuple(xy))
-    s = RayCaster.UniformSampler(8)
-    camera_sample = @inline RayCaster.get_camera_sample(s, pixel)
-    ray, ω = RayCaster.generate_ray_differential(camera, camera_sample)
-    if ω > 0.0f0
-        l = @inline RayCaster.li(s, 5, ray, scene, 1)
-    end
-    return l
-end
-
-@kernel function ka_trace_image!(img, camera, scene)
-    xy = @index(Global, Cartesian)
-    if checkbounds(Bool, img, xy)
-        l = trace_pixel(camera, scene, xy)
-        @_inbounds img[xy] = RGBf(l.c...)
-    end
-end
-
-function launch_trace_image!(img, camera, scene)
-    backend = KA.get_backend(img)
-    kernel! = ka_trace_image!(backend)
-    kernel!(img, camera, scene, lights, ndrange=size(img), workgroupsize=(16, 16))
-    KA.synchronize(backend)
-    return img
-end
 # using AMDGPU
 # ArrayType = ROCArray
 # using CUDA
@@ -244,8 +171,25 @@ end
 camera_sample = RayCaster.get_camera_sample(integrator.sampler, Point2f(512))
 ray, ω = RayCaster.generate_ray_differential(integrator.camera, camera_sample)
 
-@btime RayCaster.intersect_p(bvh, ray)
-@btime RayCaster.intersect!(bvh, ray)
+
+ray = RayCaster.Ray(o=Point3f(0.0, 0.0, 2.0), d=Vec3f(0.0, 0.0, -1.0))
+function test(results, bvh, ray)
+    for i in 1:100000
+        results[i] = RayCaster.any_hit(bvh, ray)
+    end
+    return results
+end
+
+@profview test(results, bvh, ray)
+@btime RayCaster.closest_hit(bvh, ray)
+results = Vector{Tuple{Bool, RayCaster.Triangle, Float32, Point3f}}(undef, 100000);
+@allocated test(results, bvh, ray)
+
+@btime RayCaster.any_hit(bvh, ray)
+
+@code_typed RayCaster.traverse_bvh(RayCaster.any_hit_callback, bvh, ray, RayCaster.MemAllocator())
+
+sizeof(zeros(RayCaster.MVector{64,Int32}))
 
 ###
 # Int32 always
@@ -253,10 +197,33 @@ ray, ω = RayCaster.generate_ray_differential(integrator.camera, camera_sample)
 # Tuple instead of vector for nodes_to_visit
 # 43.400 μs (1 allocation: 624 bytes)
 # AFTER GPU rework
-# intersect!
+# closest_hit
 # 40.500 μs (1 allocation: 368 bytes)
 # intersect_p
 # 11.500 μs (0 allocations: 0 bytes)
 
 ### LinearBVHLeaf as one type
 # 5.247460 seconds (17.55 k allocations: 19.783 MiB, 46 lock conflicts)
+
+struct PerfNTuple{N,T}
+    data::NTuple{N,T}
+end
+
+@generated function RayCaster._setindex(r::PerfNTuple{N,T}, idx::IT, value::T) where {N,T, IT <: Integer}
+    expr = Expr(:tuple)
+    for i in 1:N
+        idxt = IT(i)
+        push!(expr.args, :(idx === $idxt ? value : r.data[$idxt]))
+    end
+    return :($(PerfNTuple)($expr))
+end
+
+@propagate_inbounds Base.getindex(r::PerfNTuple, idx::Integer) = r.data[idx]
+
+@generated function RayCaster._allocate(f, ::Val{N}, ::Type{T}) where {N, T}
+    expr = Expr(:tuple)
+    for i in 1:N
+        push!(expr.args, :(f($i)))
+    end
+    return expr
+end
