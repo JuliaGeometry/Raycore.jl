@@ -238,6 +238,15 @@ end
     length(bvh.nodes) > Int32(0) ? bvh.nodes[1].bounds : Bounds3()
 end
 
+struct MemAllocator
+end
+@inline _allocate(::MemAllocator, T::Type, n::Val{N}) where {N} = zeros(MVector{N,T})
+Base.@propagate_inbounds function _setindex(arr::MVector{N, T}, idx::Integer, value::T) where {N, T}
+    arr[idx] = value
+    return arr
+end
+
+
 """
     traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F<:Function}
 
@@ -253,7 +262,7 @@ Arguments:
 Returns:
 - The final result from the hit_callback
 """
-@inline function traverse_bvh(hit_callback::F, bvh::BVHAccel{P}, ray::AbstractRay) where {P, F<:Function}
+@inline function traverse_bvh(hit_callback::F, bvh::BVHAccel{P}, ray::AbstractRay, allocator=MemAllocator()) where {P, F<:Function}
     if length(bvh.nodes) == 0
         # We dont handle the empty case yet, since its not that easy to make it type stable
         # Its possible, but why would we intersect an empty BVH?
@@ -266,9 +275,9 @@ Returns:
     dir_is_neg = is_dir_negative(ray.d)
 
     # Initialize traversal stack
-    to_visit_offset = Int32(1)
+    local to_visit_offset::Int32 = Int32(1)
     current_node_idx = Int32(1)
-    nodes_to_visit = zeros(MVector{64,Int32})
+    nodes_to_visit = _allocate(allocator, Int32, Val(64))
     primitives = bvh.primitives
     nodes = bvh.nodes
 
@@ -280,7 +289,6 @@ Returns:
     # Traverse BVH
     @_inbounds while true
         current_node = nodes[current_node_idx]
-
         # Test ray against current node's bounding box
         if intersect_p(current_node.bounds, ray, inv_dir, dir_is_neg)
             if !current_node.is_interior && current_node.n_primitives > Int32(0)
@@ -292,7 +300,6 @@ Returns:
 
                     # Call the callback for this primitive
                     continue_search, ray, result = hit_callback(primitive, ray, result)
-
                     # Early exit if callback requests it
                     if !continue_search
                         return false, ray, result
@@ -300,7 +307,7 @@ Returns:
                 end
 
                 # Done with leaf, pop next node from stack
-                if to_visit_offset == Int32(1)
+                if to_visit_offset === Int32(1)
                     break
                 end
                 to_visit_offset -= Int32(1)
@@ -308,24 +315,23 @@ Returns:
             else
                 # Interior node - push children to stack
                 if dir_is_neg[current_node.split_axis] == Int32(2)
-                    nodes_to_visit[to_visit_offset] = current_node_idx + Int32(1)
+                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node_idx + Int32(1))
                     current_node_idx = current_node.offset % Int32
                 else
-                    nodes_to_visit[to_visit_offset] = current_node.offset % Int32
+                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node.offset % Int32)
                     current_node_idx += Int32(1)
                 end
                 to_visit_offset += Int32(1)
             end
         else
             # Miss - pop next node from stack
-            if to_visit_offset == Int32(1)
+            if to_visit_offset === Int32(1)
                 break
             end
             to_visit_offset -= Int32(1)
             current_node_idx = nodes_to_visit[to_visit_offset]
         end
     end
-
     # Return final state
     return continue_search, ray, result
 end
@@ -356,9 +362,9 @@ Returns:
 - `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
 - `barycentric_coords`: Barycentric coordinates of the hit point
 """
-@inline function closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
+@inline function closest_hit(bvh::BVHAccel{P}, ray::AbstractRay, allocator=MemAllocator()) where {P}
     # Traverse BVH with closest-hit callback
-    _, _, result = traverse_bvh(closest_hit_callback, bvh, ray)
+    _, _, result = traverse_bvh(closest_hit_callback, bvh, ray, allocator)
     return result::Tuple{Bool, Triangle, Float32, Point3f}
 end
 
@@ -368,11 +374,10 @@ any_hit_callback(primitive, current_ray, result::Nothing) = (false, current_ray,
 # Define any-hit callback
 function any_hit_callback(primitive, current_ray, prev_result::Tuple{Bool, P, Float32, Point3f}) where {P}
     # Test for intersection
-    tmp_hit, tmp_ray, tmp_bary = intersect_p!(primitive, current_ray)
+    tmp_hit, dist, tmp_bary = intersect(primitive, current_ray)
     if tmp_hit
         # Stop traversal on first hit and return hit info
-        distance = tmp_ray.t_max
-        return false, tmp_ray, (true, primitive, distance, tmp_bary)
+        return false, current_ray, (true, primitive, dist, tmp_bary)
     end
     # Continue search if no hit
     return true, current_ray, prev_result
@@ -391,9 +396,9 @@ Returns:
 - `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
 - `barycentric_coords`: Barycentric coordinates of the hit point
 """
-@inline function any_hit(bvh::BVHAccel, ray::AbstractRay)
+@inline function any_hit(bvh::BVHAccel, ray::AbstractRay, allocator=MemAllocator())
     # Traverse BVH with any-hit callback
-    continue_search, _, result = traverse_bvh(any_hit_callback, bvh, ray)
+    continue_search, _, result = traverse_bvh(any_hit_callback, bvh, ray, allocator)
     return result::Tuple{Bool, Triangle, Float32, Point3f}
 end
 
