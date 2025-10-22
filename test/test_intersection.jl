@@ -113,7 +113,7 @@ end
     @test RayCaster.apply(ray, t_hit) ≈ Point3f(0, 0, 2)
     # Barycentric coordinates for vertex 0 (corner hit)
     @test bary_coords ≈ Point3f(1, 0, 0)
-    
+
     # Test ray intersection (different point).
     ray = RayCaster.Ray(o = Point3f(0.5, 0.25, 0), d = Vec3f(0, 0, 1))
     intersects_p = RayCaster.intersect_p(triangle, ray)
@@ -141,10 +141,10 @@ end
     bvh = RayCaster.BVHAccel(triangle_meshes)
     # Test basic BVH functionality with triangle meshes
     @test !isnothing(RayCaster.world_bound(bvh))
-    
+
     # Simple intersection test
     ray = RayCaster.Ray(o = Point3f(0.5, 0.5, -1), d = Vec3f(0, 0, 1))
-    intersects, interaction = RayCaster.intersect!(bvh, ray)
+    intersects, interaction = RayCaster.closest_hit(bvh, ray)
     @test intersects
 end
 
@@ -172,8 +172,8 @@ end
 
     # Test intersection with the first triangle
     ray = RayCaster.Ray(o = Point3f(0, 0, -2), d = Vec3f(0, 0, 1))
-    intersects, triangle = RayCaster.intersect!(bvh, ray)
+    intersects, triangle = RayCaster.closest_hit(bvh, ray)
     @test intersects
-    # BVH intersect! returns Triangle object, not SurfaceInteraction
+    # BVH closest_hit returns Triangle object, not SurfaceInteraction
     @test typeof(triangle) == RayCaster.Triangle
 end

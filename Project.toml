@@ -18,3 +18,12 @@ GeometryBasics = "0.5"
 RandomNumbers = "1"
 StaticArrays = "1.9.7"
 Statistics = "1"
+
+[extras]
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+
+[targets]
+test = ["Pkg", "Test", "JET", "FileIO"]

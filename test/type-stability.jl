@@ -1,8 +1,8 @@
 using RayCaster, GeometryBasics, StaticArrays
 
 code_warntype(RayCaster._to_ray_coordinate_space, (SVector{3,Point3f}, RayCaster.Ray))
-code_warntype(RayCaster.∂p, (RayCaster.Triangle, SVector{3,Point3f}, SVector{3,Point2f}))
-code_warntype(RayCaster.∂n, (RayCaster.Triangle, SVector{3,Point2f}))
+code_warntype(RayCaster.partial_derivatives, (RayCaster.Triangle, SVector{3,Point3f}, SVector{3,Point2f}))
+code_warntype(RayCaster.normal_derivatives, (RayCaster.Triangle, SVector{3,Point2f}))
 code_warntype(RayCaster.intersect, (RayCaster.Triangle, RayCaster.Ray, Bool))
 code_warntype(RayCaster.intersect_triangle, (RayCaster.Triangle, RayCaster.Ray))
 code_warntype(RayCaster.intersect_triangle, (RayCaster.Triangle, RayCaster.Ray))
@@ -25,4 +25,4 @@ m = RayCaster.create_triangle_mesh(RayCaster.ShapeCore(), UInt32[1, 2, 3], Point
 t = RayCaster.Triangle(m, 1)
 r = RayCaster.Ray(o=Point3f(ray_origin), d=ray_direction)
 RayCaster.intersect_p(t, r)
-RayCaster.intersect_triangle(r.o, r.d, t.vertices...)
+@code_warntype RayCaster.intersect_triangle(t.vertices, r)

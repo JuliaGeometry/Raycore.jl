@@ -71,7 +71,7 @@ function random_scatter_kernel!(bvh, triangle, u, v, normal)
     o = point .+ (normal .* 0.01f0) # Offset so it doesn't self intersect
     dir = RayCaster.random_hemisphere_uniform(normal, u, v)
     ray = RayCaster.Ray(; o=o, d=dir)
-    hit, prim, _ = RayCaster.intersect!(bvh, ray)
+    hit, prim, _ = RayCaster.closest_hit(bvh, ray)
     return hit, prim
 end
 
