@@ -36,16 +36,16 @@ for (i, hit) in enumerate(session.hits)
 end
 ```
 """
-struct RayIntersectionSession{F}
-    rays::Vector{<:AbstractRay}
-    bvh::BVHAccel
+struct RayIntersectionSession{Rays, F}
     hit_function::F
+    rays::Rays
+    bvh::BVHAccel
     hits::Vector{Tuple{Bool, Triangle, Float32, Point3f}}
 
-    function RayIntersectionSession(rays::Vector{<:AbstractRay}, bvh::BVHAccel, hit_function::F) where {F}
+    function RayIntersectionSession(hit_function::F, rays::Rays, bvh::BVHAccel) where {Rays,F}
         # Compute all hits
         hits = [hit_function(bvh, ray) for ray in rays]
-        new{F}(rays, bvh, hit_function, hits)
+        new{Rays, F}(hit_function, rays, bvh, hits)
     end
 end
 
@@ -57,15 +57,10 @@ Extract all valid hit points from a RayIntersectionSession.
 Returns a vector of `Point3f` containing the world-space hit points for all rays that intersected geometry.
 """
 function hit_points(session::RayIntersectionSession)
-    points = Point3f[]
-    for (ray, hit) in zip(session.rays, session.hits)
-        hit_found, hit_primitive, distance, bary_coords = hit
-        if hit_found
-            hit_point = sum_mul(bary_coords, hit_primitive.vertices)
-            push!(points, hit_point)
-        end
+    return map(filter(first, session.hits)) do hit
+        _, hit_primitive, _, bary_coords = hit
+        return sum_mul(bary_coords, hit_primitive.vertices)
     end
-    return points
 end
 
 """
@@ -76,14 +71,9 @@ Extract all hit distances from a RayIntersectionSession.
 Returns a vector of `Float32` containing distances for all rays that intersected geometry.
 """
 function hit_distances(session::RayIntersectionSession)
-    distances = Float32[]
-    for hit in session.hits
-        hit_found, _, distance, _ = hit
-        if hit_found
-            push!(distances, distance)
-        end
+    return map(filter(first, session.hits)) do hit
+        return hit[3]
     end
-    return distances
 end
 
 """

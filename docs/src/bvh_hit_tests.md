@@ -34,10 +34,10 @@ Test a ray through the center that passes through all three spheres.
 test_ray = RayCaster.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
 
 # Create session with closest_hit
-session_closest = RayIntersectionSession([test_ray], bvh, RayCaster.closest_hit)
+session_closest = RayIntersectionSession(RayCaster.closest_hit, [test_ray], bvh)
 
 # Create session with any_hit for comparison
-session_any = RayIntersectionSession([test_ray], bvh, RayCaster.any_hit)
+session_any = RayIntersectionSession(RayCaster.any_hit, [test_ray], bvh)
 
 fig = Figure()
 
@@ -56,13 +56,12 @@ fig
 test_ray = RayCaster.Ray(o=Point3f(0.1, 0.1, 10), d=Vec3f(0, 0, -1))
 
 # Create session with closest_hit
-session_closest = RayIntersectionSession([test_ray], bvh, RayCaster.closest_hit)
+session_closest = RayIntersectionSession(RayCaster.closest_hit, [test_ray], bvh)
 
 # Create session with any_hit for comparison
-session_any = RayIntersectionSession([test_ray], bvh, RayCaster.any_hit)
+session_any = RayIntersectionSession(RayCaster.any_hit, [test_ray], bvh)
 
 fig = Figure()
-
 # Left: closest_hit visualization
 plot(fig[1, 1], session_closest)
 plot(fig[1, 2], session_any)
@@ -88,7 +87,7 @@ test_positions = [
 rays = [RayCaster.Ray(o=pos, d=Vec3f(0, 0, 1)) for pos in test_positions]
 
 # Create session
-session_multi = RayIntersectionSession(rays, bvh, RayCaster.closest_hit)
+session_multi = RayIntersectionSession(RayCaster.closest_hit, rays, bvh)
 fig2 = Figure()
 ax = LScene(fig2[1, 1])
 
@@ -121,8 +120,8 @@ miss_rays = [
 ]
 
 # Create sessions for both hit functions
-session_miss_closest = RayIntersectionSession(miss_rays, bvh, RayCaster.closest_hit)
-session_miss_any = RayIntersectionSession(miss_rays, bvh, RayCaster.any_hit)
+session_miss_closest = RayIntersectionSession(RayCaster.closest_hit, miss_rays, bvh)
+session_miss_any = RayIntersectionSession(RayCaster.any_hit, miss_rays, bvh)
 
 # Verify all misses
 @test miss_count(session_miss_closest) == 3
@@ -160,7 +159,7 @@ plot!(ax, session_miss_closest;
 
 fig3
 ```
-## Test 4: Difference Between any_hit and closest_hit
+## Test 4: Difference Between any*hit and closest*hit
 
 Demonstrate that `any_hit` can return different results than `closest_hit`.
 
@@ -195,60 +194,39 @@ test_rays = map(1:100) do i
     RayCaster.Ray(o=Point3f(x, y, -5), d=Vec3f(0, 0, 1))
 end
 
-session_closest = RayIntersectionSession(test_rays, complex_bvh, RayCaster.closest_hit)
-session_any = RayIntersectionSession(test_rays, complex_bvh, RayCaster.any_hit)
+session_closest = RayIntersectionSession(RayCaster.closest_hit, test_rays, complex_bvh)
+session_any = RayIntersectionSession(RayCaster.any_hit, test_rays, complex_bvh)
+fig = Figure()
+# Left: closest_hit visualization
+plot(fig[1, 1], session_closest)
+plot(fig[1, 2], session_any)
+Label(fig[0, 1], "closest_hit", tellwidth=false)
+Label(fig[0, 2], "any_hit", tellwidth=false)
 
-# Find cases where they differ
-differences = []
-for (i, (closest, any)) in enumerate(zip(session_closest.hits, session_any.hits))
-    hit_closest, prim_closest, dist_closest, _ = closest
-    hit_any, prim_any, dist_any, _ = any
+fig
 
-    if hit_closest && hit_any
-        diff = abs(dist_closest - dist_any)
-        if diff > 0.1  # Significant difference
-            push!(differences, (
-                ray_idx = i,
-                diff = diff,
-                closest_dist = dist_closest,
-                any_dist = dist_any,
-                closest_mat = prim_closest.material_idx,
-                any_mat = prim_any.material_idx
-            ))
-        end
-    end
-end
-
-# Show results
-diff_table = if length(differences) > 0
-    sort!(differences, by=x->x.diff, rev=true)
-    top5 = differences[1:min(5, length(differences))]
-    map(enumerate(top5)) do (i, d)
-        (
-            Rank = string(i),
-            Distance_Diff = "$(round(d.diff, digits=2))",
-            closest_hit_dist = "$(round(d.closest_dist, digits=2))",
-            any_hit_dist = "$(round(d.any_dist, digits=2))",
-            Same_Primitive = d.closest_mat == d.any_mat ? "✓" : "✗"
-        )
-    end
-else
-    [(Rank = "-", Distance_Diff = "No differences found", closest_hit_dist = "-", any_hit_dist = "-", Same_Primitive = "-")]
-end
-
-Bonito.Table(diff_table)
 ```
-
 **Key Findings:**
-- `any_hit` exits on the **first** intersection during BVH traversal (uses `intersect`, doesn't update ray)
-- `closest_hit` continues searching and updates ray's `t_max` (uses `intersect_p!`)
-- In complex scenes with overlapping geometry, `any_hit` can return hits that are significantly farther
-- Both always agree on **whether** a hit occurred (hit vs miss)
-- The difference appears when BVH traversal order differs from spatial distance order
+
+  * `any_hit` exits on the **first** intersection during BVH traversal (uses `intersect`, doesn't update ray)
+  * `closest_hit` continues searching and updates ray's `t_max` (uses `intersect_p!`)
+  * In complex scenes with overlapping geometry, `any_hit` can return hits that are significantly farther
+  * Both always agree on **whether** a hit occurred (hit vs miss)
+  * The difference appears when BVH traversal order differs from spatial distance order
+
 ## Performance Comparison
 
 Compare the performance of `closest_hit` vs `any_hit`.
 
+```julia (editor=true, logging=false, output=true)
+function render_io(obj)
+    io = IOBuffer()
+    show(io, MIME"text/plain"(), obj)
+    printer = BonitoBook.HTMLPrinter(io; root_tag = "span")
+    str = sprint(io -> show(io, MIME"text/html"(), printer))
+    HTML(str)
+end
+```
 ```julia (editor=true, logging=false, output=true)
 using BenchmarkTools
 
@@ -267,7 +245,7 @@ perf_table = map([
 ]) do (method, time_us)
     (Method = method, Time_μs = time_us)
 end
-any_time
+render_io(any_time)
 ```
 ## Summary
 

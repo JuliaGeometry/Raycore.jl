@@ -175,7 +175,7 @@ ray, ω = RayCaster.generate_ray_differential(integrator.camera, camera_sample)
 ray = RayCaster.Ray(o=Point3f(0.0, 0.0, 2.0), d=Vec3f(0.0, 0.0, -1.0))
 function test(results, bvh, ray)
     for i in 1:100000
-        results[i] = RayCaster.any_hit(bvh, ray)
+        results[i] = RayCaster.any_hit(bvh, ray, PerfNTuple)
     end
     return results
 end
@@ -183,7 +183,7 @@ end
 @profview test(results, bvh, ray)
 @btime RayCaster.closest_hit(bvh, ray)
 results = Vector{Tuple{Bool, RayCaster.Triangle, Float32, Point3f}}(undef, 100000);
-@allocated test(results, bvh, ray)
+@btime test(results, bvh, ray);
 
 @btime RayCaster.any_hit(bvh, ray)
 
@@ -218,12 +218,17 @@ end
     return :($(PerfNTuple)($expr))
 end
 
-@propagate_inbounds Base.getindex(r::PerfNTuple, idx::Integer) = r.data[idx]
+Base.@propagate_inbounds Base.getindex(r::PerfNTuple, idx::Integer) = r.data[idx]
 
-@generated function RayCaster._allocate(f, ::Val{N}, ::Type{T}) where {N, T}
+@generated function RayCaster._allocate(::Type{PerfNTuple}, ::Type{T}, ::Val{N}) where {T,N}
     expr = Expr(:tuple)
     for i in 1:N
-        push!(expr.args, :(f($i)))
+        push!(expr.args, :($(T(0))))
     end
-    return expr
+    return :($(PerfNTuple){$N, $T}($expr))
 end
+
+m = RayCaster._allocate(PerfNTuple, Int32, Val(64))
+m2 = RayCaster._setindex(m, 10, Int32(42))
+
+@btime RayCaster.any_hit(bvh, ray, PerfNTuple)
