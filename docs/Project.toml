@@ -1,5 +1,6 @@
 [deps]
 Bonito = "824d6782-a2ef-11e9-3a09-e5662e0c26f8"
+BonitoBook = "b416d416-7a6e-4336-8c1a-1f8a8cd59518"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
@@ -9,9 +10,10 @@ MeshIO = "7269a6da-0436-5bbc-96c2-40638cbb6118"
 RayCaster = "afc56b53-c9a9-482a-a956-d1d800e05559"
 WGLMakie = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 
+[sources]
+RayCaster = {path = "../"}
+BonitoBook = {url = "https://github.com/SimonDanisch/BonitoBook.jl"}
+
 [compat]
 Documenter = "1.5"
 FileIO = "1.16"
-
-[sources]
-RayCaster = {path = "../"}
