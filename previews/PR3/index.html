@@ -1,0 +1,2574 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · RayCaster</title><meta name="title" content="Home · RayCaster"/><meta property="og:title" content="Home · RayCaster"/><meta property="twitter:title" content="Home · RayCaster"/><meta name="description" content="Documentation for RayCaster."/><meta property="og:description" content="Documentation for RayCaster."/><meta property="twitter:description" content="Documentation for RayCaster."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">RayCaster</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href="index.html">Home</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Private-Functions"><span>Private Functions</span></a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="index.html">Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="index.html">Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/RayCaster.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/master/docs/src/index.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="RayCaster.jl"><a class="docs-heading-anchor" href="#RayCaster.jl">RayCaster.jl</a><a id="RayCaster.jl-1"></a><a class="docs-heading-anchor-permalink" href="#RayCaster.jl" title="Permalink"></a></h1><pre><code class="language-julia hljs">using RayCaster, GeometryBasics, LinearAlgebra
+using WGLMakie, FileIO
+
+function LowSphere(radius, contact=Point3f(0); ntriangles=10)
+    return Tesselation(Sphere(contact .+ Point3f(0, 0, radius), radius), ntriangles)
+end
+
+ntriangles = 10
+s1 = LowSphere(0.5f0, Point3f(-0.5, 0.0, 0); ntriangles)
+s2 = LowSphere(0.3f0, Point3f(1, 0.5, 0); ntriangles)
+s3 = LowSphere(0.3f0, Point3f(-0.5, 1, 0); ntriangles)
+s4 = LowSphere(0.4f0, Point3f(0, 1.0, 0); ntriangles)
+l = 0.5
+floor = Rect3f(-l, -l, -0.01, 2l, 2l, 0.01)
+cat = load(Makie.assetpath(&quot;cat.obj&quot;))
+bvh = RayCaster.BVHAccel([s1, s2, s3, s4, cat]);
+world_mesh = GeometryBasics.Mesh(bvh)
+f, ax, pl = Makie.mesh(world_mesh; color=:teal)
+center!(ax.scene)
+viewdir = normalize(ax.scene.camera.view_direction[])
+
+@time &quot;hitpoints&quot; hitpoints, centroid = RayCaster.get_centroid(bvh, viewdir)
+@time &quot;illum&quot; illum = RayCaster.get_illumination(bvh, viewdir)
+@time &quot;viewf_matrix&quot; viewf_matrix = RayCaster.view_factors(bvh, rays_per_triangle=1000)
+viewfacts = map(i-&gt; Float32(sum(view(viewf_matrix, :, i))), 1:length(bvh.primitives))
+world_mesh = GeometryBasics.Mesh(bvh)
+N = length(world_mesh.faces)
+areas = map(i-&gt; area(world_mesh.position[world_mesh.faces[i]]), 1:N)
+# View factors
+f, ax, pl = mesh(world_mesh, color=:teal, figure=(; size=(800, 600)), axis=(; show_axis=false))
+per_face_vf = FaceView((viewfacts), [GLTriangleFace(i) for i in 1:N])
+viewfact_mesh = GeometryBasics.mesh(world_mesh, color=per_face_vf)
+pl = Makie.mesh(f[1, 2],
+    viewfact_mesh, colormap=[:black, :red], axis=(; show_axis=false),
+    shading=false, highclip=:red, lowclip=:black, colorscale=sqrt,)
+
+# Centroid
+cax, pl = Makie.mesh(f[2, 1], world_mesh, color=(:blue, 0.5), axis=(; show_axis=false), transparency=true)
+
+eyepos = cax.scene.camera.eyeposition[]
+depth = map(x-&gt; norm(x .- eyepos), hitpoints)
+meshscatter!(cax, hitpoints, color=depth, colormap=[:gray, :black], markersize=0.01)
+meshscatter!(cax, centroid, color=:red, markersize=0.05)
+
+# Illum
+pf = FaceView(100f0 .* (illum ./ areas), [GLTriangleFace(i) for i in 1:N])
+illum_mesh = GeometryBasics.mesh(world_mesh, color=pf)
+
+Makie.mesh(f[2, 2], illum_mesh, colormap=[:black, :yellow], colorscale=sqrt, shading=false, axis=(; show_axis=false))
+
+Label(f[0, 1], &quot;Scene ($(length(bvh.primitives)) triangles)&quot;, tellwidth=false, fontsize=20)
+Label(f[0, 2], &quot;Viewfactors&quot;, tellwidth=false, fontsize=20)
+Label(f[3, 1], &quot;Centroid&quot;, tellwidth=false, fontsize=20)
+Label(f[3, 2], &quot;Illumination&quot;, tellwidth=false, fontsize=20)
+
+f</code></pre><div>
+  <div class="bonito-fragment" id="2346bbf7-0cfc-4120-ba17-0c2c0c8e5f03" data-jscall-id="root">
+    <div>
+      <script src="bonito/js/Bonito.bundled7457269554592506375.js" type="module"></script>
+      <style></style>
+    </div>
+    <div>
+      <script type="module">Bonito.init_session("2346bbf7-0cfc-4120-ba17-0c2c0c8e5f03", null, "root", false);
+</script>
+      <span></span>
+    </div>
+  </div>
+  <div class="bonito-fragment" id="cc8cee34-daca-43e1-9485-7b15e3245b53" data-jscall-id="subsession-application-dom">
+    <div>
+      <style></style>
+    </div>
+    <div>
+      <script type="module">Bonito.init_session("cc8cee34-daca-43e1-9485-7b15e3245b53", Bonito.fetch_binary('bonito/bin/193d8dcd5e7dc6c3921e0634f5ece81654f26c1a-15571518051025112823.bin'), "sub", false);
+</script>
+      <div style="width: 100%; height: 100%" data-jscall-id="1">
+        <canvas data-jp-suppress-context-menu style="display: block" data-jscall-id="2" data-lm-suppress-shortcuts="true" tabindex="0"></canvas>
+      </div>
+    </div>
+  </div>
+</div><pre><code class="language-julia hljs">using Bonito, BonitoBook
+App() do
+    path = normpath(joinpath(dirname(pathof(RayCaster)), &quot;..&quot;, &quot;docs&quot;, &quot;src&quot;, &quot;bvh_hit_tests.md&quot;))
+    BonitoBook.InlineBook(path)
+end</code></pre><div class="bonito-fragment" id="4d90785f-07e8-4338-8aae-3735c7d2c514" data-jscall-id="subsession-application-dom">
+  <div>
+    <style>.style_4 {
+  width: 1.2em;
+}
+.style_5 {
+  color: red;
+  width: 1.2em;
+}
+.style_6 {
+  width: 10px;
+}
+.style_7 {
+  position: relative;
+}
+.style_8 {
+  justify-items: center;
+  align-items: center;
+  height: 100%;
+  display: grid;
+  align-content: center;
+  grid-gap: 10px;
+  grid-template-rows: none;
+  justify-content: center;
+  grid-template-columns: 1fr;
+  width: 100%;
+  grid-template-areas: none;
+}
+.style_9 {
+  width: 100%;
+}
+</style>
+    <style>@media (prefers-color-scheme: light), (prefers-color-scheme: no-preference) {
+  :root {
+    --ansi-bright-cyan: #55ffff;
+    --ansi-bright-white: #ffffff;
+    --ansi-green: #00bc00;
+    --ansi-red: #cd3131;
+    --ansi-bright-blue: #5555ff;
+    --ansi-bright-green: #55ff55;
+    --ansi-yellow: #949800;
+    --ansi-magenta: #bc05bc;
+    --ansi-bright-black: #686868;
+    --ansi-white: #555555;
+    --ansi-black: #000000;
+    --ansi-bright-yellow: #ffff55;
+    --ansi-bright-magenta: #ff55ff;
+    --ansi-cyan: #0598bc;
+    --ansi-bright-red: #ff5555;
+    --ansi-blue: #0451a5;
+  }
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ansi-bright-cyan: #8cffff;
+    --ansi-bright-white: #ffffff;
+    --ansi-green: #4ec9b0;
+    --ansi-red: #f44747;
+    --ansi-bright-blue: #7cc3ff;
+    --ansi-bright-green: #6bffb8;
+    --ansi-yellow: #dcdcaa;
+    --ansi-magenta: #c678dd;
+    --ansi-bright-black: #808080;
+    --ansi-white: #d4d4d4;
+    --ansi-black: #000000;
+    --ansi-bright-yellow: #ffffa0;
+    --ansi-bright-magenta: #ff8cff;
+    --ansi-cyan: #56b6c2;
+    --ansi-bright-red: #ff6b6b;
+    --ansi-blue: #569cd6;
+  }
+}
+span.sgr1 {
+  font-weight: bolder;
+}
+span.sgr2 {
+  font-weight: lighter;
+}
+span.sgr3 {
+  font-style: italic;
+}
+span.sgr4 {
+  text-decoration: underline;
+}
+span.sgr7 {
+  background-color: var(--text-primary);
+  color: var(--bg-primary);
+}
+span.sgr8, span.sgr8 span, span span.sgr8 {
+  color: transparent;
+}
+span.sgr9 {
+  text-decoration: line-through;
+}
+span.sgr30 {
+  color: var(--ansi-black);
+}
+span.sgr31 {
+  color: var(--ansi-red);
+}
+span.sgr32 {
+  color: var(--ansi-green);
+}
+span.sgr33 {
+  color: var(--ansi-yellow);
+}
+span.sgr34 {
+  color: var(--ansi-blue);
+}
+span.sgr35 {
+  color: var(--ansi-magenta);
+}
+span.sgr36 {
+  color: var(--ansi-cyan);
+}
+span.sgr37 {
+  color: var(--ansi-white);
+}
+span.sgr40 {
+  background-color: var(--ansi-black);
+}
+span.sgr41 {
+  background-color: var(--ansi-red);
+}
+span.sgr42 {
+  background-color: var(--ansi-green);
+}
+span.sgr43 {
+  background-color: var(--ansi-yellow);
+}
+span.sgr44 {
+  background-color: var(--ansi-blue);
+}
+span.sgr45 {
+  background-color: var(--ansi-magenta);
+}
+span.sgr46 {
+  background-color: var(--ansi-cyan);
+}
+span.sgr47 {
+  background-color: var(--ansi-white);
+}
+span.sgr90 {
+  color: var(--ansi-bright-black);
+}
+span.sgr91 {
+  color: var(--ansi-bright-red);
+}
+span.sgr92 {
+  color: var(--ansi-bright-green);
+}
+span.sgr93 {
+  color: var(--ansi-bright-yellow);
+}
+span.sgr94 {
+  color: var(--ansi-bright-blue);
+}
+span.sgr95 {
+  color: var(--ansi-bright-magenta);
+}
+span.sgr96 {
+  color: var(--ansi-bright-cyan);
+}
+span.sgr97 {
+  color: var(--ansi-bright-white);
+}
+span.sgr100 {
+  background-color: var(--ansi-bright-black);
+}
+span.sgr101 {
+  background-color: var(--ansi-bright-red);
+}
+span.sgr102 {
+  background-color: var(--ansi-bright-green);
+}
+span.sgr103 {
+  background-color: var(--ansi-bright-yellow);
+}
+span.sgr104 {
+  background-color: var(--ansi-bright-blue);
+}
+span.sgr105 {
+  background-color: var(--ansi-bright-magenta);
+}
+span.sgr106 {
+  background-color: var(--ansi-bright-cyan);
+}
+span.sgr107 {
+  background-color: var(--ansi-bright-white);
+}
+.logging-widget {
+  white-space: pre-wrap;
+}
+</style>
+  </div>
+  <div>
+    <script type="module">Bonito.init_session("4d90785f-07e8-4338-8aae-3735c7d2c514", Bonito.fetch_binary('bonito/bin/80d7784a2d233d2015ee57da235da9db43a6d9d2-17897124921044745869.bin'), "sub", false);
+</script>
+    <div data-jscall-id="3">
+      <div data-jscall-id="5">
+        <div class="bonito-fragment" id="dd2c89bd-de31-4f13-a96c-98b677f74db2" data-jscall-id="subsession-application-dom">
+          <div data-jscall-id="6">
+            <style data-jscall-id="7"></style>
+            <style data-jscall-id="8">:root {
+  --shadow-glow: 0 0 var(--spacing-xs) 0 var(--accent-blue);
+  --width-md: 2.25rem;
+  --z-menu: 1001;
+  --font-family-clean: 'Inter', 'Roboto', 'Arial', sans-serif;
+  --editor-width: 90ch;
+  --font-size-xs: 0.75rem;
+  --z-base: 1;
+  --font-size-sm: 0.8125rem;
+  --max-height-large: 80vh;
+  --max-height-medium: 60vh;
+  --shadow-blur-md: 10px;
+  --z-popup: 2000;
+  --spacing-sm: 0.5rem;
+  --z-popup-close: 2001;
+  --spacing-lg: 1rem;
+  --width-xs: 1rem;
+  --shadow-inset: inset 1px 1px var(--shadow-blur-sm) 0 var(--shadow-color-inset);
+  --z-dropdown: 10;
+  --z-modal: 1000;
+  --shadow-soft: 0 0 var(--spacing-xs) 0 var(--shadow-color-soft);
+  --font-size-base: 0.875rem;
+  --editor-max-width: 95vw;
+  --editor-min-width: 25rem;
+  --shadow-focus: 0 0 0 var(--spacing-xss) var(--shadow-color-soft);
+  --shadow-blur-sm: 3px;
+  --spacing-xl: 1.25rem;
+  --spacing-xs: 0.25rem;
+  --transition-fast: 0.1s ease-out;
+  --shadow-glow-animation: 0 0 var(--shadow-blur-md) 0 var(--glow-color);
+  --border-radius-large: 0.3125rem;
+  --z-sidebar: 100;
+  --font-size-lg: 1rem;
+  --border-radius-small: 0.1875rem;
+  --width-lg: 3rem;
+  --width-sm: 1.25rem;
+  --shadow-button: 0 1px var(--shadow-blur-sm) 0 var(--shadow-color-button);
+  --spacing-md: 0.75rem;
+  --spacing-xxs: 0.125rem;
+  --transition-slow: 0.2s ease-in;
+  --z-behind: -1;
+  --z-overlay: 50;
+}
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  box-sizing: border-box;
+  scrollbar-width: thin;
+}
+html {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+body {
+  margin: 0;
+}
+pre {
+  margin-block: var(--spacing-xs) 0px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+li p {
+  display: inline;
+}
+mjx-container[jax='CHTML'][display='true'] {
+  display: inline;
+}
+@media (prefers-color-scheme: light), (prefers-color-scheme: no-preference) {
+  .bonitobook-dropdown {
+    background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23666" d="M2 0L0 2h4zm0 5L0 3h4z"/></svg>');
+  }
+  .interactive-error-widget .collapsible-content > div > div:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+  }
+  .interactive-error-widget pre {
+    background-color: #f8d7da;
+    color: #721c24;
+  }
+  :root {
+    --scrollbar-thumb-hover: #a8a8a8;
+    --menu-hover-bg: rgba(0, 0, 0, 0.05);
+    --text-secondary: #555555;
+    --glow-color: rgba(0, 150, 51, 0.8);
+    --icon-filter: none;
+    --icon-hover-filter: brightness(0.7);
+    --border-secondary: #ccc;
+    --accent-blue: #0366d6;
+    --text-primary: #24292e;
+    --hover-bg: #ddd;
+    --scrollbar-thumb: #c1c1c1;
+    --shadow-color-button: rgba(0, 0, 0, 0.2);
+    --icon-color: #666666;
+    --bg-primary: #ffffff;
+    --icon-hover-color: #333333;
+    --scrollbar-track: #f1f1f1;
+    --shadow-color-soft: rgba(0, 0, 51, 0.2);
+    --shadow-color-inset: rgba(0, 0, 0, 0.2);
+    --border-primary: rgba(0, 0, 0, 0.1);
+  }
+  .interactive-error-widget .collapsible-content > div > div {
+    background-color: rgba(0, 0, 0, 0.05);
+  }
+}
+@media (prefers-color-scheme: dark) {
+  .bonitobook-dropdown {
+    background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 5"><path fill="%23ccc" d="M2 0L0 2h4zm0 5L0 3h4z"/></svg>');
+  }
+  .interactive-error-widget .collapsible-content > div > div:hover {
+    background-color: rgba(255, 255, 255, 0.08);
+  }
+  .interactive-error-widget pre {
+    background-color: rgba(220, 53, 69, 0.1);
+    color: #ffccd5;
+  }
+  :root {
+    --scrollbar-thumb-hover: #777777;
+    --menu-hover-bg: rgba(255, 255, 255, 0.05);
+    --text-secondary: rgb(212, 212, 212);
+    --glow-color: rgba(10, 155, 55, 0.5);
+    --icon-filter: invert(1);
+    --icon-hover-filter: invert(1) brightness(1.2);
+    --border-secondary: rgba(255, 255, 255, 0.1);
+    --accent-blue: #0366d6;
+    --text-primary: rgb(212, 212, 212);
+    --hover-bg: rgba(255, 255, 255, 0.1);
+    --scrollbar-thumb: #555555;
+    --shadow-color-button: rgba(255, 255, 255, 0.2);
+    --icon-color: #cccccc;
+    --bg-primary: #1e1e1e;
+    --icon-hover-color: #ffffff;
+    --scrollbar-track: #2d2d2d;
+    --shadow-color-soft: rgba(255, 255, 255, 0.2);
+    --shadow-color-inset: rgba(0, 0, 0, 0.5);
+    --border-primary: rgba(255, 255, 255, 0.1);
+  }
+  img[src*='python-logo'], img[src*='julia-logo'] {
+    filter: brightness(1.3) contrast(1.1);
+  }
+  .interactive-error-widget .collapsible-content > div > div {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+}
+@media print {
+  .book-wrapper, .book-document, .book-main-content, .book-content {
+    height: auto !important;
+    display: block !important;
+    padding: 0 !important;
+    max-height: none !important;
+    position: static !important;
+    margin: 0 !important;
+    flex: none !important;
+    overflow: visible !important;
+  }
+  @page {
+    size: A4;
+    margin: 0.5in;
+  }
+  * {
+    -webkit-print-color-adjust: exact !important;
+    filter: none !important;
+    color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .book-main-menu, .cell-logging, .sidebar-main-container, .sidebar-tabs, .sidebar-content-container, .book-bottom-panel, .new-cell-menu, .hover-buttons {
+    display: none !important;
+  }
+  @page :first {
+    margin-top: 0.3in;
+  }
+}
+body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proximity-area, body.bonito-export-mode .new-cell-menu {
+  display: none !important;
+}
+.quick-input-widget, .find-widget {
+  top: 10px !important;
+  position: fixed !important;
+}
+.monaco-list {
+  max-height: var(--max-height-medium);
+  overflow-y: auto !important;
+}
+.monaco-editor-div {
+  padding: 0;
+  width: var(--editor-width);
+  margin: 0;
+}
+.sidebar-widget-content .monaco-editor-div.hide-horizontal {
+  display: block !important;
+}
+.cell-editor-container {
+  position: relative;
+}
+.cell-menu-proximity-area {
+  left: 0;
+  height: 20px;
+  background-color: transparent;
+  top: -20px;
+  pointer-events: auto;
+  position: absolute;
+  width: 100%;
+  z-index: var(--z-behind);
+}
+.cell-editor-container.editor-collapsed .cell-menu-proximity-area {
+  left: 0;
+  z-index: var(--z-base);
+  opacity: 0;
+  height: 6px;
+  position: absolute;
+  border-radius: 2px;
+  border: none;
+  background-color: transparent;
+  top: 0;
+  width: 100%;
+  transition: all var(--transition-slow);
+  pointer-events: auto;
+}
+.cell-editor-container.editor-collapsed .cell-menu-proximity-area:hover {
+  background-color: var(--hover-bg);
+  border-style: solid;
+  transform: scaleY(1.2);
+  opacity: 1;
+}
+.cell-editor {
+  padding: var(--spacing-sm) 0px var(--spacing-sm) 0px;
+  box-shadow: var(--shadow-soft);
+  position: relative;
+  width: fit-content;
+  border-radius: var(--border-radius-large);
+}
+.cell-editor.focused {
+  box-shadow: var(--shadow-glow);
+}
+.cell-logging {
+  max-width: var(--editor-width);
+  padding: 0;
+  max-height: 500px;
+  overflow-y: auto;
+  margin: 0;
+}
+.logging-widget {
+  height: 100%;
+  font-size: var(--font-size-xs);
+  padding: var(--spacing-sm);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: monospace;
+  overflow-y: auto;
+  margin: 0;
+  line-height: 1.4;
+  width: 100%;
+}
+.logging-widget pre {
+  padding: 0;
+  white-space: pre-wrap;
+  font: inherit;
+  word-wrap: break-word;
+  margin: 0;
+}
+.hover-buttons {
+  right: -10px;
+  top: -23px;
+  pointer-events: auto;
+  position: absolute;
+  z-index: var(--z-overlay);
+  opacity: 0.0;
+}
+.cell-output {
+  max-height: 1000px;
+  overflow-y: auto;
+  margin: var(--spacing-xs);
+  overflow-x: visible;
+  width: var(--editor-width);
+}
+.cell-output-markdown.cell-output {
+  max-height: none;
+  overflow-y: visible;
+}
+.hide-vertical {
+  display: none;
+}
+.show-vertical {
+  display: block;
+}
+.hide-horizontal {
+  height: 6px;
+  position: relative;
+  overflow: hidden;
+}
+.show-horizontal {
+  display: block;
+}
+.loading-cell {
+  animation: shadow-pulse 1.5s ease-in-out infinite;
+  box-shadow: var(--shadow-soft);
+}
+@keyframes shadow-pulse {
+  0% {
+    box-shadow: var(--shadow-soft);
+  }
+  50% {
+    box-shadow: var(--shadow-glow-animation);
+  }
+  100% {
+    box-shadow: var(--shadow-soft);
+  }
+}
+.small-language-icon {
+  bottom: 4px;
+  right: 8px;
+  filter: var(--icon-filter);
+  color: var(--icon-color);
+  pointer-events: none;
+  position: absolute;
+  opacity: 0.8;
+}
+.codicon {
+  filter: var(--icon-filter);
+  -webkit-user-select: none;
+  display: inline-block;
+  text-align: center;
+  text-transform: none;
+  flex-shrink: 0;
+  -moz-osx-font-smoothing: grayscale;
+  text-decoration: none;
+  text-rendering: auto;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+  color: var(--icon-color);
+}
+.codicon svg {
+  display: block;
+  fill: currentColor;
+}
+.codicon:hover {
+  filter: var(--icon-hover-filter);
+  color: var(--icon-hover-color);
+}
+.small-button img:not([src*='python-logo']):not([src*='julia-logo']), .small-button svg {
+  filter: var(--icon-filter);
+}
+.small-button:hover img:not([src*='python-logo']):not([src*='julia-logo']), .small-button:hover svg {
+  filter: var(--icon-hover-filter);
+}
+.codicon svg, .small-language-icon svg, .codicon img {
+  filter: var(--icon-filter);
+}
+.markdown-body {
+  font-size: 16px;
+  -ms-text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+  color: var(--text-primary);
+  font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol;
+  word-wrap: break-word;
+  line-height: 1.5;
+}
+.markdown-body .octicon {
+  display: inline-block;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+.markdown-body .anchor {
+  padding-right: 4px;
+  float: left;
+  line-height: 1;
+  margin-left: -20px;
+}
+.markdown-body .anchor:focus {
+  outline: none;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6 {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.markdown-body h1 {
+  font-size: 32px;
+  font-weight: 600;
+}
+.markdown-body h2 {
+  font-size: 24px;
+  font-weight: 600;
+}
+.markdown-body h3 {
+  font-size: 20px;
+  font-weight: 600;
+}
+.markdown-body h4 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.markdown-body h5 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.markdown-body h6 {
+  font-size: 12px;
+  font-weight: 600;
+}
+.markdown-body a {
+  text-decoration: none;
+  color: var(--accent-blue);
+}
+.markdown-body a:hover {
+  text-decoration: underline;
+}
+.markdown-body strong {
+  font-weight: 600;
+}
+.markdown-body hr {
+  overflow: hidden;
+  height: 0;
+  border: 0;
+  border-bottom: 1px solid #dfe2e5;
+  margin: var(--spacing-lg) 0;
+  background: transparent;
+}
+.markdown-body table {
+  border-collapse: collapse;
+  border-spacing: 0;
+}
+.markdown-body td, .markdown-body th {
+  padding: 0;
+}
+.markdown-body blockquote {
+  padding: 0 1em;
+  color: #6a737d;
+  border-left: .25em solid #dfe2e5;
+}
+.markdown-body code, .markdown-body pre {
+  font-size: 12px;
+  font-family: SFMono-Regular,Consolas,Liberation Mono,Menlo,Courier,monospace;
+}
+.markdown-body pre {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.markdown-body img {
+  border-style: none;
+}
+.markdown-body input {
+  font: inherit;
+  overflow: visible;
+}
+.data-frame {
+  margin: 1rem 0;
+}
+.data-frame table {
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.data-frame th {
+  font-weight: 500;
+  background-color: var(--hover-bg);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-primary);
+}
+.data-frame td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-primary);
+}
+.data-frame .rowLabel {
+  background-color: var(--hover-bg);
+  font-family: monospace;
+  text-align: right;
+}
+.flex-row {
+  display: flex;
+  flex-direction: row;
+}
+.flex-column {
+  display: flex;
+  flex-direction: column;
+}
+.center-content {
+  align-items: center;
+  justify-content: center;
+}
+.inline-block {
+  display: inline-block;
+}
+.fit-content {
+  width: fit-content;
+}
+.max-width-90ch {
+  max-width: 90ch;
+}
+.gap-10 {
+  gap: 10px;
+}
+.full-width {
+  width: 100%;
+}
+::-webkit-scrollbar {
+  width: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+::-webkit-scrollbar-thumb {
+  border: 2px solid var(--scrollbar-track);
+  background-color: var(--scrollbar-thumb);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+.small-menu-bar {
+  align-items: center;
+  display: flex;
+  border: 1px solid var(--border-primary);
+  padding: 6px;
+  box-shadow: var(--shadow-soft);
+  gap: 4px;
+  z-index: var(--z-menu);
+  border-radius: var(--spacing-sm);
+}
+.small-button.toggled {
+  border: none;
+  box-shadow: var(--shadow-inset);
+  filter: grayscale(100%);
+  color: var(--text-primary);
+  opacity: 0.5;
+}
+.small-button {
+  align-items: center;
+  display: inline-flex;
+  padding: var(--spacing-sm);
+  box-shadow: var(--shadow-button);
+  border-radius: var(--spacing-sm);
+  justify-content: center;
+  margin-right: var(--spacing-xs);
+  border: none;
+  background-color: var(--bg-primary);
+  transition: background-color var(--transition-slow);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.toggle-button.active {
+  box-shadow: var(--shadow-inset);
+  color: var(--text-primary);
+}
+.small-button:hover {
+  background-color: var(--hover-bg);
+}
+.small-button.inactive {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.small-button.inactive:hover {
+  background-color: inherit;
+}
+.file-tabs-container {
+  display: flex;
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.file-tab {
+  align-items: center;
+  display: flex;
+  margin-right: 2px;
+  padding: 8px 4px;
+  border-bottom: 2px solid transparent;
+  user-select: none;
+  color: var(--text-secondary);
+  border-radius: 6px 6px 0 0;
+  transition: all var(--transition-slow);
+  cursor: pointer;
+}
+.file-tab:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+}
+.file-tab.active {
+  font-weight: 500;
+  border-bottom-color: var(--accent-blue);
+  color: var(--text-primary);
+}
+.file-tab-content {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+.file-tab-name {
+  max-width: 150px;
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+.file-tab-close {
+  align-items: center;
+  height: var(--width-xs);
+  display: flex;
+  border-radius: 50%;
+  justify-content: center;
+  border: none;
+  background-color: transparent;
+  font-size: var(--font-size-xs);
+  width: var(--width-xs);
+  line-height: 1;
+  transition: all var(--transition-slow);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.file-tab-close:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+}
+.file-tab-add {
+  align-items: center;
+  display: flex;
+  padding: 8px 12px;
+  border-radius: 6px;
+  justify-content: center;
+  border: none;
+  background-color: transparent;
+  font-size: 16px;
+  line-height: 1;
+  transition: all var(--transition-slow);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.file-tab-add:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+}
+.file-editor {
+  min-width: var(--editor-width);
+  height: calc(100vh - 20px);
+  padding: 0;
+  width: 100%;
+  margin: 0;
+}
+.new-cell-menu {
+  align-items: center;
+  height: 0.5rem;
+  display: flex;
+  position: relative;
+  width: 100%;
+  padding-left: 0;
+  justify-content: center;
+}
+.new-cell-plus {
+  left: -1rem;
+  font-weight: 1000;
+  opacity: 0.3;
+  align-items: center;
+  display: flex;
+  position: absolute;
+  justify-content: center;
+  font-size: 1.2em;
+  top: 0;
+  transition: opacity 0.2s;
+  cursor: pointer;
+  transform: translate(0, -50%);
+}
+.new-cell-menu:hover .new-cell-plus {
+  opacity: 1;
+}
+.new-cell-buttons {
+  left: 0;
+  visibility: hidden;
+  display: flex;
+  padding: 4px 4px;
+  top: 0;
+  position: absolute;
+  z-index: var(--z-modal);
+  transform: translate(0, -50%);
+  opacity: 0;
+  transition: opacity 0.2s, visibility 0.2s;
+}
+.new-cell-menu:hover .new-cell-buttons {
+  visibility: visible;
+  opacity: 1;
+}
+.popup-overlay {
+  left: 0;
+  align-items: center;
+  height: 100vh;
+  display: flex;
+  background-color: rgba(0, 0, 0, 0.5);
+  top: 0;
+  position: fixed;
+  width: 100vw;
+  z-index: var(--z-popup);
+  justify-content: center;
+}
+.popup-content {
+  max-height: 90vh;
+  height: fit-content;
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+  position: relative;
+  border-radius: var(--border-radius-large);
+  border: 1px solid var(--border-primary);
+  background-color: var(--bg-primary);
+  width: fit-content;
+  overflow: auto;
+  max-width: 90vw;
+  color: var(--text-primary);
+  margin: 20px;
+}
+.popup-close-button {
+  z-index: var(--z-popup-close);
+  align-items: center;
+  height: var(--width-sm);
+  display: flex;
+  padding: 2px;
+  position: absolute;
+  border-radius: 50%;
+  justify-content: center;
+  border: none;
+  font-size: 18px;
+  right: 4px;
+  top: 4px;
+  width: var(--width-sm);
+  line-height: 1;
+  transition: all var(--transition-slow);
+  cursor: pointer;
+  color: var(--text-secondary);
+  background: none;
+}
+.popup-close-button:hover {
+  background-color: var(--hover-bg);
+  color: var(--text-primary);
+}
+.book-main-menu {
+  display: flex;
+  position: relative;
+  width: 100%;
+  flex-direction: row;
+  justify-content: center;
+}
+.book-main-menu .file-tabs-container {
+  border-bottom: none;
+  justify-content: center;
+}
+.book-content {
+  height: 100%;
+  display: flex;
+  position: relative;
+  width: 100%;
+  flex-direction: row;
+  overflow: hidden;
+}
+.book-cells {
+  width: fit-content;
+}
+.book-cells-area {
+  display: grid;
+  place-items: center;
+  overflow-y: auto;
+  width: 100%;
+  overflow-x: hidden;
+}
+.book-main-content {
+  overflow: hidden;
+}
+.book-document {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.book-wrapper {
+  height: 100vh;
+  overflow: hidden;
+}
+.book-bottom-panel {
+  left: 0;
+  bottom: 0;
+  right: 0;
+  position: fixed;
+  z-index: var(--z-modal);
+}
+.sidebar-main-container {
+  display: flex;
+  right: 0;
+  pointer-events: none;
+  position: fixed;
+  z-index: var(--z-sidebar);
+}
+.sidebar-main-container.vertical {
+  align-items: center;
+  height: fit-content;
+  max-height: 90vh;
+  top: 50%;
+  transform: translateY(-50%);
+  flex-direction: row-reverse;
+}
+.sidebar-main-container.horizontal {
+  left: 0;
+  align-items: flex-end;
+  bottom: 0;
+  display: flex;
+  height: auto;
+  right: 0;
+  position: relative;
+  width: 100%;
+  flex-direction: column-reverse;
+}
+.sidebar-content-container {
+  pointer-events: auto;
+  transition: width 0.3s ease, opacity 0.3s ease;
+  overflow: hidden;
+}
+.sidebar-content-container.vertical {
+  height: fit-content;
+  display: flex;
+  box-shadow: -var(--spacing-xs) 0 var(--spacing-sm) 0 var(--shadow-color-soft);
+  max-height: 80vh;
+  border-left: 1px solid var(--border-primary);
+  border-radius: 8px 0 0 8px;
+  flex-direction: column;
+}
+.sidebar-content-container.collapsed {
+  visibility: hidden;
+  width: 0;
+  opacity: 0;
+}
+.sidebar-content-container.expanded {
+  visibility: visible;
+  opacity: 1;
+}
+.sidebar-content-container.vertical.expanded {
+  width: var(--sidebar-width, 400px);
+}
+.sidebar-content-container.horizontal.expanded {
+  visibility: visible;
+  height: var(--sidebar-height, 300px);
+  opacity: 1;
+}
+.sidebar-content-container.horizontal {
+  transition: height 0.3s ease, opacity 0.3s ease;
+  visibility: visible;
+  border-top: 1px solid var(--border-primary);
+  width: 100%;
+  opacity: 1;
+  overflow: hidden;
+}
+.sidebar-content-container.horizontal.collapsed {
+  visibility: hidden;
+  height: 0;
+  opacity: 0;
+}
+.sidebar-tabs.horizontal {
+  height: auto;
+  display: flex;
+  padding: var(--spacing-xs);
+  background-color: var(--bg-primary);
+  border-top: 1px solid var(--border-primary);
+  width: 100%;
+  flex-direction: row;
+  justify-content: center;
+}
+.sidebar-tabs {
+  align-items: center;
+  height: fit-content;
+  display: flex;
+  border-radius: 0 8px 8px 0;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 48px;
+  padding-top: var(--spacing-sm);
+  gap: var(--spacing-xs);
+  pointer-events: auto;
+  border-left: 1px solid var(--border-primary);
+}
+.sidebar-tab {
+  position: relative;
+}
+.sidebar-tab.active::before {
+  left: 0;
+  height: 18px;
+  content: '';
+  background-color: var(--accent-blue);
+  top: 50%;
+  position: absolute;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  transform: translateY(-50%);
+}
+.sidebar-toggle-button {
+  align-items: center;
+  height: var(--width-md);
+  display: flex;
+  border-radius: var(--spacing-xs);
+  justify-content: center;
+  margin-top: auto;
+  border: none;
+  background-color: transparent;
+  width: var(--width-md);
+  transition: all var(--transition-slow);
+  margin-bottom: var(--spacing-sm);
+  cursor: pointer;
+  color: var(--icon-color);
+}
+.sidebar-toggle-button:hover {
+  background-color: var(--hover-bg);
+  color: var(--icon-hover-color);
+}
+.sidebar-toggle-button.hidden {
+  display: none;
+}
+.sidebar-content {
+  height: 100%;
+  padding: 0;
+  position: relative;
+  overflow-y: auto;
+  width: 100%;
+  overflow-x: hidden;
+}
+.sidebar-content-container.vertical .sidebar-content {
+  height: fit-content;
+  min-height: 200px;
+  overflow-y: visible;
+}
+.sidebar-widget-content {
+  height: fit-content;
+  width: 100%;
+}
+.sidebar-widget-content.hide {
+  display: none;
+}
+.sidebar-widget-content.show {
+  display: block;
+}
+.sidebar-resize-handle {
+  background-color: transparent;
+  position: absolute;
+  z-index: var(--z-dropdown);
+  transition: background-color 0.2s ease;
+}
+.sidebar-resize-handle:hover {
+  background-color: var(--accent-blue);
+  opacity: 0.5;
+}
+.sidebar-resize-handle.vertical {
+  left: 0;
+  bottom: 0;
+  top: 0;
+  width: 4px;
+  cursor: ew-resize;
+}
+.sidebar-resize-handle.horizontal {
+  left: 0;
+  height: 4px;
+  right: 0;
+  top: 0;
+  cursor: ns-resize;
+}
+.bonitobook-button {
+  min-width: 80px;
+  font-weight: 500;
+  align-items: center;
+  display: inline-flex;
+  padding: var(--spacing-sm) var(--spacing-lg);
+  box-shadow: var(--shadow-button);
+  border-radius: var(--spacing-xs);
+  justify-content: center;
+  border: 1px solid var(--border-secondary);
+  background-color: var(--bg-primary);
+  font-size: var(--font-size-base);
+  transition: all var(--transition-slow);
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.bonitobook-button:hover {
+  border-color: var(--accent-blue);
+  background-color: var(--hover-bg);
+}
+.bonitobook-button:focus {
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-focus);
+  outline: none;
+}
+.bonitobook-button:active {
+  box-shadow: 0 var(--spacing-xs) var(--spacing-sm) 0 var(--shadow-color-button);
+  transform: translateY(1px);
+}
+.bonitobook-input {
+  border: 1px solid var(--border-secondary);
+  background-color: var(--bg-primary);
+  font-size: var(--font-size-base);
+  padding: var(--spacing-sm) var(--spacing-md);
+  color: var(--text-primary);
+  outline: none;
+  width: 100%;
+  border-radius: var(--spacing-xs);
+  transition: all var(--transition-slow);
+}
+.bonitobook-input:hover {
+  border-color: var(--accent-blue);
+}
+.bonitobook-input:focus {
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-focus);
+}
+.bonitobook-input:disabled {
+  background-color: var(--hover-bg);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+.bonitobook-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  height: var(--width-xs);
+  position: relative;
+  border-radius: var(--spacing-xxs);
+  border: 1px solid var(--border-secondary);
+  flex-shrink: 0;
+  width: var(--width-xs);
+  transition: all var(--transition-slow);
+  cursor: pointer;
+  margin: 0 var(--spacing-sm) 0 0;
+}
+.bonitobook-checkbox:hover {
+  border-color: var(--accent-blue);
+}
+.bonitobook-checkbox:focus {
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-focus);
+  outline: none;
+}
+.bonitobook-checkbox:checked {
+  border-color: var(--accent-blue);
+  background-color: var(--accent-blue);
+}
+.bonitobook-checkbox:checked::after {
+  left: 50%;
+  content: "✓";
+  font-size: var(--font-size-xs);
+  top: 50%;
+  color: white;
+  position: absolute;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+}
+.bonitobook-dropdown {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 36px;
+  background-repeat: no-repeat;
+  padding: var(--spacing-sm) var(--spacing-md);
+  outline: none;
+  border-radius: var(--spacing-xs);
+  background-position: right var(--spacing-md) center;
+  border: 1px solid var(--border-secondary);
+  background-color: var(--bg-primary);
+  font-size: var(--font-size-base);
+  width: 100%;
+  transition: all var(--transition-slow);
+  cursor: pointer;
+  background-size: var(--spacing-md);
+  color: var(--text-primary);
+}
+.bonitobook-dropdown:hover {
+  border-color: var(--accent-blue);
+}
+.bonitobook-dropdown:focus {
+  border-color: var(--accent-blue);
+  box-shadow: var(--shadow-focus);
+}
+.bonitobook-card {
+  border: 1px solid var(--border-secondary);
+  background-color: var(--bg-primary);
+  box-shadow: var(--shadow-soft);
+  padding: var(--spacing-sm);
+  color: var(--text-primary);
+  border-radius: var(--spacing-sm);
+  margin: var(--spacing-sm);
+  overflow: hidden;
+}
+.bonitobook-slider {
+  cursor: pointer;
+  height: 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  width: 100%;
+  border-radius: var(--spacing-xxs);
+  transition: all 0.2s ease;
+  background: var(--border-secondary);
+}
+.bonitobook-slider::-webkit-slider-thumb {
+  cursor: pointer;
+  height: var(--width-sm);
+  appearance: none;
+  border: 1px solid var(--bg-primary);
+  box-shadow: 0 var(--spacing-xxs) var(--spacing-xxs) 0 var(--shadow-color-button);
+  -webkit-appearance: none;
+  width: var(--width-sm);
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  background: var(--accent-blue);
+}
+.bonitobook-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 var(--spacing-xxs) var(--spacing-xs) 0 var(--shadow-color-button);
+  transform: scale(1.1);
+}
+.bonitobook-slider::-moz-range-thumb {
+  cursor: pointer;
+  height: var(--width-sm);
+  border: 2px solid var(--bg-primary);
+  box-shadow: 0 var(--spacing-xxs) 6px 0 var(--shadow-color-button);
+  width: var(--width-sm);
+  border-radius: 50%;
+  transition: all 0.2s ease;
+  background: var(--accent-blue);
+}
+.bonitobook-slider::-moz-range-track {
+  height: 6px;
+  border: none;
+  width: 100%;
+  border-radius: var(--spacing-xxs);
+  background: var(--border-secondary);
+}
+.bonitobook-slider:focus {
+  outline: none;
+}
+.bonitobook-slider:focus::-webkit-slider-thumb {
+  box-shadow: var(--shadow-focus), 0 var(--spacing-xxs) 6px 0 var(--shadow-color-button);
+}
+.manipulate-container {
+  display: flex;
+  border: 1px solid var(--border-primary);
+  padding: var(--spacing-lg);
+  gap: var(--spacing-lg);
+  border-radius: var(--spacing-sm);
+  margin: var(--spacing-lg) 0;
+  flex-direction: column;
+}
+.manipulate-controls {
+  display: flex;
+  padding: var(--spacing-md);
+  gap: var(--spacing-md);
+  flex-direction: column;
+}
+.manipulate-control-row {
+  align-items: center;
+  display: flex;
+  gap: var(--spacing-md);
+}
+.manipulate-label {
+  min-width: 120px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.manipulate-widget {
+  min-width: 0;
+  flex: 1;
+}
+.manipulate-output {
+  align-items: center;
+  display: flex;
+  padding: var(--spacing-md);
+  min-height: 100px;
+  border-radius: var(--spacing-xs);
+  justify-content: center;
+}
+.book-spinner {
+  height: 8px;
+  display: block;
+  box-shadow: 0 0 var(--spacing-sm) 0 var(--shadow-color-soft);
+  position: relative;
+  border-radius: 4px;
+  animation: spinner-stripes 1.5s linear infinite;
+  width: 100%;
+  overflow: hidden;
+  background-size: 40px 100%;
+  pointer-events: none;
+  background: repeating-linear-gradient(45deg, var(--accent-blue) 0px, var(--accent-blue) 10px, var(--border-primary) 10px, var(--border-primary) 20px);
+}
+@keyframes spinner-stripes {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 0;
+  }
+}
+.book-spinner.hidden {
+  opacity: 0;
+}
+.interactive-error-widget {
+  border: 1px solid #dc3545;
+  padding: var(--spacing-lg);
+  box-shadow: 0 var(--spacing-xxs) var(--spacing-sm) 0 var(--shadow-color-soft);
+  border-radius: var(--spacing-sm);
+  margin: var(--spacing-sm) 0;
+}
+.interactive-error-widget h4 {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #dc3545;
+  margin: 0 0 var(--spacing-sm) 0;
+}
+.interactive-error-widget pre {
+  border: 1px solid rgba(220, 53, 69, 0.2);
+  font-size: var(--font-size-sm);
+  padding: var(--spacing-md);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, Courier, monospace;
+  border-radius: var(--spacing-xs);
+  line-height: 1.4;
+  margin: var(--spacing-sm) 0;
+}
+.interactive-error-widget .collapsible-content > div > div {
+  transition: background-color 0.2s ease;
+  font-size: var(--font-size-xs);
+  padding: 4px 8px;
+  font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, Courier, monospace;
+  border-left: 3px solid var(--border-primary);
+  border-radius: 0 4px 4px 0;
+  line-height: 1.4;
+  margin: 2px 0;
+}
+.error-file-link {
+  padding: 1px 3px;
+  text-decoration: none;
+  color: var(--accent-blue);
+  font-family: SFMono-Regular, Consolas, Liberation Mono, Menlo, Courier, monospace;
+  border-radius: 3px;
+  transition: all var(--transition-slow);
+  cursor: pointer;
+}
+.error-file-link:hover {
+  background-color: rgba(3, 102, 214, 0.1);
+  text-decoration: underline;
+}
+.interactive-error-widget span[style*='font-weight: bold'] {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+@media (max-width: 768px) {
+  :root {
+    --editor-width: 95vw;
+  }
+}
+@media (max-width: 480px) {
+  :root {
+    --border-radius-small: 2px;
+    --border-radius-large: 3px;
+  }
+  .new-cell-plus {
+    left: -0.5rem;
+  }
+  .markdown-body {
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+  .new-cell-buttons {
+    left: -0.5rem;
+  }
+}
+</style>
+          </div>
+          <div data-jscall-id="9">
+            <script data-jscall-id="10" type="module">Bonito.init_session("dd2c89bd-de31-4f13-a96c-98b677f74db2", null, "sub", false);
+</script>
+            <span data-jscall-id="4"></span>
+          </div>
+        </div>
+      </div>
+      <div data-jscall-id="11">
+        <div class=" style_9" style="" data-jscall-id="12">
+          <div class=" style_8" style="" data-jscall-id="13">
+            <div data-jscall-id="14">
+              <div class="book-main-menu" data-jscall-id="15">
+                <div class="saving small-menu-bar" data-jscall-id="16">
+                  <img class="codicon  style_4" style="" data-jscall-id="17" src="bonito/svg/save10542206391802304284.svg" />
+                  <div onclick="" class="small-button" data-jscall-id="18">
+                    <img class="codicon  style_4" style="" data-jscall-id="19" src="bonito/svg/markdown5122053856860942473.svg" />
+                  </div>
+                  <div onclick="" class="small-button" data-jscall-id="20">
+                    <img class="codicon  style_4" style="" data-jscall-id="21" src="bonito/svg/file-pdf10350221278639379597.svg" />
+                  </div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="ccadf02d-de9b-41f3-802f-e375dac61b57" data-jscall-id="22">
+                <div class=" style_7" style="" data-jscall-id="23" id="ccadf02d-de9b-41f3-802f-e375dac61b57-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="24">
+                    <div class="hover-buttons" id="ccadf02d-de9b-41f3-802f-e375dac61b57-hover" data-jscall-id="25">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="26">
+                        <img class="codicon  style_4" style="" data-jscall-id="27" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="28">
+                        <img class="codicon  style_4" style="" data-jscall-id="29" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="30">
+                        <img class="codicon  style_4" style="" data-jscall-id="31" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="32">
+                        <img class="codicon  style_5" style="" data-jscall-id="33" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="ccadf02d-de9b-41f3-802f-e375dac61b57-card-content" data-jscall-id="34" style="position: relative;">
+                      <div data-jscall-id="35">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="36"></div>
+                      </div>
+                      <div data-jscall-id="38">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="39">
+                          <span data-jscall-id="40"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="41" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="42" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="37">
+                        <div data-jscall-id="53">
+                          <div class="bonito-fragment" id="1a8f6023-05ae-4d8e-9ecc-2134ac14f629" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="54">
+                              <style data-jscall-id="55"></style>
+                            </div>
+                            <div data-jscall-id="56">
+                              <script data-jscall-id="57" type="module">Bonito.init_session("1a8f6023-05ae-4d8e-9ecc-2134ac14f629", null, "sub", false);
+</script>
+                              <span data-jscall-id="43">
+                                <div class="markdown-body" data-jscall-id="44">
+                                  <h1 id="" data-jscall-id="45">BVH Hit Testing: 
+                                    <code data-jscall-id="46">closest_hit</code> vs 
+                                    <code data-jscall-id="47">any_hit</code>
+                                  </h1>
+                                  <p data-jscall-id="48">This document tests and visualizes the difference between 
+                                    <code data-jscall-id="49">closest_hit</code> and 
+                                    <code data-jscall-id="50">any_hit</code> functions in the BVH implementation using the new 
+                                    <code data-jscall-id="51">RayIntersectionSession</code> API.
+                                  </p>
+                                  <h2 id="Test Setup" data-jscall-id="52">Test Setup</h2>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="58"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="75602929-cd28-4b94-acec-2c071fcae4ff" data-jscall-id="59">
+                <div class=" style_7" style="" data-jscall-id="60" id="75602929-cd28-4b94-acec-2c071fcae4ff-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="61">
+                    <div class="hover-buttons" id="75602929-cd28-4b94-acec-2c071fcae4ff-hover" data-jscall-id="62">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="63">
+                        <img class="codicon  style_4" style="" data-jscall-id="64" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="65">
+                        <img class="codicon  style_4" style="" data-jscall-id="66" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="67">
+                        <img class="codicon  style_4" style="" data-jscall-id="68" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="69">
+                        <img class="codicon  style_5" style="" data-jscall-id="70" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="75602929-cd28-4b94-acec-2c071fcae4ff-card-content" data-jscall-id="71" style="position: relative;">
+                      <div data-jscall-id="72">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="73"></div>
+                      </div>
+                      <div data-jscall-id="75">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="76">
+                          <span data-jscall-id="77"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="78" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="79" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="74">
+                        <div data-jscall-id="82">
+                          <div class="bonito-fragment" id="caec350e-7f15-4597-b583-e3ab6473b3b4" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="83">
+                              <style data-jscall-id="84"></style>
+                            </div>
+                            <div data-jscall-id="85">
+                              <script data-jscall-id="86" type="module">Bonito.init_session("caec350e-7f15-4597-b583-e3ab6473b3b4", null, "sub", false);
+</script>
+                              <span data-jscall-id="80">
+                                <div data-jscall-id="81">✓ Created BVH with 2166 triangles from 3 spheres</div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="87"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="506570e0-d624-4816-b088-b44a4d460637" data-jscall-id="88">
+                <div class=" style_7" style="" data-jscall-id="89" id="506570e0-d624-4816-b088-b44a4d460637-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="90">
+                    <div class="hover-buttons" id="506570e0-d624-4816-b088-b44a4d460637-hover" data-jscall-id="91">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="92">
+                        <img class="codicon  style_4" style="" data-jscall-id="93" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="94">
+                        <img class="codicon  style_4" style="" data-jscall-id="95" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="96">
+                        <img class="codicon  style_4" style="" data-jscall-id="97" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="98">
+                        <img class="codicon  style_5" style="" data-jscall-id="99" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="506570e0-d624-4816-b088-b44a4d460637-card-content" data-jscall-id="100" style="position: relative;">
+                      <div data-jscall-id="101">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="102"></div>
+                      </div>
+                      <div data-jscall-id="104">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="105">
+                          <span data-jscall-id="106"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="107" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="108" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="103">
+                        <div data-jscall-id="113">
+                          <div class="bonito-fragment" id="87e9151f-aa45-4053-9fc6-12ad39b4f2cc" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="114">
+                              <style data-jscall-id="115"></style>
+                            </div>
+                            <div data-jscall-id="116">
+                              <script data-jscall-id="117" type="module">Bonito.init_session("87e9151f-aa45-4053-9fc6-12ad39b4f2cc", null, "sub", false);
+</script>
+                              <span data-jscall-id="109">
+                                <div class="markdown-body" data-jscall-id="110">
+                                  <h2 id="Test 1: Single Ray Through Center" data-jscall-id="111">Test 1: Single Ray Through Center</h2>
+                                  <p data-jscall-id="112">Test a ray through the center that passes through all three spheres.</p>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="118"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="b6e5faac-4e4a-485d-807e-be5e47b46a53" data-jscall-id="119">
+                <div class=" style_7" style="" data-jscall-id="120" id="b6e5faac-4e4a-485d-807e-be5e47b46a53-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="121">
+                    <div class="hover-buttons" id="b6e5faac-4e4a-485d-807e-be5e47b46a53-hover" data-jscall-id="122">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="123">
+                        <img class="codicon  style_4" style="" data-jscall-id="124" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="125">
+                        <img class="codicon  style_4" style="" data-jscall-id="126" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="127">
+                        <img class="codicon  style_4" style="" data-jscall-id="128" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="129">
+                        <img class="codicon  style_5" style="" data-jscall-id="130" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="b6e5faac-4e4a-485d-807e-be5e47b46a53-card-content" data-jscall-id="131" style="position: relative;">
+                      <div data-jscall-id="132">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="133"></div>
+                      </div>
+                      <div data-jscall-id="135">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="136">
+                          <span data-jscall-id="137"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="138" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="139" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="134">
+                        <div data-jscall-id="143">
+                          <div class="bonito-fragment" id="2510566f-8253-4760-8918-83aa17882adb" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="144">
+                              <style data-jscall-id="145"></style>
+                            </div>
+                            <div data-jscall-id="146">
+                              <script data-jscall-id="147" type="module">Bonito.init_session("2510566f-8253-4760-8918-83aa17882adb", Bonito.fetch_binary('bonito/bin/55db88e1a9b9542cc7b6eb5f5903db58a8f5209d-17459947253493004944.bin'), "sub", false);
+</script>
+                              <span data-jscall-id="140">
+                                <div style="width: 100%; height: 100%" data-jscall-id="141">
+                                  <canvas data-jp-suppress-context-menu style="display: block" data-jscall-id="142" data-lm-suppress-shortcuts="true" tabindex="0"></canvas>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="148"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="6bbc0f83-60f3-4474-9d7a-838377a7975e" data-jscall-id="149">
+                <div class=" style_7" style="" data-jscall-id="150" id="6bbc0f83-60f3-4474-9d7a-838377a7975e-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="151">
+                    <div class="hover-buttons" id="6bbc0f83-60f3-4474-9d7a-838377a7975e-hover" data-jscall-id="152">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="153">
+                        <img class="codicon  style_4" style="" data-jscall-id="154" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="155">
+                        <img class="codicon  style_4" style="" data-jscall-id="156" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="157">
+                        <img class="codicon  style_4" style="" data-jscall-id="158" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="159">
+                        <img class="codicon  style_5" style="" data-jscall-id="160" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="6bbc0f83-60f3-4474-9d7a-838377a7975e-card-content" data-jscall-id="161" style="position: relative;">
+                      <div data-jscall-id="162">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="163"></div>
+                      </div>
+                      <div data-jscall-id="165">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="166">
+                          <span data-jscall-id="167"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="168" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="169" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="164">
+                        <div data-jscall-id="173">
+                          <div class="bonito-fragment" id="8a9dfef7-8bdd-4f6c-91b4-5950dee817e8" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="174">
+                              <style data-jscall-id="175"></style>
+                            </div>
+                            <div data-jscall-id="176">
+                              <script data-jscall-id="177" type="module">Bonito.init_session("8a9dfef7-8bdd-4f6c-91b4-5950dee817e8", null, "sub", false);
+</script>
+                              <span data-jscall-id="170">
+                                <div class="markdown-body" data-jscall-id="171">
+                                  <h2 id="Visualization: Single Ray with Makie Recipe" data-jscall-id="172">Visualization: Single Ray with Makie Recipe</h2>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="178"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="3c84a2a5-bf4b-4efc-99c4-5247472c8980" data-jscall-id="179">
+                <div class=" style_7" style="" data-jscall-id="180" id="3c84a2a5-bf4b-4efc-99c4-5247472c8980-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="181">
+                    <div class="hover-buttons" id="3c84a2a5-bf4b-4efc-99c4-5247472c8980-hover" data-jscall-id="182">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="183">
+                        <img class="codicon  style_4" style="" data-jscall-id="184" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="185">
+                        <img class="codicon  style_4" style="" data-jscall-id="186" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="187">
+                        <img class="codicon  style_4" style="" data-jscall-id="188" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="189">
+                        <img class="codicon  style_5" style="" data-jscall-id="190" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="3c84a2a5-bf4b-4efc-99c4-5247472c8980-card-content" data-jscall-id="191" style="position: relative;">
+                      <div data-jscall-id="192">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="193"></div>
+                      </div>
+                      <div data-jscall-id="195">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="196">
+                          <span data-jscall-id="197"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="198" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="199" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="194">
+                        <div data-jscall-id="203">
+                          <div class="bonito-fragment" id="21ba5862-de53-4ab5-b5fd-88d0c524df46" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="204">
+                              <style data-jscall-id="205"></style>
+                            </div>
+                            <div data-jscall-id="206">
+                              <script data-jscall-id="207" type="module">Bonito.init_session("21ba5862-de53-4ab5-b5fd-88d0c524df46", Bonito.fetch_binary('bonito/bin/47bdfff3605caa72ed8141b38b04fafd5bf69302-11537196482451411628.bin'), "sub", false);
+</script>
+                              <span data-jscall-id="200">
+                                <div style="width: 100%; height: 100%" data-jscall-id="201">
+                                  <canvas data-jp-suppress-context-menu style="display: block" data-jscall-id="202" data-lm-suppress-shortcuts="true" tabindex="0"></canvas>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="208"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="a8b6a5bd-317f-428b-a175-4e33862e0103" data-jscall-id="209">
+                <div class=" style_7" style="" data-jscall-id="210" id="a8b6a5bd-317f-428b-a175-4e33862e0103-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="211">
+                    <div class="hover-buttons" id="a8b6a5bd-317f-428b-a175-4e33862e0103-hover" data-jscall-id="212">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="213">
+                        <img class="codicon  style_4" style="" data-jscall-id="214" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="215">
+                        <img class="codicon  style_4" style="" data-jscall-id="216" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="217">
+                        <img class="codicon  style_4" style="" data-jscall-id="218" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="219">
+                        <img class="codicon  style_5" style="" data-jscall-id="220" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="a8b6a5bd-317f-428b-a175-4e33862e0103-card-content" data-jscall-id="221" style="position: relative;">
+                      <div data-jscall-id="222">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="223"></div>
+                      </div>
+                      <div data-jscall-id="225">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="226">
+                          <span data-jscall-id="227"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="228" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="229" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="224">
+                        <div data-jscall-id="234">
+                          <div class="bonito-fragment" id="b2858ebd-a824-4d65-b516-f21c5d671d35" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="235">
+                              <style data-jscall-id="236"></style>
+                            </div>
+                            <div data-jscall-id="237">
+                              <script data-jscall-id="238" type="module">Bonito.init_session("b2858ebd-a824-4d65-b516-f21c5d671d35", null, "sub", false);
+</script>
+                              <span data-jscall-id="230">
+                                <div class="markdown-body" data-jscall-id="231">
+                                  <h2 id="Test 2: Multiple Rays from Different Positions" data-jscall-id="232">Test 2: Multiple Rays from Different Positions</h2>
+                                  <p data-jscall-id="233">Test multiple rays to ensure both functions work correctly.</p>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="239"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="87d6934a-c27d-4017-ba6b-a20ffb8da780" data-jscall-id="240">
+                <div class=" style_7" style="" data-jscall-id="241" id="87d6934a-c27d-4017-ba6b-a20ffb8da780-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="242">
+                    <div class="hover-buttons" id="87d6934a-c27d-4017-ba6b-a20ffb8da780-hover" data-jscall-id="243">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="244">
+                        <img class="codicon  style_4" style="" data-jscall-id="245" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="246">
+                        <img class="codicon  style_4" style="" data-jscall-id="247" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="248">
+                        <img class="codicon  style_4" style="" data-jscall-id="249" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="250">
+                        <img class="codicon  style_5" style="" data-jscall-id="251" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="87d6934a-c27d-4017-ba6b-a20ffb8da780-card-content" data-jscall-id="252" style="position: relative;">
+                      <div data-jscall-id="253">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="254"></div>
+                      </div>
+                      <div data-jscall-id="256">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="257">
+                          <span data-jscall-id="258"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="259" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="260" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="255">
+                        <div data-jscall-id="264">
+                          <div class="bonito-fragment" id="8baffff5-9d84-43fc-9a54-2ee1fad5c208" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="265">
+                              <style data-jscall-id="266"></style>
+                            </div>
+                            <div data-jscall-id="267">
+                              <script data-jscall-id="268" type="module">Bonito.init_session("8baffff5-9d84-43fc-9a54-2ee1fad5c208", Bonito.fetch_binary('bonito/bin/ae37cab9f03ccc314f0b5395708b281ee927180d-16450728430544625120.bin'), "sub", false);
+</script>
+                              <span data-jscall-id="261">
+                                <div style="width: 100%; height: 100%" data-jscall-id="262">
+                                  <canvas data-jp-suppress-context-menu style="display: block" data-jscall-id="263" data-lm-suppress-shortcuts="true" tabindex="0"></canvas>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="269"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="831e1160-8f8f-4073-a4d1-b5d71ab5d47c" data-jscall-id="270">
+                <div class=" style_7" style="" data-jscall-id="271" id="831e1160-8f8f-4073-a4d1-b5d71ab5d47c-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="272">
+                    <div class="hover-buttons" id="831e1160-8f8f-4073-a4d1-b5d71ab5d47c-hover" data-jscall-id="273">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="274">
+                        <img class="codicon  style_4" style="" data-jscall-id="275" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="276">
+                        <img class="codicon  style_4" style="" data-jscall-id="277" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="278">
+                        <img class="codicon  style_4" style="" data-jscall-id="279" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="280">
+                        <img class="codicon  style_5" style="" data-jscall-id="281" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="831e1160-8f8f-4073-a4d1-b5d71ab5d47c-card-content" data-jscall-id="282" style="position: relative;">
+                      <div data-jscall-id="283">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="284"></div>
+                      </div>
+                      <div data-jscall-id="286">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="287">
+                          <span data-jscall-id="288"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="289" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="290" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="285">
+                        <div data-jscall-id="299">
+                          <div class="bonito-fragment" id="ed630444-fe15-44b3-8a67-4e06b70659a0" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="300">
+                              <style data-jscall-id="301"></style>
+                            </div>
+                            <div data-jscall-id="302">
+                              <script data-jscall-id="303" type="module">Bonito.init_session("ed630444-fe15-44b3-8a67-4e06b70659a0", null, "sub", false);
+</script>
+                              <span data-jscall-id="291">
+                                <div class="markdown-body" data-jscall-id="292">
+                                  <h2 id="Visualization: Multiple Rays" data-jscall-id="293">Visualization: Multiple Rays</h2>
+                                  <h2 id="" data-jscall-id="294">Test 4: Difference Between any
+                                    <em data-jscall-id="295">hit and closest</em>hit
+                                  </h2>
+                                  <p data-jscall-id="296">Demonstrate that 
+                                    <code data-jscall-id="297">any_hit</code> can return different results than 
+                                    <code data-jscall-id="298">closest_hit</code>.
+                                  </p>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="304"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="31e9bf87-1328-4b76-922f-d9b5a195598c" data-jscall-id="305">
+                <div class=" style_7" style="" data-jscall-id="306" id="31e9bf87-1328-4b76-922f-d9b5a195598c-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="307">
+                    <div class="hover-buttons" id="31e9bf87-1328-4b76-922f-d9b5a195598c-hover" data-jscall-id="308">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="309">
+                        <img class="codicon  style_4" style="" data-jscall-id="310" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="311">
+                        <img class="codicon  style_4" style="" data-jscall-id="312" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="313">
+                        <img class="codicon  style_4" style="" data-jscall-id="314" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="315">
+                        <img class="codicon  style_5" style="" data-jscall-id="316" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="31e9bf87-1328-4b76-922f-d9b5a195598c-card-content" data-jscall-id="317" style="position: relative;">
+                      <div data-jscall-id="318">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="319"></div>
+                      </div>
+                      <div data-jscall-id="321">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="322">
+                          <span data-jscall-id="323"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="324" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="325" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="320">
+                        <div data-jscall-id="329">
+                          <div class="bonito-fragment" id="c9363adb-08d2-48c8-8245-1439430989e9" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="330">
+                              <style data-jscall-id="331"></style>
+                            </div>
+                            <div data-jscall-id="332">
+                              <script data-jscall-id="333" type="module">Bonito.init_session("c9363adb-08d2-48c8-8245-1439430989e9", Bonito.fetch_binary('bonito/bin/9092466889d521f3f95878e21867541b243bd7ba-4335613664252194129.bin'), "sub", false);
+</script>
+                              <span data-jscall-id="326">
+                                <div style="width: 100%; height: 100%" data-jscall-id="327">
+                                  <canvas data-jp-suppress-context-menu style="display: block" data-jscall-id="328" data-lm-suppress-shortcuts="true" tabindex="0"></canvas>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="334"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="05a90500-b56b-4151-bd72-feb5413f1fe0" data-jscall-id="335">
+                <div class=" style_7" style="" data-jscall-id="336" id="05a90500-b56b-4151-bd72-feb5413f1fe0-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="337">
+                    <div class="hover-buttons" id="05a90500-b56b-4151-bd72-feb5413f1fe0-hover" data-jscall-id="338">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="339">
+                        <img class="codicon  style_4" style="" data-jscall-id="340" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="341">
+                        <img class="codicon  style_4" style="" data-jscall-id="342" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="343">
+                        <img class="codicon  style_4" style="" data-jscall-id="344" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="345">
+                        <img class="codicon  style_5" style="" data-jscall-id="346" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="05a90500-b56b-4151-bd72-feb5413f1fe0-card-content" data-jscall-id="347" style="position: relative;">
+                      <div data-jscall-id="348">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="349"></div>
+                      </div>
+                      <div data-jscall-id="351">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="352">
+                          <span data-jscall-id="353"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="354" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="355" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="350">
+                        <div data-jscall-id="383">
+                          <div class="bonito-fragment" id="89019c40-2e14-476e-ac60-9deadaa1b2ae" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="384">
+                              <style data-jscall-id="385">.style_2 {
+  list-style-type: disc;
+}
+</style>
+                            </div>
+                            <div data-jscall-id="386">
+                              <script data-jscall-id="387" type="module">Bonito.init_session("89019c40-2e14-476e-ac60-9deadaa1b2ae", null, "sub", false);
+</script>
+                              <span data-jscall-id="356">
+                                <div class="markdown-body" data-jscall-id="357">
+                                  <p data-jscall-id="358">
+                                    <strong data-jscall-id="359">Key Findings:</strong>
+                                  </p>
+                                  <ul class=" style_2" style="" data-jscall-id="360">
+                                    <li data-jscall-id="361">
+                                      <p data-jscall-id="362">
+                                        <code data-jscall-id="363">any_hit</code> exits on the 
+                                        <strong data-jscall-id="364">first</strong> intersection during BVH traversal &#40;uses 
+                                        <code data-jscall-id="365">intersect</code>, doesn&#39;t update ray&#41;
+                                      </p>
+                                    </li>
+                                    <li data-jscall-id="366">
+                                      <p data-jscall-id="367">
+                                        <code data-jscall-id="368">closest_hit</code> continues searching and updates ray&#39;s 
+                                        <code data-jscall-id="369">t_max</code> &#40;uses 
+                                        <code data-jscall-id="370">intersect_p&#33;</code>&#41;
+                                      </p>
+                                    </li>
+                                    <li data-jscall-id="371">
+                                      <p data-jscall-id="372">In complex scenes with overlapping geometry, 
+                                        <code data-jscall-id="373">any_hit</code> can return hits that are significantly farther
+                                      </p>
+                                    </li>
+                                    <li data-jscall-id="374">
+                                      <p data-jscall-id="375">Both always agree on 
+                                        <strong data-jscall-id="376">whether</strong> a hit occurred &#40;hit vs miss&#41;
+                                      </p>
+                                    </li>
+                                    <li data-jscall-id="377">
+                                      <p data-jscall-id="378">The difference appears when BVH traversal order differs from spatial distance order</p>
+                                    </li>
+                                  </ul>
+                                  <h2 id="Performance Comparison" data-jscall-id="379">Performance Comparison</h2>
+                                  <p data-jscall-id="380">Compare the performance of 
+                                    <code data-jscall-id="381">closest_hit</code> vs 
+                                    <code data-jscall-id="382">any_hit</code>.
+                                  </p>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="388"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="59586e79-f8a9-47d3-98e7-cc9287279888" data-jscall-id="389">
+                <div class=" style_7" style="" data-jscall-id="390" id="59586e79-f8a9-47d3-98e7-cc9287279888-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="391">
+                    <div class="hover-buttons" id="59586e79-f8a9-47d3-98e7-cc9287279888-hover" data-jscall-id="392">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="393">
+                        <img class="codicon  style_4" style="" data-jscall-id="394" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="395">
+                        <img class="codicon  style_4" style="" data-jscall-id="396" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="397">
+                        <img class="codicon  style_4" style="" data-jscall-id="398" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="399">
+                        <img class="codicon  style_5" style="" data-jscall-id="400" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="59586e79-f8a9-47d3-98e7-cc9287279888-card-content" data-jscall-id="401" style="position: relative;">
+                      <div data-jscall-id="402">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="403"></div>
+                      </div>
+                      <div data-jscall-id="405">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="406">
+                          <span data-jscall-id="407"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="408" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="409" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="404">
+                        <div data-jscall-id="411">
+                          <div class="bonito-fragment" id="aab6b69a-80cf-455c-8016-13b252518cf6" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="412">
+                              <style data-jscall-id="413"></style>
+                            </div>
+                            <div data-jscall-id="414">
+                              <script data-jscall-id="415" type="module">Bonito.init_session("aab6b69a-80cf-455c-8016-13b252518cf6", null, "sub", false);
+</script>
+                              <span data-jscall-id="410">
+                                <span class="text-plain" style="white-space: pre-wrap" data-jscall-id="416">render_io &#40;generic function with 1 method&#41;</span>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="417"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container" id="f28e9e4a-eaf6-4694-b9eb-a268fa4e16cd" data-jscall-id="418">
+                <div class=" style_7" style="" data-jscall-id="419" id="f28e9e4a-eaf6-4694-b9eb-a268fa4e16cd-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="420">
+                    <div class="hover-buttons" id="f28e9e4a-eaf6-4694-b9eb-a268fa4e16cd-hover" data-jscall-id="421">
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="422">
+                        <img class="codicon  style_4" style="" data-jscall-id="423" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="424">
+                        <img class="codicon  style_4" style="" data-jscall-id="425" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="426">
+                        <img class="codicon  style_4" style="" data-jscall-id="427" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="428">
+                        <img class="codicon  style_5" style="" data-jscall-id="429" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor " id="f28e9e4a-eaf6-4694-b9eb-a268fa4e16cd-card-content" data-jscall-id="430" style="position: relative;">
+                      <div data-jscall-id="431">
+                        <div class="monaco-editor-div language-julia" data-jscall-id="432"></div>
+                      </div>
+                      <div data-jscall-id="434">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="435">
+                          <span data-jscall-id="436"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="437" src="bonito/svg/julia-logo6096055169479630173.svg" />
+                    </div>
+                    <div data-jscall-id="438" tabindex="0">
+                      <div class="cell-output cell-output-julia " data-jscall-id="433">
+                        <div data-jscall-id="440">
+                          <div class="bonito-fragment" id="6410087d-1c5e-4998-b764-74820a53aad0" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="441">
+                              <style data-jscall-id="442"></style>
+                            </div>
+                            <div data-jscall-id="443">
+                              <script data-jscall-id="444" type="module">Bonito.init_session("6410087d-1c5e-4998-b764-74820a53aad0", null, "sub", false);
+</script>
+                              <span data-jscall-id="439">
+                                <div class="interactive-error-widget" style="border: 1px solid var(--border-primary); border-radius: 8px; padding: 16px; margin: 8px 0; background-color: var(--bg-primary);" data-jscall-id="445">
+                                  <div style="margin-bottom: 16px;" data-jscall-id="446">
+                                    <h4 style="color: #dc3545; margin: 0 0 8px 0; font-size: 1.1em;" data-jscall-id="447">Error: LoadError</h4>
+                                    <pre style="background-color: #f8d7da; color: #721c24; padding: 12px; border-radius: 6px; margin: 8px 0; font-family: monospace; white-space: pre-wrap; word-wrap: break-word;" data-jscall-id="448">LoadError: ArgumentError: Package BenchmarkTools not found in current path.
+- Run &#96;import Pkg; Pkg.add&#40;&#34;BenchmarkTools&#34;&#41;&#96; to install the BenchmarkTools package.
+in expression starting at string:1</pre>
+                                  </div>
+                                  <div data-jscall-id="449">
+                                    <div class="collapsible-widget" id="collapsible-15607078672602567798" data-jscall-id="450">
+                                      <div class="collapsible-header" style="cursor: pointer; padding: 2px 4px; user-select: none; display: flex; align-items: center;" data-jscall-id="451">
+                                        <span class="collapsible-toggle" data-jscall-id="452">▶</span>
+                                        <span style="margin-left: 5px; color: var(--text-secondary); font-size: 0.9em;" data-jscall-id="453"> Stacktrace</span>
+                                      </div>
+                                      <div class="collapsible-content" style="margin-top: 4px; padding-left: 16px; display: none;" data-jscall-id="454">
+                                        <div data-jscall-id="455">
+                                          <div style="margin: 8px 0; text-align: right; display: flex; align-items: center; justify-content: flex-end;" data-jscall-id="456">
+                                            <span data-jscall-id="457">
+                                              <button class="small-button " data-jscall-id="7914907890364148723" title="Toggle stacktrace filtering">
+                                                <img class="codicon  style_4" style="" data-jscall-id="458" src="bonito/svg/filter10408791650207312954.svg" />
+                                              </button>
+                                            </span>
+                                            <span style="margin-left: 8px; font-size: 0.9em; color: var(--text-secondary);" data-jscall-id="459">
+                                              <span data-jscall-id="460">Show Full Stacktrace</span>
+                                            </span>
+                                          </div>
+                                          <div style="max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.4; background-color: var(--bg-primary, #fff); padding: 8px; border-radius: 4px;" data-jscall-id="461">
+                                            <div data-jscall-id="512">
+                                              <div class="bonito-fragment" id="ee6e3788-9ac1-4be8-9a58-c446458406df" data-jscall-id="subsession-application-dom">
+                                                <div data-jscall-id="513">
+                                                  <style data-jscall-id="514"></style>
+                                                </div>
+                                                <div data-jscall-id="515">
+                                                  <script data-jscall-id="516" type="module">Bonito.init_session("ee6e3788-9ac1-4be8-9a58-c446458406df", Bonito.fetch_binary('bonito/bin/e7bf4ba37996bb2ba6074623df4f4846649ff635-7190728648626025188.bin'), "sub", false);
+</script>
+                                                  <div class="stacktrace-content" data-jscall-id="462">
+                                                    <span data-jscall-id="463">Stacktrace:</span>
+                                                    <br data-jscall-id="464" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="465">  &#91;1&#93; macro expansion</span>
+                                                    <br data-jscall-id="466" />
+                                                    <span data-jscall-id="467">    &#64; 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="468" title="Click to open ./loading.jl:2375 in editor">./loading.jl:2375</a> &#91;inlined&#93;
+                                                    </span>
+                                                    <br data-jscall-id="469" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="470">  &#91;2&#93; macro expansion</span>
+                                                    <br data-jscall-id="471" />
+                                                    <span data-jscall-id="472">    &#64; 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="473" title="Click to open ./lock.jl:376 in editor">./lock.jl:376</a> &#91;inlined&#93;
+                                                    </span>
+                                                    <br data-jscall-id="474" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="475">  &#91;3&#93; __require&#40;into::Module, mod::Symbol&#41;</span>
+                                                    <br data-jscall-id="476" />
+                                                    <span data-jscall-id="477">    &#64; Base 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="478" title="Click to open ./loading.jl:2358 in editor">./loading.jl:2358</a>
+                                                    </span>
+                                                    <br data-jscall-id="479" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="480">  &#91;4&#93; require&#40;into::Module, mod::Symbol&#41;</span>
+                                                    <br data-jscall-id="481" />
+                                                    <span data-jscall-id="482">    &#64; Base 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="483" title="Click to open ./loading.jl:2334 in editor">./loading.jl:2334</a>
+                                                    </span>
+                                                    <br data-jscall-id="484" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="485">  &#91;5&#93; eval&#40;m::Module, e::Any&#41;</span>
+                                                    <br data-jscall-id="486" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="487">  &#91;6&#93; include_string&#40;mapexpr::typeof&#40;identity&#41;, mod::Module, code::String, filename::String&#41;</span>
+                                                    <br data-jscall-id="488" />
+                                                    <span data-jscall-id="489">    &#64; Base 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="490" title="Click to open ./loading.jl:2842 in editor">./loading.jl:2842</a>
+                                                    </span>
+                                                    <br data-jscall-id="491" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="492">  &#91;7&#93; include_string &#40;repeats 2 times&#41;</span>
+                                                    <br data-jscall-id="493" />
+                                                    <span data-jscall-id="494">    &#64; 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="495" title="Click to open ./loading.jl:2852 in editor">./loading.jl:2852</a> &#91;inlined&#93;
+                                                    </span>
+                                                    <br data-jscall-id="496" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="497">  &#91;8&#93; eval_code&#40;::BonitoBook.JuliaEval, mod::Module, file::String, line::Int64, source::String&#41;</span>
+                                                    <br data-jscall-id="498" />
+                                                    <span data-jscall-id="499">    &#64; BonitoBook 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="500" title="Click to open ~/.julia/packages/BonitoBook/6FbaX/src/runners.jl:59 in editor">~/.julia/packages/BonitoBook/6FbaX/src/runners.jl:59</a>
+                                                    </span>
+                                                    <br data-jscall-id="501" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="502">  &#91;9&#93; run&#33;&#40;mod::Module, language_evaluators::Dict&#123;String, BonitoBook.LanguageEval&#125;, task::BonitoBook.RunnerTask&#41;</span>
+                                                    <br data-jscall-id="503" />
+                                                    <span data-jscall-id="504">    &#64; BonitoBook 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="505" title="Click to open ~/.julia/packages/BonitoBook/6FbaX/src/runners.jl:318 in editor">~/.julia/packages/BonitoBook/6FbaX/src/runners.jl:318</a>
+                                                    </span>
+                                                    <br data-jscall-id="506" />
+                                                    <span style="color: darkred; font-weight: bold;" data-jscall-id="507"> &#91;10&#93; &#40;::BonitoBook.var&#34;#run_sync&#33;##0#run_sync&#33;##1&#34;&#123;BonitoBook.AsyncRunner, BonitoBook.EvalEditor&#125;&#41;&#40;&#41;</span>
+                                                    <br data-jscall-id="508" />
+                                                    <span data-jscall-id="509">    &#64; BonitoBook 
+                                                      <a onclick="" class="error-file-link" href="#" data-jscall-id="510" title="Click to open ~/.julia/packages/BonitoBook/6FbaX/src/runners.jl:286 in editor">~/.julia/packages/BonitoBook/6FbaX/src/runners.jl:286</a>
+                                                    </span>
+                                                    <br data-jscall-id="511" />
+                                                  </div>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="517"></div>
+                </div>
+              </div>
+              <div class="cell-editor-container editor-collapsed" id="b06c5bd3-fe33-44a0-81b6-8da79d5b8498" data-jscall-id="518">
+                <div class=" style_7" style="" data-jscall-id="519" id="b06c5bd3-fe33-44a0-81b6-8da79d5b8498-container" tabindex="0">
+                  <div class=" style_7" style="" data-jscall-id="520">
+                    <div class="hover-buttons" id="b06c5bd3-fe33-44a0-81b6-8da79d5b8498-hover" data-jscall-id="521">
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="522">
+                        <img class="codicon  style_4" style="" data-jscall-id="523" src="bonito/svg/code18139302498156533340.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button" data-jscall-id="524">
+                        <img class="codicon  style_4" style="" data-jscall-id="525" src="bonito/svg/terminal3126302118537120484.svg" />
+                      </button>
+                      <button onclick="" class="small-button toggle-button active" data-jscall-id="526">
+                        <img class="codicon  style_4" style="" data-jscall-id="527" src="bonito/svg/graph187889671474048740.svg" />
+                      </button>
+                      <button onclick="" class="small-button" data-jscall-id="528">
+                        <img class="codicon  style_5" style="" data-jscall-id="529" src="bonito/svg/close17235711529866555203.svg" />
+                      </button>
+                    </div>
+                    <div class="cell-editor hide-vertical" id="b06c5bd3-fe33-44a0-81b6-8da79d5b8498-card-content" data-jscall-id="530" style="position: relative;">
+                      <div data-jscall-id="531">
+                        <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="532"></div>
+                      </div>
+                      <div data-jscall-id="534">
+                        <div class="cell-logging hide-horizontal" data-jscall-id="535">
+                          <span data-jscall-id="536"></span>
+                        </div>
+                      </div>
+                      <img class="codicon small-language-icon style_6" style="" data-jscall-id="537" src="bonito/svg/markdown5122053856860942473.svg" />
+                    </div>
+                    <div data-jscall-id="538" tabindex="0">
+                      <div class="cell-output cell-output-markdown " data-jscall-id="533">
+                        <div data-jscall-id="601">
+                          <div class="bonito-fragment" id="483ac0bb-6569-4d28-8549-2a20c754ee83" data-jscall-id="subsession-application-dom">
+                            <div data-jscall-id="602">
+                              <style data-jscall-id="603">.style_3 {
+  list-style-type: disc;
+}
+</style>
+                            </div>
+                            <div data-jscall-id="604">
+                              <script data-jscall-id="605" type="module">Bonito.init_session("483ac0bb-6569-4d28-8549-2a20c754ee83", null, "sub", false);
+</script>
+                              <span data-jscall-id="539">
+                                <div class="markdown-body" data-jscall-id="540">
+                                  <h2 id="Summary" data-jscall-id="541">Summary</h2>
+                                  <p data-jscall-id="542">This document demonstrated:</p>
+                                  <ol class=" style_3" style="" data-jscall-id="543">
+                                    <li data-jscall-id="544">
+                                      <p data-jscall-id="545">
+                                        <strong data-jscall-id="546">
+                                          <code data-jscall-id="547">RayIntersectionSession</code>
+                                        </strong> - A convenient struct for managing ray tracing sessions
+                                      </p>
+                                      <ul class=" style_3" style="" data-jscall-id="548">
+                                        <li data-jscall-id="549">
+                                          <p data-jscall-id="550">Bundles rays, BVH, hit function, and results together</p>
+                                        </li>
+                                        <li data-jscall-id="551">
+                                          <p data-jscall-id="552">Provides helper functions: 
+                                            <code data-jscall-id="553">hit_count&#40;&#41;</code>, 
+                                            <code data-jscall-id="554">miss_count&#40;&#41;</code>, 
+                                            <code data-jscall-id="555">hit_points&#40;&#41;</code>, 
+                                            <code data-jscall-id="556">hit_distances&#40;&#41;</code>
+                                          </p>
+                                        </li>
+                                      </ul>
+                                    </li>
+                                    <li data-jscall-id="557">
+                                      <p data-jscall-id="558">
+                                        <strong data-jscall-id="559">Makie visualization recipe</strong> - Automatic visualization via 
+                                        <code data-jscall-id="560">plot&#40;session&#41;</code>
+                                      </p>
+                                      <ul class=" style_3" style="" data-jscall-id="561">
+                                        <li data-jscall-id="562">
+                                          <p data-jscall-id="563">Automatically renders BVH geometry, rays, and hit points</p>
+                                        </li>
+                                        <li data-jscall-id="564">
+                                          <p data-jscall-id="565">Customizable colors, transparency, markers, and labels</p>
+                                        </li>
+                                        <li data-jscall-id="566">
+                                          <p data-jscall-id="567">Works with any Makie backend &#40;GLMakie, WGLMakie, CairoMakie&#41;</p>
+                                        </li>
+                                      </ul>
+                                    </li>
+                                    <li data-jscall-id="568">
+                                      <p data-jscall-id="569">
+                                        <strong data-jscall-id="570">
+                                          <code data-jscall-id="571">closest_hit</code>
+                                        </strong> correctly identifies the nearest intersection among multiple overlapping primitives
+                                      </p>
+                                      <ul class=" style_3" style="" data-jscall-id="572">
+                                        <li data-jscall-id="573">
+                                          <p data-jscall-id="574">Returns: 
+                                            <code data-jscall-id="575">&#40;hit_found::Bool, hit_primitive::Triangle, distance::Float32, barycentric_coords::Point3f&#41;</code>
+                                          </p>
+                                        </li>
+                                        <li data-jscall-id="576">
+                                          <p data-jscall-id="577">
+                                            <code data-jscall-id="578">distance</code> is the distance from ray origin to the hit point
+                                          </p>
+                                        </li>
+                                        <li data-jscall-id="579">
+                                          <p data-jscall-id="580">Use 
+                                            <code data-jscall-id="581">RayCaster.sum_mul&#40;bary_coords, primitive.vertices&#41;</code> to convert to world-space hit point
+                                          </p>
+                                        </li>
+                                      </ul>
+                                    </li>
+                                    <li data-jscall-id="582">
+                                      <p data-jscall-id="583">
+                                        <strong data-jscall-id="584">
+                                          <code data-jscall-id="585">any_hit</code>
+                                        </strong> efficiently determines if any intersection exists, exiting early
+                                      </p>
+                                      <ul class=" style_3" style="" data-jscall-id="586">
+                                        <li data-jscall-id="587">
+                                          <p data-jscall-id="588">Returns: Same format as 
+                                            <code data-jscall-id="589">closest_hit</code>: 
+                                            <code data-jscall-id="590">&#40;hit_found::Bool, hit_primitive::Triangle, distance::Float32, barycentric_coords::Point3f&#41;</code>
+                                          </p>
+                                        </li>
+                                        <li data-jscall-id="591">
+                                          <p data-jscall-id="592">Can exit early on first hit found, making it faster for occlusion testing</p>
+                                        </li>
+                                      </ul>
+                                    </li>
+                                    <li data-jscall-id="593">
+                                      <p data-jscall-id="594">Both functions handle miss cases correctly &#40;returning 
+                                        <code data-jscall-id="595">hit_found&#61;false</code>&#41;
+                                      </p>
+                                    </li>
+                                    <li data-jscall-id="596">
+                                      <p data-jscall-id="597">
+                                        <code data-jscall-id="598">any_hit</code> is typically faster than 
+                                        <code data-jscall-id="599">closest_hit</code> due to early termination
+                                      </p>
+                                    </li>
+                                  </ol>
+                                  <p data-jscall-id="600">All tests passed&#33; ✓</p>
+                                </div>
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cell-menu-proximity-area" data-jscall-id="606"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><h2 id="Overview"><a class="docs-heading-anchor" href="#Overview">Overview</a><a id="Overview-1"></a><a class="docs-heading-anchor-permalink" href="#Overview" title="Permalink"></a></h2><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.RayIntersectionSession" href="#RayCaster.RayIntersectionSession"><code>RayCaster.RayIntersectionSession</code></a> — <span class="docstring-category">Type</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">RayIntersectionSession{F}</code></pre><p>Represents a ray tracing session containing rays, a BVH structure, a hit function, and the computed intersection results.</p><p><strong>Fields</strong></p><ul><li><code>rays::Vector{&lt;:AbstractRay}</code>: Array of rays to trace</li><li><code>bvh::BVHAccel</code>: BVH acceleration structure to intersect against</li><li><code>hit_function::F</code>: Function to use for intersection testing (e.g., <code>closest_hit</code> or <code>any_hit</code>)</li><li><code>hits::Vector{Tuple{Bool, Triangle, Float32, Point3f}}</code>: Results of hit_function applied to each ray</li></ul><p><strong>Example</strong></p><pre><code class="language-julia hljs">using RayCaster, GeometryBasics
+
+# Create BVH from geometry
+sphere = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
+bvh = RayCaster.BVHAccel([sphere])
+
+# Create rays
+rays = [
+    RayCaster.Ray(Point3f(0, 0, -5), Vec3f(0, 0, 1)),
+    RayCaster.Ray(Point3f(1, 0, -5), Vec3f(0, 0, 1)),
+]
+
+# Create session
+session = RayIntersectionSession(rays, bvh, RayCaster.closest_hit)
+
+# Access results
+for (i, hit) in enumerate(session.hits)
+    hit_found, primitive, distance, bary_coords = hit
+    if hit_found
+        println(&quot;Ray $i hit at distance $distance&quot;)
+    end
+end</code></pre></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/ray_intersection_session.jl#L1-L38">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.hit_count-Tuple{RayIntersectionSession}" href="#RayCaster.hit_count-Tuple{RayIntersectionSession}"><code>RayCaster.hit_count</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_count(session::RayIntersectionSession)</code></pre><p>Count the number of rays that hit geometry in the session.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/ray_intersection_session.jl#L79-L83">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.hit_distances-Tuple{RayIntersectionSession}" href="#RayCaster.hit_distances-Tuple{RayIntersectionSession}"><code>RayCaster.hit_distances</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_distances(session::RayIntersectionSession)</code></pre><p>Extract all hit distances from a RayIntersectionSession.</p><p>Returns a vector of <code>Float32</code> containing distances for all rays that intersected geometry.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/ray_intersection_session.jl#L66-L72">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.hit_points-Tuple{RayIntersectionSession}" href="#RayCaster.hit_points-Tuple{RayIntersectionSession}"><code>RayCaster.hit_points</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_points(session::RayIntersectionSession)</code></pre><p>Extract all valid hit points from a RayIntersectionSession.</p><p>Returns a vector of <code>Point3f</code> containing the world-space hit points for all rays that intersected geometry.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/ray_intersection_session.jl#L52-L58">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.miss_count-Tuple{RayIntersectionSession}" href="#RayCaster.miss_count-Tuple{RayIntersectionSession}"><code>RayCaster.miss_count</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">miss_count(session::RayIntersectionSession)</code></pre><p>Count the number of rays that missed all geometry in the session.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/ray_intersection_session.jl#L88-L92">source</a></section></article><h2 id="Private-Functions"><a class="docs-heading-anchor" href="#Private-Functions">Private Functions</a><a id="Private-Functions-1"></a><a class="docs-heading-anchor-permalink" href="#Private-Functions" title="Permalink"></a></h2><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.any_hit" href="#RayCaster.any_hit"><code>RayCaster.any_hit</code></a> — <span class="docstring-category">Function</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">any_hit(bvh::BVHAccel, ray::AbstractRay)</code></pre><p>Test if a ray intersects any primitive in the BVH (without finding the closest hit). This function stops at the first intersection found, making it faster than closest_hit when you only need to know if there&#39;s an intersection.</p><p>Returns:</p><ul><li><code>hit_found</code>: Boolean indicating if any intersection was found</li><li><code>hit_primitive</code>: The primitive that was hit (if any)</li><li><code>distance</code>: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)</li><li><code>barycentric_coords</code>: Barycentric coordinates of the hit point</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bvh.jl#L386-L398">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.closest_hit-Union{Tuple{P}, Tuple{RayCaster.BVHAccel{P}, RayCaster.AbstractRay}, Tuple{RayCaster.BVHAccel{P}, RayCaster.AbstractRay, Any}} where P" href="#RayCaster.closest_hit-Union{Tuple{P}, Tuple{RayCaster.BVHAccel{P}, RayCaster.AbstractRay}, Tuple{RayCaster.BVHAccel{P}, RayCaster.AbstractRay, Any}} where P"><code>RayCaster.closest_hit</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}</code></pre><p>Find the closest intersection between a ray and the primitives stored in a BVH.</p><p>Returns:</p><ul><li><code>hit_found</code>: Boolean indicating if an intersection was found</li><li><code>hit_primitive</code>: The primitive that was hit (if any)</li><li><code>distance</code>: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)</li><li><code>barycentric_coords</code>: Barycentric coordinates of the hit point</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bvh.jl#L354-L364">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.compute_differentials-Tuple{RayCaster.SurfaceInteraction, RayCaster.RayDifferentials}" href="#RayCaster.compute_differentials-Tuple{RayCaster.SurfaceInteraction, RayCaster.RayDifferentials}"><code>RayCaster.compute_differentials</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Compute partial derivatives needed for computing sampling rates for things like texture antialiasing.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/surface_interaction.jl#L124-L127">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.compute_scattering!" href="#RayCaster.compute_scattering!"><code>RayCaster.compute_scattering!</code></a> — <span class="docstring-category">Function</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>If an intersection was found, it is necessary to determine, how the surface&#39;s material scatters light. <code>compute_scattering!</code> method evaluates texture functions to determine surface properties and then initializing a representation of the BSDF at the point.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/surface_interaction.jl#L169-L175">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.cos_θ-Tuple{GeometryBasics.Vec{3, Float32}}" href="#RayCaster.cos_θ-Tuple{GeometryBasics.Vec{3, Float32}}"><code>RayCaster.cos_θ</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>The shading coordinate system gives a frame for expressing directions in spherical coordinates (θ, ϕ). The angle θ is measured from the given direction to the z-axis and ϕ is the angle formed with the x-axis after projection of the direction onto xy-plane.</p><p>Since normal is <code>(0, 0, 1) → cos_θ = n · w = (0, 0, 1) ⋅ w = w.z</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/math.jl#L54-L62">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.face_forward-Tuple{Any, Any}" href="#RayCaster.face_forward-Tuple{Any, Any}"><code>RayCaster.face_forward</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Flip normal <code>n</code> so that it lies in the same hemisphere as <code>v</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/math.jl#L120-L122">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.generate_ray_grid-Tuple{RayCaster.BVHAccel, GeometryBasics.Vec{3, Float32}, Int64}" href="#RayCaster.generate_ray_grid-Tuple{RayCaster.BVHAccel, GeometryBasics.Vec{3, Float32}, Int64}"><code>RayCaster.generate_ray_grid</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">generate_ray_grid(bvh::BVHAccel, ray_direction::Vec3f, grid_size::Int)</code></pre><p>Generate a grid of ray origins based on the BVH bounding box and a given ray direction.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bvh.jl#L475-L479">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.intersect_p-Tuple{RayCaster.Bounds3, RayCaster.AbstractRay, GeometryBasics.Vec{3, Float32}, GeometryBasics.Point3{UInt8}}" href="#RayCaster.intersect_p-Tuple{RayCaster.Bounds3, RayCaster.AbstractRay, GeometryBasics.Vec{3, Float32}, GeometryBasics.Point3{UInt8}}"><code>RayCaster.intersect_p</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>dir<em>is</em>negative: 1 – false, 2 – true</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bounds.jl#L183-L185">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.maximum_extent-Tuple{RayCaster.Bounds3}" href="#RayCaster.maximum_extent-Tuple{RayCaster.Bounds3}"><code>RayCaster.maximum_extent</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Return index of the longest axis. Useful for deciding which axis to subdivide, when building ray-tracing acceleration structures.</p><p>1 - x, 2 - y, 3 - z.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bounds.jl#L111-L117">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.offset-Tuple{RayCaster.Bounds3, GeometryBasics.Point{3, Float32}}" href="#RayCaster.offset-Tuple{RayCaster.Bounds3, GeometryBasics.Point{3, Float32}}"><code>RayCaster.offset</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Get offset of a point from the minimum point of the bounds.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bounds.jl#L139">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.partial_derivatives-Tuple{RayCaster.Sphere, GeometryBasics.Point{3, Float32}, Float32, Float32, Float32}" href="#RayCaster.partial_derivatives-Tuple{RayCaster.Sphere, GeometryBasics.Point{3, Float32}, Float32, Float32, Float32}"><code>RayCaster.partial_derivatives</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Compute partial derivatives of intersection point in parametric form.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/shapes/sphere.jl#L85-L87">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.reflect-Tuple{GeometryBasics.Vec{3, Float32}, GeometryBasics.Vec{3, Float32}}" href="#RayCaster.reflect-Tuple{GeometryBasics.Vec{3, Float32}, GeometryBasics.Vec{3, Float32}}"><code>RayCaster.reflect</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Reflect <code>wo</code> about <code>n</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/math.jl#L77-L79">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.test_clipping-Tuple{RayCaster.Sphere, GeometryBasics.Point{3, Float32}, Float32}" href="#RayCaster.test_clipping-Tuple{RayCaster.Sphere, GeometryBasics.Point{3, Float32}, Float32}"><code>RayCaster.test_clipping</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Test if hit point exceeds clipping parameters of the sphere.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/shapes/sphere.jl#L62-L64">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="RayCaster.traverse_bvh-Union{Tuple{F}, Tuple{P}, Tuple{F, RayCaster.BVHAccel{P}, RayCaster.AbstractRay}, Tuple{F, RayCaster.BVHAccel{P}, RayCaster.AbstractRay, Any}} where {P, F&lt;:Function}" href="#RayCaster.traverse_bvh-Union{Tuple{F}, Tuple{P}, Tuple{F, RayCaster.BVHAccel{P}, RayCaster.AbstractRay}, Tuple{F, RayCaster.BVHAccel{P}, RayCaster.AbstractRay, Any}} where {P, F&lt;:Function}"><code>RayCaster.traverse_bvh</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F&lt;:Function}</code></pre><p>Internal function that traverses the BVH to find ray-primitive intersections. Uses a callback pattern to handle different intersection behaviors.</p><p>Arguments:</p><ul><li><code>bvh</code>: The BVH acceleration structure</li><li><code>ray</code>: The ray to test for intersections</li><li><code>hit_callback</code>: Function called when primitive is tested. Signature:  hit<em>callback(primitive, ray) -&gt; (continue</em>traversal::Bool, ray::AbstractRay, results::Any)</li></ul><p>Returns:</p><ul><li>The final result from the hit_callback</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/RayCaster.jl/blob/78261948d8ad9d97ace29b09df8a33a154ffd6e3/src/bvh.jl#L250-L264">source</a></section></article></article><nav class="docs-footer"><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Friday 24 October 2025 11:34">Friday 24 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
