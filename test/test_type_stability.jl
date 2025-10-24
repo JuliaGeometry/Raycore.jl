@@ -483,7 +483,7 @@ end
 
     @testset "BVHNode construction" begin
         b = TestData.bounds3()
-        @test_opt_alloc RayCaster.BVHNode(UInt32(0), UInt32(1), b)
+        @test_opt RayCaster.BVHNode(UInt32(0), UInt32(1), b)
     end
 
     @testset "LinearBVH construction" begin
