@@ -140,7 +140,7 @@ ray_origin = Vec3f(0.5, 0.5, 1.0)
 ray_direction = Vec3f(0.0, 0.0, -1.0)
 
 using RayCaster: Normal3f
-m = RayCaster.create_triangle_mesh(RayCaster.ShapeCore(), UInt32[1, 2, 3], Point3f[v1, v2, v3], [Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0)])
+m = RayCaster.TriangleMesh(RayCaster.ShapeCore(), UInt32[1, 2, 3], Point3f[v1, v2, v3], [Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0)])
 
 t = RayCaster.Triangle(m, 1)
 r = RayCaster.Ray(o=Point3f(ray_origin), d=ray_direction)

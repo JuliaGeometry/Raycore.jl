@@ -87,7 +87,7 @@ to_triangle_mesh(x::TriangleMesh) = x
 
 function to_triangle_mesh(x::GeometryBasics.AbstractGeometry)
     m = GeometryBasics.uv_normal_mesh(x)
-    return create_triangle_mesh(m)
+    return TriangleMesh(m)
 end
 
 

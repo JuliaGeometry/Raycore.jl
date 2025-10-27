@@ -26,32 +26,6 @@ struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<
     end
 end
 
-function TriangleMesh(
-        object_to_world::Transformation,
-        indices::Vector{UInt32},
-        vertices::Vector{Point3f},
-        normals::Vector{Normal3f} = Normal3f[],
-        tangents::Vector{Vec3f} = Vec3f[],
-        uv::Vector{Point2f} = Point2f[],
-    )
-    vertices = object_to_world.(vertices)
-    return TriangleMesh(
-        vertices,
-        copy(indices), copy(normals),
-        copy(tangents), copy(uv),
-    )
-end
-
-function TriangleMesh(ArrType, mesh::TriangleMesh)
-    TriangleMesh(
-        ArrType(mesh.vertices),
-        ArrType(mesh.indices),
-        ArrType(mesh.normals),
-        ArrType(mesh.tangents),
-        ArrType(mesh.uv),
-    )
-end
-
 struct Triangle <: AbstractShape
     vertices::SVector{3,Point3f}
     normals::SVector{3,Normal3f}
@@ -77,21 +51,7 @@ function Triangle(m::TriangleMesh, face_indx, material_idx=0)
     return Triangle(vs, ns, ts, uv, material_idx)
 end
 
-function create_triangle_mesh(
-        core::ShapeCore,
-        indices::Vector{UInt32},
-        vertices::Vector{Point3f},
-        normals::Vector{Normal3f} = Normal3f[],
-        tangents::Vector{Vec3f} = Vec3f[],
-        uv::Vector{Point2f} = Point2f[],
-    )
-    return TriangleMesh(
-        core.object_to_world, indices, vertices,
-        normals, tangents, uv,
-    )
-end
-
-function create_triangle_mesh(mesh::GeometryBasics.Mesh, core::ShapeCore=ShapeCore())
+function TriangleMesh(mesh::GeometryBasics.Mesh)
     nmesh = GeometryBasics.expand_faceviews(mesh)
     fs = decompose(TriangleFace{UInt32}, nmesh)
     vertices = decompose(Point3f, nmesh)
@@ -102,7 +62,7 @@ function create_triangle_mesh(mesh::GeometryBasics.Mesh, core::ShapeCore=ShapeCo
     end
     indices = collect(reinterpret(UInt32, fs))
     return TriangleMesh(
-        core.object_to_world, indices, vertices,
+        vertices, indices,
         normals, Vec3f[], Point2f.(uvs),
     )
 end
@@ -201,7 +161,6 @@ end
     f(x[1]) && f(x[2]) && f(x[3])
 end
 
-
 @inline function normal_derivatives(
         t::Triangle, uv::AbstractVector{Point2f},
     )::Tuple{Normal3f,Normal3f}
@@ -218,7 +177,6 @@ end
     ∂n∂v = (-δuv_23[1] * δn_13 + δuv_13[1] * δn_23) * inv_det
     ∂n∂u, ∂n∂v
 end
-
 
 # Note: surface_interaction and init_triangle_shading_geometry have been removed
 # These functions are now handled by Trace.jl's triangle_to_surface_interaction

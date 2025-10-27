@@ -226,3 +226,25 @@ end
     dir_is_negative2 = RayCaster.is_dir_negative(r2.d)
     @test !RayCaster.intersect_p(b, r2, inv_dir2, dir_is_negative2)
 end
+@testset "Test Bounds2 iteration" begin
+    b = RayCaster.Bounds2(Point2f(1f0, 3f0), Point2f(4f0, 4f0))
+    targets = [
+        Point2f(1f0, 3f0), Point2f(2f0, 3f0), Point2f(3f0, 3f0), Point2f(4f0, 3f0),
+        Point2f(1f0, 4f0), Point2f(2f0, 4f0), Point2f(3f0, 4f0), Point2f(4f0, 4f0),
+    ]
+    @test length(b) == 8
+    for (p, t) in zip(b, targets)
+        @test p == t
+    end
+
+    b = RayCaster.Bounds2(Point2f(-1f0), Point2f(1f0))
+    targets = [
+        Point2f(-1f0, -1f0), Point2f(0f0, -1f0), Point2f(1f0, -1f0),
+        Point2f(-1f0, 0f0), Point2f(0f0, 0f0), Point2f(1f0, 0f0),
+        Point2f(-1f0, 1f0), Point2f(0f0, 1f0), Point2f(1f0, 1f0),
+    ]
+    @test length(b) == 9
+    for (p, t) in zip(b, targets)
+        @test p == t
+    end
+end

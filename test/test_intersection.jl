@@ -19,79 +19,13 @@
     @test !RayCaster.intersect_p(b_neg, r1, inv_dir, dir_is_negative)
 end
 
-@testset "Ray-Sphere intersection" begin
-    # Sphere at the origin.
-    core = RayCaster.ShapeCore(RayCaster.Transformation(), false)
-    s = RayCaster.Sphere(core, 1f0, 360f0)
-
-    r = RayCaster.Ray(o = Point3f(0, -2, 0), d = Vec3f(0, 1, 0))
-    i, t, interaction = RayCaster.intersect(s, r, false)
-    ip = RayCaster.intersect_p(s, r, false)
-    @test i == ip
-    @test t ≈ 1f0
-    @test RayCaster.apply(r, t) ≈ Point3f(0, -1, 0) # World intersection.
-    @test interaction.core.p ≈ Point3f(0, -1, 0) # Object intersection.
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, -1, 0)
-    @test norm(interaction.core.n) ≈ 1f0
-    @test norm(interaction.shading.n) ≈ 1f0
-    # Spawn new ray from intersection.
-    spawn_direction = Vec3f(0, -1, 0)
-    spawned_ray = RayCaster.spawn_ray(interaction, spawn_direction)
-    @test spawned_ray.o ≈ Point3f(interaction.core.p)
-    @test spawned_ray.d ≈ Vec3f(spawn_direction)
-    i, t, interaction = RayCaster.intersect(s, spawned_ray, false)
-    @test !i
-
-    r = RayCaster.Ray(o = Point3f(0, 0, -2), d = Vec3f(0, 0, 1))
-    i, t, interaction = RayCaster.intersect(s, r, false)
-    ip = RayCaster.intersect_p(s, r, false)
-    @test i == ip
-    @test t ≈ 1f0
-    @test RayCaster.apply(r, t) ≈ Point3f(0, 0, -1) # World intersection.
-    @test interaction.core.p ≈ Point3f(0, 0, -1) # Object intersection.
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, 0, -1)
-    @test norm(interaction.core.n) ≈ 1f0
-    @test norm(interaction.shading.n) ≈ 1f0
-
-    # Test ray inside a sphere.
-    r0 = RayCaster.Ray(o = Point3f(0), d = Vec3f(0, 1, 0))
-    i, t, interaction = RayCaster.intersect(s, r0, false)
-    @test i
-    @test t ≈ 1f0
-    @test RayCaster.apply(r0, t) ≈ Point3f(0f0, 1f0, 0f0)
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, 1, 0)
-    @test norm(interaction.core.n) ≈ 1f0
-    @test norm(interaction.shading.n) ≈ 1f0
-
-    # Test ray at the edge of the sphere.
-    ray_at_edge = RayCaster.Ray(o = Point3f(0, -1, 0), d = Vec3f(0, -1, 0))
-    i, t, interaction = RayCaster.intersect(s, ray_at_edge, false)
-    @test i
-    @test t ≈ 0f0
-    @test RayCaster.apply(ray_at_edge, t) ≈ Point3f(0, -1, 0)
-    @test interaction.core.p ≈ Point3f(0, -1, 0)
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, -1, 0)
-
-    # Translated sphere.
-    core = RayCaster.ShapeCore(RayCaster.translate(Vec3f(0, 2, 0)), false)
-    s = RayCaster.Sphere(core, 1f0, 360f0)
-    r = RayCaster.Ray(o = Point3f(0, 0, 0), d = Vec3f(0, 1, 0))
-
-    i, t, interaction = RayCaster.intersect(s, r, false)
-    ip = RayCaster.intersect_p(s, r, false)
-    @test i == ip
-    @test t ≈ 1f0
-    @test RayCaster.apply(r, t) ≈ Point3f(0, 1, 0) # World intersection.
-    @test interaction.core.p ≈ Point3f(0, 1, 0) # Object intersection.
-    @test interaction.core.n ≈ RayCaster.Normal3f(0, -1, 0)
-end
+# Note: Ray-Sphere intersection tests moved to Trace.jl
+# RayCaster no longer has Sphere shapes - only low-level triangle intersection
 
 @testset "Test triangle" begin
-    core = RayCaster.ShapeCore(RayCaster.translate(Vec3f(0, 0, 2)), false)
-    triangles = RayCaster.create_triangle_mesh(
-        core,
+    triangles = RayCaster.TriangleMesh(
+        [Point3f(0, 0, 2), Point3f(1, 0, 2), Point3f(1, 1, 2)],
         UInt32[1, 2, 3],
-        [Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(1, 1, 0)],
         [RayCaster.Normal3f(0, 0, -1), RayCaster.Normal3f(0, 0, -1), RayCaster.Normal3f(0, 0, -1)],
     )
 
@@ -128,11 +62,10 @@ end
     # Create triangle meshes instead of spheres
     triangle_meshes = []
     for i in 0:1:3  # Use fewer triangles for simpler test
-        core = RayCaster.ShapeCore(RayCaster.translate(Vec3f(i*3, i*3, 0)), false)
-        mesh = RayCaster.create_triangle_mesh(
-            core,
+        core = RayCaster.translate(Vec3f(i*3, i*3, 0))
+        mesh = RayCaster.TriangleMesh(
+            core.([Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(1, 1, 0)]),
             UInt32[1, 2, 3],
-            [Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(1, 1, 0)],
             [RayCaster.Normal3f(0, 0, -1), RayCaster.Normal3f(0, 0, -1), RayCaster.Normal3f(0, 0, -1)],
         )
         push!(triangle_meshes, mesh)
@@ -154,12 +87,13 @@ end
 
     # Create triangle meshes at different z positions
     positions = [0, 4, 8]
+    vertices = [Point3f(-1, -1, 0), Point3f(1, -1, 0), Point3f(0, 1, 0)]
     for (i, z) in enumerate(positions)
-        core = RayCaster.ShapeCore(RayCaster.translate(Vec3f(0, 0, z)), false)
-        mesh = RayCaster.create_triangle_mesh(
-            core,
+        core = RayCaster.translate(Vec3f(0, 0, z))
+        vs = core.(vertices)
+        mesh = RayCaster.TriangleMesh(
+            vs,
             UInt32[1, 2, 3],
-            [Point3f(-1, -1, 0), Point3f(1, -1, 0), Point3f(0, 1, 0)],
             [RayCaster.Normal3f(0, 0, -1), RayCaster.Normal3f(0, 0, -1), RayCaster.Normal3f(0, 0, -1)],
         )
         push!(triangle_meshes, mesh)
