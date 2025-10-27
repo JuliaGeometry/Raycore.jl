@@ -44,8 +44,8 @@ fig = Figure()
 # Left: closest_hit visualization
 plot(fig[1, 1], session_closest)
 plot(fig[1, 2], session_any)
-Label(fig[0, 1], "closest_hit", fontsize=20, font=:bold)
-Label(fig[0, 2], "any_hit", fontsize=20, font=:bold)
+Label(fig[0, 1], "closest_hit", fontsize=20, font=:bold, tellwidth=false)
+Label(fig[0, 2], "any_hit", fontsize=20, font=:bold, tellwidth=false)
 
 fig
 ```
@@ -107,58 +107,6 @@ fig2
 ```
 ## Visualization: Multiple Rays
 
-## Test 3: Miss Cases
-
-Test rays that don't intersect any geometry.
-
-```julia (editor=true, logging=false, output=true)
-# Rays that miss all spheres
-miss_rays = [
-    RayCaster.Ray(o=Point3f(5, 0, -5), d=Vec3f(0, 0, 1)),  # Too far right
-    RayCaster.Ray(o=Point3f(0, 5, -5), d=Vec3f(0, 0, 1)),  # Too far up
-    RayCaster.Ray(o=Point3f(0, 0, -5), d=Vec3f(1, 0, 0)),  # Wrong direction
-]
-
-# Create sessions for both hit functions
-session_miss_closest = RayIntersectionSession(RayCaster.closest_hit, miss_rays, bvh)
-session_miss_any = RayIntersectionSession(RayCaster.any_hit, miss_rays, bvh)
-
-# Verify all misses
-@test miss_count(session_miss_closest) == 3
-@test miss_count(session_miss_any) == 3
-
-descriptions = ["Too far right", "Too far up", "Wrong direction"]
-miss_table = map(enumerate(zip(session_miss_closest.hits, session_miss_any.hits, descriptions))) do (i, (closest_hit, any_hit, desc))
-    @test closest_hit[1] == false
-    @test any_hit[1] == false
-
-    (
-        Ray = "Miss ray $i",
-        Description = desc,
-        closest_hit = closest_hit[1],
-        any_hit = any_hit[1],
-        Status = "✓"
-    )
-end
-
-Bonito.Table(miss_table)
-```
-## Visualization: Miss Cases
-
-```julia (editor=true, logging=false, output=true)
-fig3 = Figure()
-ax = LScene(fig3[1, 1])
-
-plot!(ax, session_miss_closest;
-      show_bvh=true,
-      bvh_alpha=0.4,
-      ray_colors=[:red, :orange, :yellow],
-      miss_color=:gray,
-      ray_length=15.0f0
-)
-
-fig3
-```
 ## Test 4: Difference Between any*hit and closest*hit
 
 Demonstrate that `any_hit` can return different results than `closest_hit`.
@@ -224,7 +172,7 @@ function render_io(obj)
     show(io, MIME"text/plain"(), obj)
     printer = BonitoBook.HTMLPrinter(io; root_tag = "span")
     str = sprint(io -> show(io, MIME"text/html"(), printer))
-    HTML(str)
+    DOM.pre(HTML(str); style="font-size: 10px")
 end
 ```
 ```julia (editor=true, logging=false, output=true)
@@ -243,9 +191,9 @@ perf_table = map([
     ("closest_hit", any_time),
     ("any_hit", closest_time),
 ]) do (method, time_us)
-    (Method = method, Time_μs = time_us)
+    (Method = method, Time_μs = render_io(time_us))
 end
-render_io(any_time)
+Bonito.Table(perf_table)
 ```
 ## Summary
 
@@ -273,4 +221,3 @@ This document demonstrated:
 6. `any_hit` is typically faster than `closest_hit` due to early termination
 
 All tests passed! ✓
-

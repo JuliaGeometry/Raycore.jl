@@ -64,6 +64,15 @@ Label(f[3, 2], "Illumination", tellwidth=false, fontsize=20)
 f
 ```
 
+```@example raycaster
+using Bonito, BonitoBook
+App() do
+    path = normpath(joinpath(dirname(pathof(RayCaster)), "..", "docs", "src", "bvh_hit_tests.md"))
+    BonitoBook.InlineBook(path)
+end
+```
+
+
 ## Overview
 
 

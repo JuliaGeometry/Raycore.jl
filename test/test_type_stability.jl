@@ -350,13 +350,6 @@ end
     end
 end
 
-# ==================== Surface Interaction Tests ====================
-
-# Note: SurfaceInteraction tests moved to Trace.jl
-# RayCaster no longer has SurfaceInteraction - it lives in Trace where it belongs
-
-# ==================== Triangle Mesh Tests ====================
-
 @testset "Type Stability: triangle_mesh.jl" begin
     @testset "TriangleMesh construction" begin
         vertices = [Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)]
@@ -454,13 +447,5 @@ end
 @testset "Type Stability: kernels.jl" begin
     @testset "RayHit construction" begin
         @test_opt_alloc RayCaster.RayHit(true, gen_point3f(), UInt32(1))
-    end
-
-    @testset "Kernel functions" begin
-        bvh = gen_bvh_accel()
-        direction = Vec3f(0, 0, 1)
-
-        # @test_opt RayCaster.hits_from_grid(bvh, direction; grid_size=8)
-        # @test_opt RayCaster.get_illumination(bvh, direction; grid_size=8)
     end
 end
