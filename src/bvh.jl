@@ -497,3 +497,40 @@ function GeometryBasics.Mesh(bvh::BVHAccel)
     end
     return GeometryBasics.Mesh(points, faces)
 end
+
+# Pretty printing for BVHAccel
+function Base.show(io::IO, ::MIME"text/plain", bvh::BVHAccel)
+    n_triangles = length(bvh.primitives)
+    n_nodes = length(bvh.nodes)
+    bounds = world_bound(bvh)
+
+    # Count leaf vs interior nodes
+    n_leaves = count(node -> !node.is_interior, bvh.nodes)
+    n_interior = n_nodes - n_leaves
+
+    # Calculate average primitives per leaf
+    total_leaf_prims = sum(node -> node.is_interior ? 0 : Int(node.n_primitives), bvh.nodes)
+    avg_prims_per_leaf = n_leaves > 0 ? total_leaf_prims / n_leaves : 0.0
+
+    println(io, "BVHAccel:")
+    println(io, "  Triangles:     ", n_triangles)
+    println(io, "  BVH nodes:     ", n_nodes, " (", n_interior, " interior, ", n_leaves, " leaves)")
+    println(io, "  Bounds:        ", bounds.p_min, " to ", bounds.p_max)
+    println(io, "  Max prims:     ", Int(bvh.max_node_primitives), " per leaf")
+    print(io,   "  Avg prims:     ", round(avg_prims_per_leaf, digits=2), " per leaf")
+end
+
+function Base.show(io::IO, bvh::BVHAccel)
+    if get(io, :compact, false)
+        n_triangles = length(bvh.primitives)
+        n_nodes = length(bvh.nodes)
+        n_leaves = count(node -> !node.is_interior, bvh.nodes)
+        n_interior = n_nodes - n_leaves
+        print(io, "BVHAccel(")
+        print(io, "triangles=", n_triangles, ", ")
+        print(io, "nodes=", n_nodes, " (", n_interior, " interior, ", n_leaves, " leaves)")
+        print(io, ")")
+    else
+        show(io, MIME("text/plain"), bvh)
+    end
+end

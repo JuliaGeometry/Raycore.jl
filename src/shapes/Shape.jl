@@ -21,5 +21,4 @@ function world_bound(s::AbstractShape)::Bounds3
     s.core.object_to_world(object_bound(s))
 end
 
-include("sphere.jl")
 include("triangle_mesh.jl")

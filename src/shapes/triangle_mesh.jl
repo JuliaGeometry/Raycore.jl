@@ -220,83 +220,9 @@ end
 end
 
 
-@inline function init_triangle_shading_geometry(
-        triangle::Triangle, surf_interact::SurfaceInteraction,
-        bary_coords::Point3f, tex_coords::AbstractVector{Point2f},
-    )
-    # Check if the triangle has valid normal and tangent vectors
-    has_normals = _all(x -> _all(isfinite, x), triangle.normals)
-    has_tangents = _all(x -> _all(isfinite, x), triangle.tangents)
-
-    # If no valid shading geometry exists, return the original surface interaction
-    !has_normals && !has_tangents && return surf_interact
-
-    # Initialize triangle shading geometry by computing shading normal, tangent & bitangent
-    shading_normal = surf_interact.core.n  # Start with geometric normal
-
-    # If we have valid normals, interpolate them using barycentric coordinates
-    if has_normals
-        shading_normal = normalize(sum_mul(bary_coords, triangle.normals))
-    end
-
-    # Calculate shading tangent - either from triangle tangents or from position derivatives
-    shading_tangent = Vector3f(0)
-    if has_tangents
-        shading_tangent = normalize(sum_mul(bary_coords, triangle.tangents))
-    else
-        shading_tangent = normalize(surf_interact.pos_deriv_u)  # Assuming ∂p∂u was renamed to pos_deriv_u
-    end
-
-    # Calculate shading bitangent from normal and tangent
-    shading_bitangent = shading_normal × shading_tangent
-
-    # Check if bitangent is valid, otherwise create a new coordinate system
-    if (shading_bitangent ⋅ shading_bitangent) > 0f0
-        shading_bitangent = Vec3f(normalize(shading_bitangent))
-        shading_tangent = Vec3f(shading_bitangent × shading_normal)  # Ensure orthogonality
-    else
-        # Create a new coordinate system if the vectors are nearly parallel
-        _, shading_tangent, shading_bitangent = coordinate_system(Vec3f(shading_normal))
-    end
-
-    # Calculate normal derivatives
-    nd_u, nd_v = normal_derivatives(triangle, tex_coords)
-
-    # Set the shading geometry on the surface interaction
-    return set_shading_geometry(
-        surf_interact,
-        shading_tangent,
-        shading_bitangent,
-        nd_u,
-        nd_v,
-        true
-    )
-end
-
-
-function surface_interaction(triangle, ray, bary_coords)
-
-    verts = vertices(triangle)
-    tex_coords = uvs(triangle)  # Get texture coordinates
-
-    # Calculate position derivatives and triangle edges
-    pos_deriv_u, pos_deriv_v, edge1, edge2 = partial_derivatives(triangle, verts, tex_coords)
-
-    # Interpolate hit point and texture coordinates using barycentric coordinates
-    hit_point = sum_mul(bary_coords, verts)
-    hit_uv = sum_mul(bary_coords, tex_coords)
-
-    # Calculate surface normal from triangle edges
-    normal = normalize(edge1 × edge2)
-
-    # Create surface interaction data at hit point
-    surf_interact = SurfaceInteraction(
-        normal, hit_point, ray.time, -ray.d, hit_uv,
-        pos_deriv_u, pos_deriv_v, Normal3f(0f0), Normal3f(0f0)
-    )
-    # TODO test against alpha texture if present.
-    return init_triangle_shading_geometry(triangle, surf_interact, bary_coords, tex_coords)
-end
+# Note: surface_interaction and init_triangle_shading_geometry have been removed
+# These functions are now handled by Trace.jl's triangle_to_surface_interaction
+# RayCaster only provides low-level ray-triangle intersection via intersect_triangle
 
 @inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
     verts = vertices(triangle)  # Get triangle vertices
