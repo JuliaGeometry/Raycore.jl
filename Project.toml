@@ -1,4 +1,4 @@
-name = "RayCaster"
+name = "Raycore"
 uuid = "afc56b53-c9a9-482a-a956-d1d800e05559"
 authors = ["Anton Smirnov <tonysmn97@gmail.com>", "Simon Danisch <sdanisch@protonmail.com"]
 version = "0.1.0"
@@ -17,7 +17,7 @@ Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
-RayCasterMakieExt = "Makie"
+RaycoreMakieExt = "Makie"
 
 [compat]
 GeometryBasics = "0.5"

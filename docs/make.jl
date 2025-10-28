@@ -1,11 +1,11 @@
 using Documenter
-using RayCaster
+using Raycore
 using Bonito
 using BonitoBook
 
 makedocs(;
-    modules = [RayCaster],
-    sitename = "RayCaster",
+    modules = [Raycore],
+    sitename = "Raycore",
     clean = false,
     format=Documenter.HTML(;
         prettyurls=false,
@@ -19,6 +19,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo = "github.com/JuliaGeometry/RayCaster.jl",
+    repo = "github.com/JuliaGeometry/Raycore.jl",
     push_preview = true,
 )

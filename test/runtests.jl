@@ -1,10 +1,10 @@
 using Test
 using GeometryBasics
 using LinearAlgebra
-using RayCaster
+using Raycore
 using JET
 
-@testset "RayCaster Tests" begin
+@testset "Raycore Tests" begin
     @testset "Intersection" begin
         include("test_intersection.jl")
     end

@@ -1,4 +1,4 @@
-# RayCaster.jl
+# Raycore.jl
 
 ```@setup raycaster
 using Bonito
@@ -6,7 +6,7 @@ Bonito.Page()
 ```
 
 ```@example raycaster
-using RayCaster, GeometryBasics, LinearAlgebra
+using Raycore, GeometryBasics, LinearAlgebra
 using WGLMakie, FileIO
 
 function LowSphere(radius, contact=Point3f(0); ntriangles=10)
@@ -21,15 +21,15 @@ s4 = LowSphere(0.4f0, Point3f(0, 1.0, 0); ntriangles)
 l = 0.5
 floor = Rect3f(-l, -l, -0.01, 2l, 2l, 0.01)
 cat = load(Makie.assetpath("cat.obj"))
-bvh = RayCaster.BVHAccel([s1, s2, s3, s4, cat]);
+bvh = Raycore.BVHAccel([s1, s2, s3, s4, cat]);
 world_mesh = GeometryBasics.Mesh(bvh)
 f, ax, pl = Makie.mesh(world_mesh; color=:teal)
 center!(ax.scene)
 viewdir = normalize(ax.scene.camera.view_direction[])
 
-@time "hitpoints" hitpoints, centroid = RayCaster.get_centroid(bvh, viewdir)
-@time "illum" illum = RayCaster.get_illumination(bvh, viewdir)
-@time "viewf_matrix" viewf_matrix = RayCaster.view_factors(bvh, rays_per_triangle=1000)
+@time "hitpoints" hitpoints, centroid = Raycore.get_centroid(bvh, viewdir)
+@time "illum" illum = Raycore.get_illumination(bvh, viewdir)
+@time "viewf_matrix" viewf_matrix = Raycore.view_factors(bvh, rays_per_triangle=1000)
 viewfacts = map(i-> Float32(sum(view(viewf_matrix, :, i))), 1:length(bvh.primitives))
 world_mesh = GeometryBasics.Mesh(bvh)
 N = length(world_mesh.faces)
@@ -67,7 +67,7 @@ f
 ```@example raycaster
 using Bonito, BonitoBook
 App() do
-    path = normpath(joinpath(dirname(pathof(RayCaster)), "..", "docs", "src", "bvh_hit_tests.md"))
+    path = normpath(joinpath(dirname(pathof(Raycore)), "..", "docs", "src", "bvh_hit_tests.md"))
     BonitoBook.InlineBook(path)
 end
 ```
@@ -77,7 +77,7 @@ end
 
 
 ```@autodocs
-Modules = [RayCaster]
+Modules = [Raycore]
 Order   = [:module, :constant, :type, :function, :macro]
 Public  = true
 Private = false
@@ -86,7 +86,7 @@ Private = false
 ## Private Functions
 
 ```@autodocs
-Modules = [RayCaster]
+Modules = [Raycore]
 Order   = [:module, :constant, :type, :function, :macro]
 Public  = false
 Private = true

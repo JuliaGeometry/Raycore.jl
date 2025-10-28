@@ -1,4 +1,4 @@
-using GeometryBasics, LinearAlgebra, RayCaster, BenchmarkTools
+using GeometryBasics, LinearAlgebra, Raycore, BenchmarkTools
 
 # using CUDA
 # ArrayType = CuArray
@@ -22,7 +22,7 @@ begin
     back = tmesh(Rect3f(Vec3f(-5, -3, 0), Vec3f(10, 0.01, 10)), material_red)
     l = tmesh(Rect3f(Vec3f(-2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
     r = tmesh(Rect3f(Vec3f(2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
-    bvh = RayCaster.BVHAccel([s1, s2, s3, s4, ground, back, l, r]);
+    bvh = Raycore.BVHAccel([s1, s2, s3, s4, ground, back, l, r]);
 end
 
 # using AMDGPU
@@ -139,13 +139,13 @@ v3 = Vec3f(0.0, 1.0, 0.0)
 ray_origin = Vec3f(0.5, 0.5, 1.0)
 ray_direction = Vec3f(0.0, 0.0, -1.0)
 
-using RayCaster: Normal3f
-m = RayCaster.TriangleMesh(RayCaster.ShapeCore(), UInt32[1, 2, 3], Point3f[v1, v2, v3], [Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0)])
+using Raycore: Normal3f
+m = Raycore.TriangleMesh(Raycore.ShapeCore(), UInt32[1, 2, 3], Point3f[v1, v2, v3], [Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0), Normal3f(0.0, 0.0, 1.0)])
 
-t = RayCaster.Triangle(m, 1)
-r = RayCaster.Ray(o=Point3f(ray_origin), d=ray_direction)
-RayCaster.intersect_p(t, r)
-RayCaster.intersect_triangle(r.o, r.d, t.vertices...)
+t = Raycore.Triangle(m, 1)
+r = Raycore.Ray(o=Point3f(ray_origin), d=ray_direction)
+Raycore.intersect_p(t, r)
+Raycore.intersect_triangle(r.o, r.d, t.vertices...)
 
 # function launch_trace_image_ir!(img, camera, bvh, lights)
 #     backend = KA.get_backend(img)
@@ -159,37 +159,37 @@ RayCaster.intersect_triangle(r.o, r.d, t.vertices...)
 #     return img
 # end
 
-ray = RayCaster.RayDifferentials(RayCaster.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0)))
+ray = Raycore.RayDifferentials(Raycore.Ray(o=Point3f(0.5, 0.5, 1.0), d=Vec3f(0.0, 0.0, -1.0)))
 open("li.llvm", "w") do io
-    code_llvm(io, RayCaster.li, typeof.((RayCaster.UniformSampler(8), 5, ray, scene, 1)))
+    code_llvm(io, Raycore.li, typeof.((Raycore.UniformSampler(8), 5, ray, scene, 1)))
 end
 
 open("li-wt.jl", "w") do io
-    code_warntype(io, RayCaster.li, typeof.((RayCaster.UniformSampler(8), 5, ray, scene, 1)))
+    code_warntype(io, Raycore.li, typeof.((Raycore.UniformSampler(8), 5, ray, scene, 1)))
 end
 
-camera_sample = RayCaster.get_camera_sample(integrator.sampler, Point2f(512))
-ray, ω = RayCaster.generate_ray_differential(integrator.camera, camera_sample)
+camera_sample = Raycore.get_camera_sample(integrator.sampler, Point2f(512))
+ray, ω = Raycore.generate_ray_differential(integrator.camera, camera_sample)
 
 
-ray = RayCaster.Ray(o=Point3f(0.0, 0.0, 2.0), d=Vec3f(0.0, 0.0, -1.0))
+ray = Raycore.Ray(o=Point3f(0.0, 0.0, 2.0), d=Vec3f(0.0, 0.0, -1.0))
 function test(results, bvh, ray)
     for i in 1:100000
-        results[i] = RayCaster.any_hit(bvh, ray, PerfNTuple)
+        results[i] = Raycore.any_hit(bvh, ray, PerfNTuple)
     end
     return results
 end
 
 @profview test(results, bvh, ray)
-@btime RayCaster.closest_hit(bvh, ray)
-results = Vector{Tuple{Bool, RayCaster.Triangle, Float32, Point3f}}(undef, 100000);
+@btime Raycore.closest_hit(bvh, ray)
+results = Vector{Tuple{Bool, Raycore.Triangle, Float32, Point3f}}(undef, 100000);
 @btime test(results, bvh, ray);
 
-@btime RayCaster.any_hit(bvh, ray)
+@btime Raycore.any_hit(bvh, ray)
 
-@code_typed RayCaster.traverse_bvh(RayCaster.any_hit_callback, bvh, ray, RayCaster.MemAllocator())
+@code_typed Raycore.traverse_bvh(Raycore.any_hit_callback, bvh, ray, Raycore.MemAllocator())
 
-sizeof(zeros(RayCaster.MVector{64,Int32}))
+sizeof(zeros(Raycore.MVector{64,Int32}))
 
 ###
 # Int32 always
@@ -209,7 +209,7 @@ struct PerfNTuple{N,T}
     data::NTuple{N,T}
 end
 
-@generated function RayCaster._setindex(r::PerfNTuple{N,T}, idx::IT, value::T) where {N,T, IT <: Integer}
+@generated function Raycore._setindex(r::PerfNTuple{N,T}, idx::IT, value::T) where {N,T, IT <: Integer}
     expr = Expr(:tuple)
     for i in 1:N
         idxt = IT(i)
@@ -220,7 +220,7 @@ end
 
 Base.@propagate_inbounds Base.getindex(r::PerfNTuple, idx::Integer) = r.data[idx]
 
-@generated function RayCaster._allocate(::Type{PerfNTuple}, ::Type{T}, ::Val{N}) where {T,N}
+@generated function Raycore._allocate(::Type{PerfNTuple}, ::Type{T}, ::Val{N}) where {T,N}
     expr = Expr(:tuple)
     for i in 1:N
         push!(expr.args, :($(T(0))))
@@ -228,7 +228,7 @@ Base.@propagate_inbounds Base.getindex(r::PerfNTuple, idx::Integer) = r.data[idx
     return :($(PerfNTuple){$N, $T}($expr))
 end
 
-m = RayCaster._allocate(PerfNTuple, Int32, Val(64))
-m2 = RayCaster._setindex(m, 10, Int32(42))
+m = Raycore._allocate(PerfNTuple, Int32, Val(64))
+m2 = Raycore._setindex(m, 10, Int32(42))
 
-@btime RayCaster.any_hit(bvh, ray, PerfNTuple)
+@btime Raycore.any_hit(bvh, ray, PerfNTuple)

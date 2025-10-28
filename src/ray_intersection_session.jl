@@ -12,20 +12,20 @@ and the computed intersection results.
 
 # Example
 ```julia
-using RayCaster, GeometryBasics
+using Raycore, GeometryBasics
 
 # Create BVH from geometry
 sphere = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
-bvh = RayCaster.BVHAccel([sphere])
+bvh = Raycore.BVHAccel([sphere])
 
 # Create rays
 rays = [
-    RayCaster.Ray(Point3f(0, 0, -5), Vec3f(0, 0, 1)),
-    RayCaster.Ray(Point3f(1, 0, -5), Vec3f(0, 0, 1)),
+    Raycore.Ray(Point3f(0, 0, -5), Vec3f(0, 0, 1)),
+    Raycore.Ray(Point3f(1, 0, -5), Vec3f(0, 0, 1)),
 ]
 
 # Create session
-session = RayIntersectionSession(rays, bvh, RayCaster.closest_hit)
+session = RayIntersectionSession(rays, bvh, Raycore.closest_hit)
 
 # Access results
 for (i, hit) in enumerate(session.hits)

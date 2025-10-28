@@ -7,11 +7,11 @@ GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 MeshIO = "7269a6da-0436-5bbc-96c2-40638cbb6118"
-RayCaster = "afc56b53-c9a9-482a-a956-d1d800e05559"
+Raycore = "afc56b53-c9a9-482a-a956-d1d800e05559"
 WGLMakie = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 
 [sources]
-RayCaster = {path = "../"}
+Raycore = {path = "../"}
 BonitoBook = {url = "https://github.com/SimonDanisch/BonitoBook.jl"}
 
 [compat]

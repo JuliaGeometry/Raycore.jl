@@ -5,7 +5,7 @@ This document tests and visualizes the difference between `closest_hit` and `any
 ## Test Setup
 
 ```julia (editor=true, logging=false, output=true)
-using RayCaster, GeometryBasics, LinearAlgebra
+using Raycore, GeometryBasics, LinearAlgebra
 using WGLMakie
 using Test
 using Bonito
@@ -17,7 +17,7 @@ function create_test_scene()
     sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)   # Middle
     sphere3 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)   # Closest
 
-    bvh = RayCaster.BVHAccel([sphere1, sphere2, sphere3])
+    bvh = Raycore.BVHAccel([sphere1, sphere2, sphere3])
     return bvh
 end
 
@@ -31,13 +31,13 @@ Test a ray through the center that passes through all three spheres.
 
 ```julia (editor=true, logging=false, output=true)
 # Create a ray with slight offset to avoid hitting triangle vertices exactly
-test_ray = RayCaster.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
+test_ray = Raycore.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
 
 # Create session with closest_hit
-session_closest = RayIntersectionSession(RayCaster.closest_hit, [test_ray], bvh)
+session_closest = RayIntersectionSession(Raycore.closest_hit, [test_ray], bvh)
 
 # Create session with any_hit for comparison
-session_any = RayIntersectionSession(RayCaster.any_hit, [test_ray], bvh)
+session_any = RayIntersectionSession(Raycore.any_hit, [test_ray], bvh)
 
 fig = Figure()
 
@@ -53,13 +53,13 @@ fig
 
 ```julia (editor=true, logging=false, output=true)
 # Create a ray with slight offset to avoid hitting triangle vertices exactly
-test_ray = RayCaster.Ray(o=Point3f(0.1, 0.1, 10), d=Vec3f(0, 0, -1))
+test_ray = Raycore.Ray(o=Point3f(0.1, 0.1, 10), d=Vec3f(0, 0, -1))
 
 # Create session with closest_hit
-session_closest = RayIntersectionSession(RayCaster.closest_hit, [test_ray], bvh)
+session_closest = RayIntersectionSession(Raycore.closest_hit, [test_ray], bvh)
 
 # Create session with any_hit for comparison
-session_any = RayIntersectionSession(RayCaster.any_hit, [test_ray], bvh)
+session_any = RayIntersectionSession(Raycore.any_hit, [test_ray], bvh)
 
 fig = Figure()
 # Left: closest_hit visualization
@@ -84,10 +84,10 @@ test_positions = [
 ]
 
 # Create rays
-rays = [RayCaster.Ray(o=pos, d=Vec3f(0, 0, 1)) for pos in test_positions]
+rays = [Raycore.Ray(o=pos, d=Vec3f(0, 0, 1)) for pos in test_positions]
 
 # Create session
-session_multi = RayIntersectionSession(RayCaster.closest_hit, rays, bvh)
+session_multi = RayIntersectionSession(Raycore.closest_hit, rays, bvh)
 fig2 = Figure()
 ax = LScene(fig2[1, 1])
 
@@ -133,17 +133,17 @@ for i in 1:30
     push!(complex_spheres, Tesselation(Sphere(Point3f(x, y, z), r), 8))
 end
 
-complex_bvh = RayCaster.BVHAccel(complex_spheres)
+complex_bvh = Raycore.BVHAccel(complex_spheres)
 
 # Test rays to find cases where any_hit differs from closest_hit
 test_rays = map(1:100) do i
     x = (i % 10) * 0.4 - 2.0
     y = div(i-1, 10) * 0.4 - 2.0
-    RayCaster.Ray(o=Point3f(x, y, -5), d=Vec3f(0, 0, 1))
+    Raycore.Ray(o=Point3f(x, y, -5), d=Vec3f(0, 0, 1))
 end
 
-session_closest = RayIntersectionSession(RayCaster.closest_hit, test_rays, complex_bvh)
-session_any = RayIntersectionSession(RayCaster.any_hit, test_rays, complex_bvh)
+session_closest = RayIntersectionSession(Raycore.closest_hit, test_rays, complex_bvh)
+session_any = RayIntersectionSession(Raycore.any_hit, test_rays, complex_bvh)
 fig = Figure()
 # Left: closest_hit visualization
 plot(fig[1, 1], session_closest)
@@ -178,13 +178,13 @@ end
 ```julia (editor=true, logging=false, output=true)
 using BenchmarkTools
 
-test_ray = RayCaster.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
+test_ray = Raycore.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
 
 # Benchmark closest_hit
-closest_time = @benchmark RayCaster.closest_hit($bvh, $test_ray)
+closest_time = @benchmark Raycore.closest_hit($bvh, $test_ray)
 
 # Benchmark any_hit
-any_time = @benchmark RayCaster.any_hit($bvh, $test_ray)
+any_time = @benchmark Raycore.any_hit($bvh, $test_ray)
 
 
 perf_table = map([
@@ -212,7 +212,7 @@ This document demonstrated:
 
       * Returns: `(hit_found::Bool, hit_primitive::Triangle, distance::Float32, barycentric_coords::Point3f)`
       * `distance` is the distance from ray origin to the hit point
-      * Use `RayCaster.sum_mul(bary_coords, primitive.vertices)` to convert to world-space hit point
+      * Use `Raycore.sum_mul(bary_coords, primitive.vertices)` to convert to world-space hit point
 4. **`any_hit`** efficiently determines if any intersection exists, exiting early
 
       * Returns: Same format as `closest_hit`: `(hit_found::Bool, hit_primitive::Triangle, distance::Float32, barycentric_coords::Point3f)`

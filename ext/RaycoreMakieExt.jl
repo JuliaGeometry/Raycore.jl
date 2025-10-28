@@ -1,6 +1,6 @@
-module RayCasterMakieExt
+module RaycoreMakieExt
 
-using RayCaster
+using Raycore
 using Makie
 using GeometryBasics
 import Makie: plot, plot!
@@ -26,21 +26,21 @@ Makie recipe for visualizing a RayIntersectionSession.
 
 # Example
 ```julia
-using RayCaster, GeometryBasics, GLMakie
+using Raycore, GeometryBasics, GLMakie
 
 # Create geometry
 sphere1 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
 sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)
-bvh = RayCaster.BVHAccel([sphere1, sphere2])
+bvh = Raycore.BVHAccel([sphere1, sphere2])
 
 # Create rays
 rays = [
-    RayCaster.Ray(Point3f(0, 0, -5), Vec3f(0, 0, 1)),
-    RayCaster.Ray(Point3f(1, 0, -5), Vec3f(0, 0, 1)),
+    Raycore.Ray(Point3f(0, 0, -5), Vec3f(0, 0, 1)),
+    Raycore.Ray(Point3f(1, 0, -5), Vec3f(0, 0, 1)),
 ]
 
 # Create and visualize session
-session = RayIntersectionSession(rays, bvh, RayCaster.closest_hit)
+session = RayIntersectionSession(rays, bvh, Raycore.closest_hit)
 plot(session)
 ```
 """
@@ -60,7 +60,7 @@ plot(session)
     )
 end
 
-Makie.plottype(::RayCaster.RayIntersectionSession) = RayPlot
+Makie.plottype(::Raycore.RayIntersectionSession) = RayPlot
 Makie.preferred_axis_type(::RayPlot) = LScene
 
 function Makie.plot!(plot::RayPlot)
@@ -110,7 +110,7 @@ function Makie.plot!(plot::RayPlot)
 
         if hit_found
             # Calculate hit point
-            hit_point = RayCaster.sum_mul(bary_coords, hit_primitive.vertices)
+            hit_point = Raycore.sum_mul(bary_coords, hit_primitive.vertices)
 
             # Collect ray data
             push!(hit_ray_starts, ray.o)
@@ -183,13 +183,13 @@ end
 """
 Helper function to draw BVH geometry
 """
-function draw_bvh!(plot, bvh::RayCaster.BVHAccel, colors, alpha)
+function draw_bvh!(plot, bvh::Raycore.BVHAccel, colors, alpha)
     # Group primitives by their material_idx
-    primitive_groups = Dict{UInt32, Vector{RayCaster.Triangle}}()
+    primitive_groups = Dict{UInt32, Vector{Raycore.Triangle}}()
     for prim in bvh.primitives
         mat_idx = prim.material_idx
         if !haskey(primitive_groups, mat_idx)
-            primitive_groups[mat_idx] = RayCaster.Triangle[]
+            primitive_groups[mat_idx] = Raycore.Triangle[]
         end
         push!(primitive_groups[mat_idx], prim)
     end

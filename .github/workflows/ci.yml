@@ -26,5 +26,5 @@ jobs:
           arch: x64
       - uses: julia-actions/cache@v2
       - name: Install pkgs dependencies
-        run: julia --project=@. -e 'using Pkg; Pkg.test("RayCaster", coverage=true)'
+        run: julia --project=@. -e 'using Pkg; Pkg.test("Raycore", coverage=true)'
       - uses: julia-actions/julia-runtest@v1

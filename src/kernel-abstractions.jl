@@ -16,8 +16,8 @@ end
 
 # Conversion constructor for e.g. GPU arrays
 # TODO, create tree on GPU? Not sure if that will gain much though...
-function to_gpu(ArrayType, bvh::RayCaster.BVHAccel; preserve=[])
+function to_gpu(ArrayType, bvh::Raycore.BVHAccel; preserve=[])
     primitives = to_gpu(ArrayType, bvh.primitives; preserve=preserve)
     nodes = to_gpu(ArrayType, bvh.nodes; preserve=preserve)
-    return RayCaster.BVHAccel(primitives, bvh.max_node_primitives, nodes)
+    return Raycore.BVHAccel(primitives, bvh.max_node_primitives, nodes)
 end

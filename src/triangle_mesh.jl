@@ -180,7 +180,7 @@ end
 
 # Note: surface_interaction and init_triangle_shading_geometry have been removed
 # These functions are now handled by Trace.jl's triangle_to_surface_interaction
-# RayCaster only provides low-level ray-triangle intersection via intersect_triangle
+# Raycore only provides low-level ray-triangle intersection via intersect_triangle
 
 @inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
     verts = vertices(triangle)  # Get triangle vertices

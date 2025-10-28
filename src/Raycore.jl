@@ -1,4 +1,4 @@
-module RayCaster
+module Raycore
 
 using GeometryBasics
 using LinearAlgebra

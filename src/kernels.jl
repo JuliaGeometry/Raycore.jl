@@ -7,12 +7,12 @@ end
 function hits_from_grid(bvh, viewdir; grid_size=32)
     # Calculate grid bounds
     ray_direction = normalize(viewdir)
-    ray_origins = RayCaster.generate_ray_grid(bvh, ray_direction, grid_size)
+    ray_origins = Raycore.generate_ray_grid(bvh, ray_direction, grid_size)
     result = similar(ray_origins, RayHit)
     Threads.@threads for idx in CartesianIndices(ray_origins)
         o = ray_origins[idx]
-        ray = RayCaster.Ray(; o=o, d=ray_direction)
-        hit, prim, dist, bary = RayCaster.closest_hit(bvh, ray)
+        ray = Raycore.Ray(; o=o, d=ray_direction)
+        hit, prim, dist, bary = Raycore.closest_hit(bvh, ray)
         hitpoint = sum_mul(bary, prim.vertices)
         @inbounds result[idx] = RayHit(hit, hitpoint, prim.material_idx)
     end
