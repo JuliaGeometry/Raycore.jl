@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · Raycore</title><meta name="title" content="Home · Raycore"/><meta property="og:title" content="Home · Raycore"/><meta property="twitter:title" content="Home · Raycore"/><meta name="description" content="Documentation for Raycore."/><meta property="og:description" content="Documentation for Raycore."/><meta property="twitter:description" content="Documentation for Raycore."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">Raycore</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href="index.html">Home</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Private-Functions"><span>Private Functions</span></a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="index.html">Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="index.html">Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl/blob/master/docs/src/index.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Raycore.jl"><a class="docs-heading-anchor" href="#Raycore.jl">Raycore.jl</a><a id="Raycore.jl-1"></a><a class="docs-heading-anchor-permalink" href="#Raycore.jl" title="Permalink"></a></h1><pre><code class="language-julia hljs">using Raycore, GeometryBasics, LinearAlgebra
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Home · Raycore</title><meta name="title" content="Home · Raycore"/><meta property="og:title" content="Home · Raycore"/><meta property="twitter:title" content="Home · Raycore"/><meta name="description" content="Documentation for Raycore."/><meta property="og:description" content="Documentation for Raycore."/><meta property="twitter:description" content="Documentation for Raycore."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">Raycore</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li class="is-active"><a class="tocitem" href="index.html">Home</a><ul class="internal"><li><a class="tocitem" href="#Overview"><span>Overview</span></a></li><li><a class="tocitem" href="#Private-Functions"><span>Private Functions</span></a></li></ul></li><li><span class="tocitem">Tutorials</span><ul><li><a class="tocitem" href="raytracing_tutorial.html">Ray Tracing Tutorial</a></li><li><a class="tocitem" href="bvh_hit_tests.html">BVH Hit Tests</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="index.html">Home</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="index.html">Home</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl/blob/master/docs/src/index.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Raycore.jl"><a class="docs-heading-anchor" href="#Raycore.jl">Raycore.jl</a><a id="Raycore.jl-1"></a><a class="docs-heading-anchor-permalink" href="#Raycore.jl" title="Permalink"></a></h1><pre><code class="language-julia hljs">using Raycore, GeometryBasics, LinearAlgebra
 using WGLMakie, FileIO
 
 function LowSphere(radius, contact=Point3f(0); ntriangles=10)
@@ -55,23 +55,23 @@ Label(f[3, 1], &quot;Centroid&quot;, tellwidth=false, fontsize=20)
 Label(f[3, 2], &quot;Illumination&quot;, tellwidth=false, fontsize=20)
 
 f</code></pre><div>
-  <div class="bonito-fragment" id="3f126181-a996-4ff4-9c5a-f67328862e4b" data-jscall-id="root">
+  <div class="bonito-fragment" id="9620dc59-095d-425a-967e-185532b3f50d" data-jscall-id="root">
     <div>
       <script src="bonito/js/Bonito.bundled7457269554592506375.js" type="module"></script>
       <style></style>
     </div>
     <div>
-      <script type="module">Bonito.init_session("3f126181-a996-4ff4-9c5a-f67328862e4b", null, "root", false);
+      <script type="module">Bonito.init_session("9620dc59-095d-425a-967e-185532b3f50d", null, "root", false);
 </script>
       <span></span>
     </div>
   </div>
-  <div class="bonito-fragment" id="bb844cf9-8d7b-43c7-b72d-683b1304e707" data-jscall-id="subsession-application-dom">
+  <div class="bonito-fragment" id="1dd4b1b0-2271-422c-878b-21c6796e141d" data-jscall-id="subsession-application-dom">
     <div>
       <style></style>
     </div>
     <div>
-      <script type="module">Bonito.init_session("bb844cf9-8d7b-43c7-b72d-683b1304e707", Bonito.fetch_binary('bonito/bin/2bcd519edb72caa955e30754be7f18118a6fc103-16823539683858156399.bin'), "sub", false);
+      <script type="module">Bonito.init_session("1dd4b1b0-2271-422c-878b-21c6796e141d", Bonito.fetch_binary('bonito/bin/c853d065bcbecee1628b43b9f522987fcd5a0416-16874174999749622023.bin'), "sub", false);
 </script>
       <div style="width: 100%; height: 100%" data-jscall-id="1">
         <canvas data-jp-suppress-context-menu style="display: block" data-jscall-id="2" data-lm-suppress-shortcuts="true" tabindex="0"></canvas>
@@ -82,7 +82,7 @@ f</code></pre><div>
 App() do
     path = normpath(joinpath(dirname(pathof(Raycore)), &quot;..&quot;, &quot;docs&quot;, &quot;src&quot;, &quot;bvh_hit_tests.md&quot;))
     BonitoBook.InlineBook(path)
-end</code></pre><div class="bonito-fragment" id="4c2fa0f8-b497-4bf5-a137-d2f28539af4a" data-jscall-id="subsession-application-dom">
+end</code></pre><div class="bonito-fragment" id="6c9423f1-84cf-4ffa-8a91-7363c988a1db" data-jscall-id="subsession-application-dom">
   <div>
     <style>.style_4 {
   width: 1.2em;
@@ -278,11 +278,11 @@ span.sgr107 {
 </style>
   </div>
   <div>
-    <script type="module">Bonito.init_session("4c2fa0f8-b497-4bf5-a137-d2f28539af4a", Bonito.fetch_binary('bonito/bin/464e2daac1dcca8c346b221e7f510abbe6464a45-7455613039753055897.bin'), "sub", false);
+    <script type="module">Bonito.init_session("6c9423f1-84cf-4ffa-8a91-7363c988a1db", Bonito.fetch_binary('bonito/bin/4ed4d1e1d561f3103c13ea881b4cc44d41877af9-1077362266440439828.bin'), "sub", false);
 </script>
     <div data-jscall-id="3">
       <div data-jscall-id="5">
-        <div class="bonito-fragment" id="7e365c0f-d145-40ca-bbe4-666ad42e3153" data-jscall-id="subsession-application-dom">
+        <div class="bonito-fragment" id="c13e64ca-2a56-4e39-a4be-9d7f51beede5" data-jscall-id="subsession-application-dom">
           <div data-jscall-id="6">
             <style data-jscall-id="7"></style>
             <style data-jscall-id="8">:root {
@@ -1546,7 +1546,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
 </style>
           </div>
           <div data-jscall-id="9">
-            <script data-jscall-id="10" type="module">Bonito.init_session("7e365c0f-d145-40ca-bbe4-666ad42e3153", null, "sub", false);
+            <script data-jscall-id="10" type="module">Bonito.init_session("c13e64ca-2a56-4e39-a4be-9d7f51beede5", null, "sub", false);
 </script>
             <span data-jscall-id="4"></span>
           </div>
@@ -1567,10 +1567,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   </div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="203a0d72-e1bc-4476-98b4-86c951fca3b9" data-jscall-id="22">
-                <div class=" style_7" style="" data-jscall-id="23" id="203a0d72-e1bc-4476-98b4-86c951fca3b9-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="97fdf5d1-7dbd-4ce2-a342-85c469c32f2c" data-jscall-id="22">
+                <div class=" style_7" style="" data-jscall-id="23" id="97fdf5d1-7dbd-4ce2-a342-85c469c32f2c-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="24">
-                    <div class="hover-buttons" id="203a0d72-e1bc-4476-98b4-86c951fca3b9-hover" data-jscall-id="25">
+                    <div class="hover-buttons" id="97fdf5d1-7dbd-4ce2-a342-85c469c32f2c-hover" data-jscall-id="25">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="26">
                         <img class="codicon  style_4" style="" data-jscall-id="27" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1584,7 +1584,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="33" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="203a0d72-e1bc-4476-98b4-86c951fca3b9-card-content" data-jscall-id="34" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="97fdf5d1-7dbd-4ce2-a342-85c469c32f2c-card-content" data-jscall-id="34" style="position: relative;">
                       <div data-jscall-id="35">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="36"></div>
                       </div>
@@ -1598,12 +1598,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="42" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="37">
                         <div data-jscall-id="53">
-                          <div class="bonito-fragment" id="248db6e6-19b7-4110-82b8-a40109791b46" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="8caff631-8cc1-45b1-ab2f-ceebcbe4a550" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="54">
                               <style data-jscall-id="55"></style>
                             </div>
                             <div data-jscall-id="56">
-                              <script data-jscall-id="57" type="module">Bonito.init_session("248db6e6-19b7-4110-82b8-a40109791b46", null, "sub", false);
+                              <script data-jscall-id="57" type="module">Bonito.init_session("8caff631-8cc1-45b1-ab2f-ceebcbe4a550", null, "sub", false);
 </script>
                               <span data-jscall-id="43">
                                 <div class="markdown-body" data-jscall-id="44">
@@ -1628,10 +1628,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="58"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="01beb1e5-d034-45b3-b202-374d770f4e6f" data-jscall-id="59">
-                <div class=" style_7" style="" data-jscall-id="60" id="01beb1e5-d034-45b3-b202-374d770f4e6f-container" tabindex="0">
+              <div class="cell-editor-container" id="433340aa-b307-45a9-8097-32563f6d6ed5" data-jscall-id="59">
+                <div class=" style_7" style="" data-jscall-id="60" id="433340aa-b307-45a9-8097-32563f6d6ed5-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="61">
-                    <div class="hover-buttons" id="01beb1e5-d034-45b3-b202-374d770f4e6f-hover" data-jscall-id="62">
+                    <div class="hover-buttons" id="433340aa-b307-45a9-8097-32563f6d6ed5-hover" data-jscall-id="62">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="63">
                         <img class="codicon  style_4" style="" data-jscall-id="64" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1645,7 +1645,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="70" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="01beb1e5-d034-45b3-b202-374d770f4e6f-card-content" data-jscall-id="71" style="position: relative;">
+                    <div class="cell-editor " id="433340aa-b307-45a9-8097-32563f6d6ed5-card-content" data-jscall-id="71" style="position: relative;">
                       <div data-jscall-id="72">
                         <div class="monaco-editor-div language-julia" data-jscall-id="73"></div>
                       </div>
@@ -1659,12 +1659,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="79" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="74">
                         <div data-jscall-id="82">
-                          <div class="bonito-fragment" id="bfa37997-b777-41e0-852d-0060e5de8d24" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="d43a1a48-0e33-42f7-aa1a-ef56008f8ae9" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="83">
                               <style data-jscall-id="84"></style>
                             </div>
                             <div data-jscall-id="85">
-                              <script data-jscall-id="86" type="module">Bonito.init_session("bfa37997-b777-41e0-852d-0060e5de8d24", null, "sub", false);
+                              <script data-jscall-id="86" type="module">Bonito.init_session("d43a1a48-0e33-42f7-aa1a-ef56008f8ae9", null, "sub", false);
 </script>
                               <span data-jscall-id="80">
                                 <div data-jscall-id="81">✓ Created BVH with 2166 triangles from 3 spheres</div>
@@ -1678,10 +1678,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="87"></div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="b263f903-d2b0-40ef-b6e6-7a3684f92785" data-jscall-id="88">
-                <div class=" style_7" style="" data-jscall-id="89" id="b263f903-d2b0-40ef-b6e6-7a3684f92785-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="0d5eedf7-6131-40ce-a019-183cf80e318a" data-jscall-id="88">
+                <div class=" style_7" style="" data-jscall-id="89" id="0d5eedf7-6131-40ce-a019-183cf80e318a-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="90">
-                    <div class="hover-buttons" id="b263f903-d2b0-40ef-b6e6-7a3684f92785-hover" data-jscall-id="91">
+                    <div class="hover-buttons" id="0d5eedf7-6131-40ce-a019-183cf80e318a-hover" data-jscall-id="91">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="92">
                         <img class="codicon  style_4" style="" data-jscall-id="93" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1695,7 +1695,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="99" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="b263f903-d2b0-40ef-b6e6-7a3684f92785-card-content" data-jscall-id="100" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="0d5eedf7-6131-40ce-a019-183cf80e318a-card-content" data-jscall-id="100" style="position: relative;">
                       <div data-jscall-id="101">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="102"></div>
                       </div>
@@ -1709,12 +1709,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="108" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="103">
                         <div data-jscall-id="113">
-                          <div class="bonito-fragment" id="00d50ccc-f35b-4b54-8ff3-460fad25d650" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="d9cb6a55-4ef9-463b-826c-64c7c60b29d8" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="114">
                               <style data-jscall-id="115"></style>
                             </div>
                             <div data-jscall-id="116">
-                              <script data-jscall-id="117" type="module">Bonito.init_session("00d50ccc-f35b-4b54-8ff3-460fad25d650", null, "sub", false);
+                              <script data-jscall-id="117" type="module">Bonito.init_session("d9cb6a55-4ef9-463b-826c-64c7c60b29d8", null, "sub", false);
 </script>
                               <span data-jscall-id="109">
                                 <div class="markdown-body" data-jscall-id="110">
@@ -1731,10 +1731,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="118"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="0bdd5e84-aece-4b0b-840a-e9941fab9381" data-jscall-id="119">
-                <div class=" style_7" style="" data-jscall-id="120" id="0bdd5e84-aece-4b0b-840a-e9941fab9381-container" tabindex="0">
+              <div class="cell-editor-container" id="d4eae93d-324f-4528-9dd9-84a5bd86bdc2" data-jscall-id="119">
+                <div class=" style_7" style="" data-jscall-id="120" id="d4eae93d-324f-4528-9dd9-84a5bd86bdc2-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="121">
-                    <div class="hover-buttons" id="0bdd5e84-aece-4b0b-840a-e9941fab9381-hover" data-jscall-id="122">
+                    <div class="hover-buttons" id="d4eae93d-324f-4528-9dd9-84a5bd86bdc2-hover" data-jscall-id="122">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="123">
                         <img class="codicon  style_4" style="" data-jscall-id="124" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1748,7 +1748,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="130" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="0bdd5e84-aece-4b0b-840a-e9941fab9381-card-content" data-jscall-id="131" style="position: relative;">
+                    <div class="cell-editor " id="d4eae93d-324f-4528-9dd9-84a5bd86bdc2-card-content" data-jscall-id="131" style="position: relative;">
                       <div data-jscall-id="132">
                         <div class="monaco-editor-div language-julia" data-jscall-id="133"></div>
                       </div>
@@ -1762,12 +1762,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="139" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="134">
                         <div data-jscall-id="143">
-                          <div class="bonito-fragment" id="a300765f-eb26-40c1-bb92-2a6ca0750591" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="fc83adab-34ff-4a39-a341-b58efa371053" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="144">
                               <style data-jscall-id="145"></style>
                             </div>
                             <div data-jscall-id="146">
-                              <script data-jscall-id="147" type="module">Bonito.init_session("a300765f-eb26-40c1-bb92-2a6ca0750591", Bonito.fetch_binary('bonito/bin/7b4cfad0bc12b6ef7111b1b5bb3499760dc05a76-15189396741113147506.bin'), "sub", false);
+                              <script data-jscall-id="147" type="module">Bonito.init_session("fc83adab-34ff-4a39-a341-b58efa371053", Bonito.fetch_binary('bonito/bin/56d6f7b8bd6cbc5c5692ce3b9e67ff7fda747080-17764416142833148334.bin'), "sub", false);
 </script>
                               <span data-jscall-id="140">
                                 <div style="width: 100%; height: 100%" data-jscall-id="141">
@@ -1783,10 +1783,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="148"></div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="102d8056-d1ec-4059-8809-eded9dd49513" data-jscall-id="149">
-                <div class=" style_7" style="" data-jscall-id="150" id="102d8056-d1ec-4059-8809-eded9dd49513-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="48ddcdf3-08af-4b1b-9894-4123d1743f8a" data-jscall-id="149">
+                <div class=" style_7" style="" data-jscall-id="150" id="48ddcdf3-08af-4b1b-9894-4123d1743f8a-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="151">
-                    <div class="hover-buttons" id="102d8056-d1ec-4059-8809-eded9dd49513-hover" data-jscall-id="152">
+                    <div class="hover-buttons" id="48ddcdf3-08af-4b1b-9894-4123d1743f8a-hover" data-jscall-id="152">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="153">
                         <img class="codicon  style_4" style="" data-jscall-id="154" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1800,7 +1800,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="160" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="102d8056-d1ec-4059-8809-eded9dd49513-card-content" data-jscall-id="161" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="48ddcdf3-08af-4b1b-9894-4123d1743f8a-card-content" data-jscall-id="161" style="position: relative;">
                       <div data-jscall-id="162">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="163"></div>
                       </div>
@@ -1814,12 +1814,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="169" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="164">
                         <div data-jscall-id="173">
-                          <div class="bonito-fragment" id="f9a9953b-580d-4eb5-9468-ac5ec815c0ac" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="8c7dc140-9e88-438e-b9c5-cef9d9f968e4" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="174">
                               <style data-jscall-id="175"></style>
                             </div>
                             <div data-jscall-id="176">
-                              <script data-jscall-id="177" type="module">Bonito.init_session("f9a9953b-580d-4eb5-9468-ac5ec815c0ac", null, "sub", false);
+                              <script data-jscall-id="177" type="module">Bonito.init_session("8c7dc140-9e88-438e-b9c5-cef9d9f968e4", null, "sub", false);
 </script>
                               <span data-jscall-id="170">
                                 <div class="markdown-body" data-jscall-id="171">
@@ -1835,10 +1835,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="178"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="0fe5714f-cafc-4fb9-b2b8-0fe85483e797" data-jscall-id="179">
-                <div class=" style_7" style="" data-jscall-id="180" id="0fe5714f-cafc-4fb9-b2b8-0fe85483e797-container" tabindex="0">
+              <div class="cell-editor-container" id="6ac00bf9-770f-4254-a05f-c6e1894e44e6" data-jscall-id="179">
+                <div class=" style_7" style="" data-jscall-id="180" id="6ac00bf9-770f-4254-a05f-c6e1894e44e6-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="181">
-                    <div class="hover-buttons" id="0fe5714f-cafc-4fb9-b2b8-0fe85483e797-hover" data-jscall-id="182">
+                    <div class="hover-buttons" id="6ac00bf9-770f-4254-a05f-c6e1894e44e6-hover" data-jscall-id="182">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="183">
                         <img class="codicon  style_4" style="" data-jscall-id="184" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1852,7 +1852,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="190" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="0fe5714f-cafc-4fb9-b2b8-0fe85483e797-card-content" data-jscall-id="191" style="position: relative;">
+                    <div class="cell-editor " id="6ac00bf9-770f-4254-a05f-c6e1894e44e6-card-content" data-jscall-id="191" style="position: relative;">
                       <div data-jscall-id="192">
                         <div class="monaco-editor-div language-julia" data-jscall-id="193"></div>
                       </div>
@@ -1866,12 +1866,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="199" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="194">
                         <div data-jscall-id="203">
-                          <div class="bonito-fragment" id="730d0ace-3c7c-47b5-97f4-0894ab147136" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="ae0484c9-fb95-4aec-9722-5fdf6af6e3c1" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="204">
                               <style data-jscall-id="205"></style>
                             </div>
                             <div data-jscall-id="206">
-                              <script data-jscall-id="207" type="module">Bonito.init_session("730d0ace-3c7c-47b5-97f4-0894ab147136", Bonito.fetch_binary('bonito/bin/56515b720557d013b4e341cd79a836c723ea41e5-11673135884274405252.bin'), "sub", false);
+                              <script data-jscall-id="207" type="module">Bonito.init_session("ae0484c9-fb95-4aec-9722-5fdf6af6e3c1", Bonito.fetch_binary('bonito/bin/afc362d8fbb9304bf687753c37f35946f511cf78-9248680034540995247.bin'), "sub", false);
 </script>
                               <span data-jscall-id="200">
                                 <div style="width: 100%; height: 100%" data-jscall-id="201">
@@ -1887,10 +1887,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="208"></div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="94c60489-5033-4173-b8df-d7c6ca273a29" data-jscall-id="209">
-                <div class=" style_7" style="" data-jscall-id="210" id="94c60489-5033-4173-b8df-d7c6ca273a29-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="d517f204-e8d6-4c9f-bb41-fd665e11774f" data-jscall-id="209">
+                <div class=" style_7" style="" data-jscall-id="210" id="d517f204-e8d6-4c9f-bb41-fd665e11774f-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="211">
-                    <div class="hover-buttons" id="94c60489-5033-4173-b8df-d7c6ca273a29-hover" data-jscall-id="212">
+                    <div class="hover-buttons" id="d517f204-e8d6-4c9f-bb41-fd665e11774f-hover" data-jscall-id="212">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="213">
                         <img class="codicon  style_4" style="" data-jscall-id="214" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1904,7 +1904,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="220" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="94c60489-5033-4173-b8df-d7c6ca273a29-card-content" data-jscall-id="221" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="d517f204-e8d6-4c9f-bb41-fd665e11774f-card-content" data-jscall-id="221" style="position: relative;">
                       <div data-jscall-id="222">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="223"></div>
                       </div>
@@ -1918,12 +1918,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="229" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="224">
                         <div data-jscall-id="234">
-                          <div class="bonito-fragment" id="878e86b7-7a73-45f7-98a2-2a004c31d6d0" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="5ebf282e-7001-4f4e-8c7b-be86c57120c9" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="235">
                               <style data-jscall-id="236"></style>
                             </div>
                             <div data-jscall-id="237">
-                              <script data-jscall-id="238" type="module">Bonito.init_session("878e86b7-7a73-45f7-98a2-2a004c31d6d0", null, "sub", false);
+                              <script data-jscall-id="238" type="module">Bonito.init_session("5ebf282e-7001-4f4e-8c7b-be86c57120c9", null, "sub", false);
 </script>
                               <span data-jscall-id="230">
                                 <div class="markdown-body" data-jscall-id="231">
@@ -1940,10 +1940,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="239"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="1cbee634-ef4c-4031-9969-c200356e17ab" data-jscall-id="240">
-                <div class=" style_7" style="" data-jscall-id="241" id="1cbee634-ef4c-4031-9969-c200356e17ab-container" tabindex="0">
+              <div class="cell-editor-container" id="7e790a88-3ca1-4ebd-af61-f19e6e317082" data-jscall-id="240">
+                <div class=" style_7" style="" data-jscall-id="241" id="7e790a88-3ca1-4ebd-af61-f19e6e317082-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="242">
-                    <div class="hover-buttons" id="1cbee634-ef4c-4031-9969-c200356e17ab-hover" data-jscall-id="243">
+                    <div class="hover-buttons" id="7e790a88-3ca1-4ebd-af61-f19e6e317082-hover" data-jscall-id="243">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="244">
                         <img class="codicon  style_4" style="" data-jscall-id="245" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -1957,7 +1957,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="251" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="1cbee634-ef4c-4031-9969-c200356e17ab-card-content" data-jscall-id="252" style="position: relative;">
+                    <div class="cell-editor " id="7e790a88-3ca1-4ebd-af61-f19e6e317082-card-content" data-jscall-id="252" style="position: relative;">
                       <div data-jscall-id="253">
                         <div class="monaco-editor-div language-julia" data-jscall-id="254"></div>
                       </div>
@@ -1971,12 +1971,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="260" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="255">
                         <div data-jscall-id="264">
-                          <div class="bonito-fragment" id="4fc79c3c-d8ea-4582-ba75-aba4d03abcdd" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="6aba6325-b1cd-4da3-82c5-8d65b2f8ac0c" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="265">
                               <style data-jscall-id="266"></style>
                             </div>
                             <div data-jscall-id="267">
-                              <script data-jscall-id="268" type="module">Bonito.init_session("4fc79c3c-d8ea-4582-ba75-aba4d03abcdd", Bonito.fetch_binary('bonito/bin/d78dbd9331a871633fda5777cc7517707819afd9-2826045208509903745.bin'), "sub", false);
+                              <script data-jscall-id="268" type="module">Bonito.init_session("6aba6325-b1cd-4da3-82c5-8d65b2f8ac0c", Bonito.fetch_binary('bonito/bin/36e8fc31e990537ae02f9499326ddf7e7fc9d062-7389440480730065707.bin'), "sub", false);
 </script>
                               <span data-jscall-id="261">
                                 <div style="width: 100%; height: 100%" data-jscall-id="262">
@@ -1992,10 +1992,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="269"></div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="da5e0c8b-e26c-4167-95ea-9f2658249eac" data-jscall-id="270">
-                <div class=" style_7" style="" data-jscall-id="271" id="da5e0c8b-e26c-4167-95ea-9f2658249eac-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="55e2cdff-1ea2-4db4-b9f1-faf1448bd4cd" data-jscall-id="270">
+                <div class=" style_7" style="" data-jscall-id="271" id="55e2cdff-1ea2-4db4-b9f1-faf1448bd4cd-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="272">
-                    <div class="hover-buttons" id="da5e0c8b-e26c-4167-95ea-9f2658249eac-hover" data-jscall-id="273">
+                    <div class="hover-buttons" id="55e2cdff-1ea2-4db4-b9f1-faf1448bd4cd-hover" data-jscall-id="273">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="274">
                         <img class="codicon  style_4" style="" data-jscall-id="275" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -2009,7 +2009,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="281" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="da5e0c8b-e26c-4167-95ea-9f2658249eac-card-content" data-jscall-id="282" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="55e2cdff-1ea2-4db4-b9f1-faf1448bd4cd-card-content" data-jscall-id="282" style="position: relative;">
                       <div data-jscall-id="283">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="284"></div>
                       </div>
@@ -2023,12 +2023,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="290" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="285">
                         <div data-jscall-id="299">
-                          <div class="bonito-fragment" id="5d49c59d-b4d2-44f2-8a98-9a069627ee09" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="0ef038af-f2b2-49c8-9a2c-18d0431143ff" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="300">
                               <style data-jscall-id="301"></style>
                             </div>
                             <div data-jscall-id="302">
-                              <script data-jscall-id="303" type="module">Bonito.init_session("5d49c59d-b4d2-44f2-8a98-9a069627ee09", null, "sub", false);
+                              <script data-jscall-id="303" type="module">Bonito.init_session("0ef038af-f2b2-49c8-9a2c-18d0431143ff", null, "sub", false);
 </script>
                               <span data-jscall-id="291">
                                 <div class="markdown-body" data-jscall-id="292">
@@ -2051,10 +2051,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="304"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="2ea8bcd0-f680-4947-b4a2-ebed26e03de7" data-jscall-id="305">
-                <div class=" style_7" style="" data-jscall-id="306" id="2ea8bcd0-f680-4947-b4a2-ebed26e03de7-container" tabindex="0">
+              <div class="cell-editor-container" id="cc3455f3-a194-46c1-b470-eeedaeae4bee" data-jscall-id="305">
+                <div class=" style_7" style="" data-jscall-id="306" id="cc3455f3-a194-46c1-b470-eeedaeae4bee-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="307">
-                    <div class="hover-buttons" id="2ea8bcd0-f680-4947-b4a2-ebed26e03de7-hover" data-jscall-id="308">
+                    <div class="hover-buttons" id="cc3455f3-a194-46c1-b470-eeedaeae4bee-hover" data-jscall-id="308">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="309">
                         <img class="codicon  style_4" style="" data-jscall-id="310" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -2068,7 +2068,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="316" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="2ea8bcd0-f680-4947-b4a2-ebed26e03de7-card-content" data-jscall-id="317" style="position: relative;">
+                    <div class="cell-editor " id="cc3455f3-a194-46c1-b470-eeedaeae4bee-card-content" data-jscall-id="317" style="position: relative;">
                       <div data-jscall-id="318">
                         <div class="monaco-editor-div language-julia" data-jscall-id="319"></div>
                       </div>
@@ -2082,12 +2082,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="325" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="320">
                         <div data-jscall-id="329">
-                          <div class="bonito-fragment" id="40d9de1c-f419-4aff-b8e6-cf4e94448eb3" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="9854019b-f759-45da-830a-1a91b0aa80c2" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="330">
                               <style data-jscall-id="331"></style>
                             </div>
                             <div data-jscall-id="332">
-                              <script data-jscall-id="333" type="module">Bonito.init_session("40d9de1c-f419-4aff-b8e6-cf4e94448eb3", Bonito.fetch_binary('bonito/bin/e94e59fa846412f5c82cd6b02629c4ac0db04167-12594163042657578474.bin'), "sub", false);
+                              <script data-jscall-id="333" type="module">Bonito.init_session("9854019b-f759-45da-830a-1a91b0aa80c2", Bonito.fetch_binary('bonito/bin/4276a96c06bde838095ddde9bd9b56504b6fc800-4423354600840329936.bin'), "sub", false);
 </script>
                               <span data-jscall-id="326">
                                 <div style="width: 100%; height: 100%" data-jscall-id="327">
@@ -2103,10 +2103,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="334"></div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="26157f71-c4b8-443b-9b19-a72d70b9f907" data-jscall-id="335">
-                <div class=" style_7" style="" data-jscall-id="336" id="26157f71-c4b8-443b-9b19-a72d70b9f907-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="37eeb3bb-07ef-4ac7-b98a-b4d13f33c775" data-jscall-id="335">
+                <div class=" style_7" style="" data-jscall-id="336" id="37eeb3bb-07ef-4ac7-b98a-b4d13f33c775-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="337">
-                    <div class="hover-buttons" id="26157f71-c4b8-443b-9b19-a72d70b9f907-hover" data-jscall-id="338">
+                    <div class="hover-buttons" id="37eeb3bb-07ef-4ac7-b98a-b4d13f33c775-hover" data-jscall-id="338">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="339">
                         <img class="codicon  style_4" style="" data-jscall-id="340" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -2120,7 +2120,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="346" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="26157f71-c4b8-443b-9b19-a72d70b9f907-card-content" data-jscall-id="347" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="37eeb3bb-07ef-4ac7-b98a-b4d13f33c775-card-content" data-jscall-id="347" style="position: relative;">
                       <div data-jscall-id="348">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="349"></div>
                       </div>
@@ -2134,7 +2134,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="355" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="350">
                         <div data-jscall-id="383">
-                          <div class="bonito-fragment" id="ccd3a2f1-54c4-4d51-880c-f6e6e8e8270c" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="b9255c7f-3381-439a-9565-b23232f92c84" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="384">
                               <style data-jscall-id="385">.style_2 {
   list-style-type: disc;
@@ -2142,7 +2142,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
 </style>
                             </div>
                             <div data-jscall-id="386">
-                              <script data-jscall-id="387" type="module">Bonito.init_session("ccd3a2f1-54c4-4d51-880c-f6e6e8e8270c", null, "sub", false);
+                              <script data-jscall-id="387" type="module">Bonito.init_session("b9255c7f-3381-439a-9565-b23232f92c84", null, "sub", false);
 </script>
                               <span data-jscall-id="356">
                                 <div class="markdown-body" data-jscall-id="357">
@@ -2194,10 +2194,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="388"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="8ef6ae0c-70a1-4d67-aaf4-67fa9e6a9985" data-jscall-id="389">
-                <div class=" style_7" style="" data-jscall-id="390" id="8ef6ae0c-70a1-4d67-aaf4-67fa9e6a9985-container" tabindex="0">
+              <div class="cell-editor-container" id="ddcba354-940d-4ae6-9cc8-48c51ee883e0" data-jscall-id="389">
+                <div class=" style_7" style="" data-jscall-id="390" id="ddcba354-940d-4ae6-9cc8-48c51ee883e0-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="391">
-                    <div class="hover-buttons" id="8ef6ae0c-70a1-4d67-aaf4-67fa9e6a9985-hover" data-jscall-id="392">
+                    <div class="hover-buttons" id="ddcba354-940d-4ae6-9cc8-48c51ee883e0-hover" data-jscall-id="392">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="393">
                         <img class="codicon  style_4" style="" data-jscall-id="394" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -2211,7 +2211,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="400" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="8ef6ae0c-70a1-4d67-aaf4-67fa9e6a9985-card-content" data-jscall-id="401" style="position: relative;">
+                    <div class="cell-editor " id="ddcba354-940d-4ae6-9cc8-48c51ee883e0-card-content" data-jscall-id="401" style="position: relative;">
                       <div data-jscall-id="402">
                         <div class="monaco-editor-div language-julia" data-jscall-id="403"></div>
                       </div>
@@ -2225,12 +2225,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="409" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="404">
                         <div data-jscall-id="411">
-                          <div class="bonito-fragment" id="ec26d240-90e4-4cbb-8f3f-36a96fff1c0b" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="482ff5a3-638b-4e83-a841-263254e5c970" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="412">
                               <style data-jscall-id="413"></style>
                             </div>
                             <div data-jscall-id="414">
-                              <script data-jscall-id="415" type="module">Bonito.init_session("ec26d240-90e4-4cbb-8f3f-36a96fff1c0b", null, "sub", false);
+                              <script data-jscall-id="415" type="module">Bonito.init_session("482ff5a3-638b-4e83-a841-263254e5c970", null, "sub", false);
 </script>
                               <span data-jscall-id="410">
                                 <span class="text-plain" style="white-space: pre-wrap" data-jscall-id="416">render_io &#40;generic function with 1 method&#41;</span>
@@ -2244,10 +2244,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                   <div class="cell-menu-proximity-area" data-jscall-id="417"></div>
                 </div>
               </div>
-              <div class="cell-editor-container" id="397110cc-9841-4839-b400-8036255f365f" data-jscall-id="418">
-                <div class=" style_7" style="" data-jscall-id="419" id="397110cc-9841-4839-b400-8036255f365f-container" tabindex="0">
+              <div class="cell-editor-container" id="f767ca16-fe46-44b7-85e5-7d06c949dcdb" data-jscall-id="418">
+                <div class=" style_7" style="" data-jscall-id="419" id="f767ca16-fe46-44b7-85e5-7d06c949dcdb-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="420">
-                    <div class="hover-buttons" id="397110cc-9841-4839-b400-8036255f365f-hover" data-jscall-id="421">
+                    <div class="hover-buttons" id="f767ca16-fe46-44b7-85e5-7d06c949dcdb-hover" data-jscall-id="421">
                       <button onclick="" class="small-button toggle-button active" data-jscall-id="422">
                         <img class="codicon  style_4" style="" data-jscall-id="423" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -2261,7 +2261,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                         <img class="codicon  style_5" style="" data-jscall-id="429" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor " id="397110cc-9841-4839-b400-8036255f365f-card-content" data-jscall-id="430" style="position: relative;">
+                    <div class="cell-editor " id="f767ca16-fe46-44b7-85e5-7d06c949dcdb-card-content" data-jscall-id="430" style="position: relative;">
                       <div data-jscall-id="431">
                         <div class="monaco-editor-div language-julia" data-jscall-id="432"></div>
                       </div>
@@ -2275,12 +2275,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div data-jscall-id="438" tabindex="0">
                       <div class="cell-output cell-output-julia " data-jscall-id="433">
                         <div data-jscall-id="440">
-                          <div class="bonito-fragment" id="344561f5-96a5-4937-b94d-6b9782d033f9" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="f9667b69-adb6-48e8-a6ca-8045c8331387" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="441">
                               <style data-jscall-id="442"></style>
                             </div>
                             <div data-jscall-id="443">
-                              <script data-jscall-id="444" type="module">Bonito.init_session("344561f5-96a5-4937-b94d-6b9782d033f9", null, "sub", false);
+                              <script data-jscall-id="444" type="module">Bonito.init_session("f9667b69-adb6-48e8-a6ca-8045c8331387", null, "sub", false);
 </script>
                               <span data-jscall-id="439">
                                 <div class="interactive-error-widget" style="border: 1px solid var(--border-primary); border-radius: 8px; padding: 16px; margin: 8px 0; background-color: var(--bg-primary);" data-jscall-id="445">
@@ -2291,7 +2291,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
 in expression starting at string:1</pre>
                                   </div>
                                   <div data-jscall-id="449">
-                                    <div class="collapsible-widget" id="collapsible-9928676347364516022" data-jscall-id="450">
+                                    <div class="collapsible-widget" id="collapsible-2354922728839298805" data-jscall-id="450">
                                       <div class="collapsible-header" style="cursor: pointer; padding: 2px 4px; user-select: none; display: flex; align-items: center;" data-jscall-id="451">
                                         <span class="collapsible-toggle" data-jscall-id="452">▶</span>
                                         <span style="margin-left: 5px; color: var(--text-secondary); font-size: 0.9em;" data-jscall-id="453"> Stacktrace</span>
@@ -2300,7 +2300,7 @@ in expression starting at string:1</pre>
                                         <div data-jscall-id="455">
                                           <div style="margin: 8px 0; text-align: right; display: flex; align-items: center; justify-content: flex-end;" data-jscall-id="456">
                                             <span data-jscall-id="457">
-                                              <button class="small-button " data-jscall-id="194706610965168500" title="Toggle stacktrace filtering">
+                                              <button class="small-button " data-jscall-id="17772342361431685065" title="Toggle stacktrace filtering">
                                                 <img class="codicon  style_4" style="" data-jscall-id="458" src="bonito/svg/filter10408791650207312954.svg" />
                                               </button>
                                             </span>
@@ -2310,12 +2310,12 @@ in expression starting at string:1</pre>
                                           </div>
                                           <div style="max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 12px; line-height: 1.4; background-color: var(--bg-primary, #fff); padding: 8px; border-radius: 4px;" data-jscall-id="461">
                                             <div data-jscall-id="512">
-                                              <div class="bonito-fragment" id="6b3e2db7-4d29-4b2b-a58f-9495abbc77d1" data-jscall-id="subsession-application-dom">
+                                              <div class="bonito-fragment" id="4d3737c4-a4ed-4c8b-a0a9-bc335a53b50a" data-jscall-id="subsession-application-dom">
                                                 <div data-jscall-id="513">
                                                   <style data-jscall-id="514"></style>
                                                 </div>
                                                 <div data-jscall-id="515">
-                                                  <script data-jscall-id="516" type="module">Bonito.init_session("6b3e2db7-4d29-4b2b-a58f-9495abbc77d1", Bonito.fetch_binary('bonito/bin/98fd9f59b94bb072334e132bdb8f8375dc33ba29-18109164196215019653.bin'), "sub", false);
+                                                  <script data-jscall-id="516" type="module">Bonito.init_session("4d3737c4-a4ed-4c8b-a0a9-bc335a53b50a", Bonito.fetch_binary('bonito/bin/0fc5e7913ea0f24daeb3c1ce911f4b2bf302e575-16827063147434007618.bin'), "sub", false);
 </script>
                                                   <div class="stacktrace-content" data-jscall-id="462">
                                                     <span data-jscall-id="463">Stacktrace:</span>
@@ -2396,10 +2396,10 @@ in expression starting at string:1</pre>
                   <div class="cell-menu-proximity-area" data-jscall-id="517"></div>
                 </div>
               </div>
-              <div class="cell-editor-container editor-collapsed" id="230e9f7a-2941-4116-b0ee-c5b8e848d4ac" data-jscall-id="518">
-                <div class=" style_7" style="" data-jscall-id="519" id="230e9f7a-2941-4116-b0ee-c5b8e848d4ac-container" tabindex="0">
+              <div class="cell-editor-container editor-collapsed" id="e061e941-d98f-4cf0-b30b-9e20e1b27404" data-jscall-id="518">
+                <div class=" style_7" style="" data-jscall-id="519" id="e061e941-d98f-4cf0-b30b-9e20e1b27404-container" tabindex="0">
                   <div class=" style_7" style="" data-jscall-id="520">
-                    <div class="hover-buttons" id="230e9f7a-2941-4116-b0ee-c5b8e848d4ac-hover" data-jscall-id="521">
+                    <div class="hover-buttons" id="e061e941-d98f-4cf0-b30b-9e20e1b27404-hover" data-jscall-id="521">
                       <button onclick="" class="small-button toggle-button" data-jscall-id="522">
                         <img class="codicon  style_4" style="" data-jscall-id="523" src="bonito/svg/code18139302498156533340.svg" />
                       </button>
@@ -2413,7 +2413,7 @@ in expression starting at string:1</pre>
                         <img class="codicon  style_5" style="" data-jscall-id="529" src="bonito/svg/close17235711529866555203.svg" />
                       </button>
                     </div>
-                    <div class="cell-editor hide-vertical" id="230e9f7a-2941-4116-b0ee-c5b8e848d4ac-card-content" data-jscall-id="530" style="position: relative;">
+                    <div class="cell-editor hide-vertical" id="e061e941-d98f-4cf0-b30b-9e20e1b27404-card-content" data-jscall-id="530" style="position: relative;">
                       <div data-jscall-id="531">
                         <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="532"></div>
                       </div>
@@ -2427,7 +2427,7 @@ in expression starting at string:1</pre>
                     <div data-jscall-id="538" tabindex="0">
                       <div class="cell-output cell-output-markdown " data-jscall-id="533">
                         <div data-jscall-id="601">
-                          <div class="bonito-fragment" id="64586e01-c8bf-4793-8b37-c82287cd134c" data-jscall-id="subsession-application-dom">
+                          <div class="bonito-fragment" id="5f4ce9ae-6a5f-4277-93cf-900d2ccfccf8" data-jscall-id="subsession-application-dom">
                             <div data-jscall-id="602">
                               <style data-jscall-id="603">.style_3 {
   list-style-type: disc;
@@ -2435,7 +2435,7 @@ in expression starting at string:1</pre>
 </style>
                             </div>
                             <div data-jscall-id="604">
-                              <script data-jscall-id="605" type="module">Bonito.init_session("64586e01-c8bf-4793-8b37-c82287cd134c", null, "sub", false);
+                              <script data-jscall-id="605" type="module">Bonito.init_session("5f4ce9ae-6a5f-4277-93cf-900d2ccfccf8", null, "sub", false);
 </script>
                               <span data-jscall-id="539">
                                 <div class="markdown-body" data-jscall-id="540">
@@ -2572,4 +2572,4 @@ for (i, hit) in enumerate(session.hits)
     if hit_found
         println(&quot;Ray $i hit at distance $distance&quot;)
     end
-end</code></pre></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/ray_intersection_session.jl#L1-L38">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.hit_count-Tuple{RayIntersectionSession}" href="#Raycore.hit_count-Tuple{RayIntersectionSession}"><code>Raycore.hit_count</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_count(session::RayIntersectionSession)</code></pre><p>Count the number of rays that hit geometry in the session.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/ray_intersection_session.jl#L79-L83">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.hit_distances-Tuple{RayIntersectionSession}" href="#Raycore.hit_distances-Tuple{RayIntersectionSession}"><code>Raycore.hit_distances</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_distances(session::RayIntersectionSession)</code></pre><p>Extract all hit distances from a RayIntersectionSession.</p><p>Returns a vector of <code>Float32</code> containing distances for all rays that intersected geometry.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/ray_intersection_session.jl#L66-L72">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.hit_points-Tuple{RayIntersectionSession}" href="#Raycore.hit_points-Tuple{RayIntersectionSession}"><code>Raycore.hit_points</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_points(session::RayIntersectionSession)</code></pre><p>Extract all valid hit points from a RayIntersectionSession.</p><p>Returns a vector of <code>Point3f</code> containing the world-space hit points for all rays that intersected geometry.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/ray_intersection_session.jl#L52-L58">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.miss_count-Tuple{RayIntersectionSession}" href="#Raycore.miss_count-Tuple{RayIntersectionSession}"><code>Raycore.miss_count</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">miss_count(session::RayIntersectionSession)</code></pre><p>Count the number of rays that missed all geometry in the session.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/ray_intersection_session.jl#L88-L92">source</a></section></article><h2 id="Private-Functions"><a class="docs-heading-anchor" href="#Private-Functions">Private Functions</a><a id="Private-Functions-1"></a><a class="docs-heading-anchor-permalink" href="#Private-Functions" title="Permalink"></a></h2><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.any_hit" href="#Raycore.any_hit"><code>Raycore.any_hit</code></a> — <span class="docstring-category">Function</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">any_hit(bvh::BVHAccel, ray::AbstractRay)</code></pre><p>Test if a ray intersects any primitive in the BVH (without finding the closest hit). This function stops at the first intersection found, making it faster than closest_hit when you only need to know if there&#39;s an intersection.</p><p>Returns:</p><ul><li><code>hit_found</code>: Boolean indicating if any intersection was found</li><li><code>hit_primitive</code>: The primitive that was hit (if any)</li><li><code>distance</code>: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)</li><li><code>barycentric_coords</code>: Barycentric coordinates of the hit point</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bvh.jl#L386-L398">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.closest_hit-Union{Tuple{P}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where P" href="#Raycore.closest_hit-Union{Tuple{P}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where P"><code>Raycore.closest_hit</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}</code></pre><p>Find the closest intersection between a ray and the primitives stored in a BVH.</p><p>Returns:</p><ul><li><code>hit_found</code>: Boolean indicating if an intersection was found</li><li><code>hit_primitive</code>: The primitive that was hit (if any)</li><li><code>distance</code>: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)</li><li><code>barycentric_coords</code>: Barycentric coordinates of the hit point</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bvh.jl#L354-L364">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.cos_θ-Tuple{GeometryBasics.Vec{3, Float32}}" href="#Raycore.cos_θ-Tuple{GeometryBasics.Vec{3, Float32}}"><code>Raycore.cos_θ</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>The shading coordinate system gives a frame for expressing directions in spherical coordinates (θ, ϕ). The angle θ is measured from the given direction to the z-axis and ϕ is the angle formed with the x-axis after projection of the direction onto xy-plane.</p><p>Since normal is <code>(0, 0, 1) → cos_θ = n · w = (0, 0, 1) ⋅ w = w.z</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/math.jl#L54-L62">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.face_forward-Tuple{Any, Any}" href="#Raycore.face_forward-Tuple{Any, Any}"><code>Raycore.face_forward</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Flip normal <code>n</code> so that it lies in the same hemisphere as <code>v</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/math.jl#L120-L122">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.generate_ray_grid-Tuple{Raycore.BVHAccel, GeometryBasics.Vec{3, Float32}, Int64}" href="#Raycore.generate_ray_grid-Tuple{Raycore.BVHAccel, GeometryBasics.Vec{3, Float32}, Int64}"><code>Raycore.generate_ray_grid</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">generate_ray_grid(bvh::BVHAccel, ray_direction::Vec3f, grid_size::Int)</code></pre><p>Generate a grid of ray origins based on the BVH bounding box and a given ray direction.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bvh.jl#L475-L479">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.intersect_p-Tuple{Raycore.Bounds3, Raycore.AbstractRay, GeometryBasics.Vec{3, Float32}, GeometryBasics.Point3{UInt8}}" href="#Raycore.intersect_p-Tuple{Raycore.Bounds3, Raycore.AbstractRay, GeometryBasics.Vec{3, Float32}, GeometryBasics.Point3{UInt8}}"><code>Raycore.intersect_p</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>dir<em>is</em>negative: 1 – false, 2 – true</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bounds.jl#L183-L185">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.maximum_extent-Tuple{Raycore.Bounds3}" href="#Raycore.maximum_extent-Tuple{Raycore.Bounds3}"><code>Raycore.maximum_extent</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Return index of the longest axis. Useful for deciding which axis to subdivide, when building ray-tracing acceleration structures.</p><p>1 - x, 2 - y, 3 - z.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bounds.jl#L111-L117">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.offset-Tuple{Raycore.Bounds3, GeometryBasics.Point{3, Float32}}" href="#Raycore.offset-Tuple{Raycore.Bounds3, GeometryBasics.Point{3, Float32}}"><code>Raycore.offset</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Get offset of a point from the minimum point of the bounds.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bounds.jl#L139">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.reflect-Tuple{GeometryBasics.Vec{3, Float32}, GeometryBasics.Vec{3, Float32}}" href="#Raycore.reflect-Tuple{GeometryBasics.Vec{3, Float32}, GeometryBasics.Vec{3, Float32}}"><code>Raycore.reflect</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Reflect <code>wo</code> about <code>n</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/math.jl#L77-L79">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.traverse_bvh-Union{Tuple{F}, Tuple{P}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where {P, F&lt;:Function}" href="#Raycore.traverse_bvh-Union{Tuple{F}, Tuple{P}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where {P, F&lt;:Function}"><code>Raycore.traverse_bvh</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F&lt;:Function}</code></pre><p>Internal function that traverses the BVH to find ray-primitive intersections. Uses a callback pattern to handle different intersection behaviors.</p><p>Arguments:</p><ul><li><code>bvh</code>: The BVH acceleration structure</li><li><code>ray</code>: The ray to test for intersections</li><li><code>hit_callback</code>: Function called when primitive is tested. Signature:  hit<em>callback(primitive, ray) -&gt; (continue</em>traversal::Bool, ray::AbstractRay, results::Any)</li></ul><p>Returns:</p><ul><li>The final result from the hit_callback</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ad9b257aaafb7747c6cde50fe73aa68c0c189c07/src/bvh.jl#L250-L264">source</a></section></article></article><nav class="docs-footer"><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 15:44">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/ray_intersection_session.jl#L1-L38">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.hit_count-Tuple{RayIntersectionSession}" href="#Raycore.hit_count-Tuple{RayIntersectionSession}"><code>Raycore.hit_count</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_count(session::RayIntersectionSession)</code></pre><p>Count the number of rays that hit geometry in the session.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/ray_intersection_session.jl#L79-L83">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.hit_distances-Tuple{RayIntersectionSession}" href="#Raycore.hit_distances-Tuple{RayIntersectionSession}"><code>Raycore.hit_distances</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_distances(session::RayIntersectionSession)</code></pre><p>Extract all hit distances from a RayIntersectionSession.</p><p>Returns a vector of <code>Float32</code> containing distances for all rays that intersected geometry.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/ray_intersection_session.jl#L66-L72">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.hit_points-Tuple{RayIntersectionSession}" href="#Raycore.hit_points-Tuple{RayIntersectionSession}"><code>Raycore.hit_points</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">hit_points(session::RayIntersectionSession)</code></pre><p>Extract all valid hit points from a RayIntersectionSession.</p><p>Returns a vector of <code>Point3f</code> containing the world-space hit points for all rays that intersected geometry.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/ray_intersection_session.jl#L52-L58">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.miss_count-Tuple{RayIntersectionSession}" href="#Raycore.miss_count-Tuple{RayIntersectionSession}"><code>Raycore.miss_count</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">miss_count(session::RayIntersectionSession)</code></pre><p>Count the number of rays that missed all geometry in the session.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/ray_intersection_session.jl#L88-L92">source</a></section></article><h2 id="Private-Functions"><a class="docs-heading-anchor" href="#Private-Functions">Private Functions</a><a id="Private-Functions-1"></a><a class="docs-heading-anchor-permalink" href="#Private-Functions" title="Permalink"></a></h2><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.any_hit" href="#Raycore.any_hit"><code>Raycore.any_hit</code></a> — <span class="docstring-category">Function</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">any_hit(bvh::BVHAccel, ray::AbstractRay)</code></pre><p>Test if a ray intersects any primitive in the BVH (without finding the closest hit). This function stops at the first intersection found, making it faster than closest_hit when you only need to know if there&#39;s an intersection.</p><p>Returns:</p><ul><li><code>hit_found</code>: Boolean indicating if any intersection was found</li><li><code>hit_primitive</code>: The primitive that was hit (if any)</li><li><code>distance</code>: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)</li><li><code>barycentric_coords</code>: Barycentric coordinates of the hit point</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bvh.jl#L386-L398">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.closest_hit-Union{Tuple{P}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where P" href="#Raycore.closest_hit-Union{Tuple{P}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where P"><code>Raycore.closest_hit</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}</code></pre><p>Find the closest intersection between a ray and the primitives stored in a BVH.</p><p>Returns:</p><ul><li><code>hit_found</code>: Boolean indicating if an intersection was found</li><li><code>hit_primitive</code>: The primitive that was hit (if any)</li><li><code>distance</code>: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)</li><li><code>barycentric_coords</code>: Barycentric coordinates of the hit point</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bvh.jl#L354-L364">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.cos_θ-Tuple{GeometryBasics.Vec{3, Float32}}" href="#Raycore.cos_θ-Tuple{GeometryBasics.Vec{3, Float32}}"><code>Raycore.cos_θ</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>The shading coordinate system gives a frame for expressing directions in spherical coordinates (θ, ϕ). The angle θ is measured from the given direction to the z-axis and ϕ is the angle formed with the x-axis after projection of the direction onto xy-plane.</p><p>Since normal is <code>(0, 0, 1) → cos_θ = n · w = (0, 0, 1) ⋅ w = w.z</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/math.jl#L54-L62">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.face_forward-Tuple{Any, Any}" href="#Raycore.face_forward-Tuple{Any, Any}"><code>Raycore.face_forward</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Flip normal <code>n</code> so that it lies in the same hemisphere as <code>v</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/math.jl#L120-L122">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.generate_ray_grid-Tuple{Raycore.BVHAccel, GeometryBasics.Vec{3, Float32}, Int64}" href="#Raycore.generate_ray_grid-Tuple{Raycore.BVHAccel, GeometryBasics.Vec{3, Float32}, Int64}"><code>Raycore.generate_ray_grid</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">generate_ray_grid(bvh::BVHAccel, ray_direction::Vec3f, grid_size::Int)</code></pre><p>Generate a grid of ray origins based on the BVH bounding box and a given ray direction.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bvh.jl#L475-L479">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.intersect_p-Tuple{Raycore.Bounds3, Raycore.AbstractRay, GeometryBasics.Vec{3, Float32}, GeometryBasics.Point3{UInt8}}" href="#Raycore.intersect_p-Tuple{Raycore.Bounds3, Raycore.AbstractRay, GeometryBasics.Vec{3, Float32}, GeometryBasics.Point3{UInt8}}"><code>Raycore.intersect_p</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>dir<em>is</em>negative: 1 – false, 2 – true</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bounds.jl#L183-L185">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.maximum_extent-Tuple{Raycore.Bounds3}" href="#Raycore.maximum_extent-Tuple{Raycore.Bounds3}"><code>Raycore.maximum_extent</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Return index of the longest axis. Useful for deciding which axis to subdivide, when building ray-tracing acceleration structures.</p><p>1 - x, 2 - y, 3 - z.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bounds.jl#L111-L117">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.offset-Tuple{Raycore.Bounds3, GeometryBasics.Point{3, Float32}}" href="#Raycore.offset-Tuple{Raycore.Bounds3, GeometryBasics.Point{3, Float32}}"><code>Raycore.offset</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Get offset of a point from the minimum point of the bounds.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bounds.jl#L139">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.reflect-Tuple{GeometryBasics.Vec{3, Float32}, GeometryBasics.Vec{3, Float32}}" href="#Raycore.reflect-Tuple{GeometryBasics.Vec{3, Float32}, GeometryBasics.Vec{3, Float32}}"><code>Raycore.reflect</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><p>Reflect <code>wo</code> about <code>n</code>.</p></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/math.jl#L77-L79">source</a></section></article><article class="docstring"><header><a class="docstring-article-toggle-button fa-solid fa-chevron-down" href="javascript:;" title="Collapse docstring"></a><a class="docstring-binding" id="Raycore.traverse_bvh-Union{Tuple{F}, Tuple{P}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where {P, F&lt;:Function}" href="#Raycore.traverse_bvh-Union{Tuple{F}, Tuple{P}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay}, Tuple{F, Raycore.BVHAccel{P}, Raycore.AbstractRay, Any}} where {P, F&lt;:Function}"><code>Raycore.traverse_bvh</code></a> — <span class="docstring-category">Method</span><span class="is-flex-grow-1 docstring-article-toggle-button" title="Collapse docstring"></span></header><section><div><pre><code class="language-julia hljs">traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F&lt;:Function}</code></pre><p>Internal function that traverses the BVH to find ray-primitive intersections. Uses a callback pattern to handle different intersection behaviors.</p><p>Arguments:</p><ul><li><code>bvh</code>: The BVH acceleration structure</li><li><code>ray</code>: The ray to test for intersections</li><li><code>hit_callback</code>: Function called when primitive is tested. Signature:  hit<em>callback(primitive, ray) -&gt; (continue</em>traversal::Bool, ray::AbstractRay, results::Any)</li></ul><p>Returns:</p><ul><li>The final result from the hit_callback</li></ul></div><a class="docs-sourcelink" target="_blank" href="https://github.com/JuliaGeometry/Raycore.jl/blob/ce340fa850132d2ae6c819c4c2b1d770828f284c/src/bvh.jl#L250-L264">source</a></section></article></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="raytracing_tutorial.html">Ray Tracing Tutorial »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 19:26">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

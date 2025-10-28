@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Ray Tracing with Raycore: Building a Real Ray Tracer · Raycore</title><meta name="title" content="Ray Tracing with Raycore: Building a Real Ray Tracer · Raycore"/><meta property="og:title" content="Ray Tracing with Raycore: Building a Real Ray Tracer · Raycore"/><meta property="twitter:title" content="Ray Tracing with Raycore: Building a Real Ray Tracer · Raycore"/><meta name="description" content="Documentation for Raycore."/><meta property="og:description" content="Documentation for Raycore."/><meta property="twitter:description" content="Documentation for Raycore."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../index.html">Raycore</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../index.html">Home</a></li><li><span class="tocitem">Tutorials</span><ul><li><a class="tocitem" href="../../raytracing_tutorial.html">Ray Tracing Tutorial</a></li><li><a class="tocitem" href="../../bvh_hit_tests.html">BVH Hit Tests</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="raytracing_tutorial_content-2025-10-28_201849.html">Ray Tracing with Raycore: Building a Real Ray Tracer</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="raytracing_tutorial_content-2025-10-28_201849.html">Ray Tracing with Raycore: Building a Real Ray Tracer</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl/blob/master/docs/src/.raytracing_tutorial_content-bbook/.versions/raytracing_tutorial_content-2025-10-28_201849.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Ray-Tracing-with-Raycore:-Building-a-Real-Ray-Tracer"><a class="docs-heading-anchor" href="#Ray-Tracing-with-Raycore:-Building-a-Real-Ray-Tracer">Ray Tracing with Raycore: Building a Real Ray Tracer</a><a id="Ray-Tracing-with-Raycore:-Building-a-Real-Ray-Tracer-1"></a><a class="docs-heading-anchor-permalink" href="#Ray-Tracing-with-Raycore:-Building-a-Real-Ray-Tracer" title="Permalink"></a></h1><p>In this tutorial, we&#39;ll build a simple but complete ray tracer from scratch using Raycore. We&#39;ll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows and materials.</p><p>By the end, you&#39;ll have a working ray tracer that can render complex scenes!</p><h2 id="Setup"><a class="docs-heading-anchor" href="#Setup">Setup</a><a id="Setup-1"></a><a class="docs-heading-anchor-permalink" href="#Setup" title="Permalink"></a></h2><pre><code class="language-julia hljs">using Raycore, GeometryBasics, LinearAlgebra
+using Colors, ImageShow
+using Makie  # For loading assets
+using BenchmarkTools</code></pre><p><strong>Ready to go!</strong> We have:</p><ul><li><code>Raycore</code> for fast ray-triangle intersections</li><li><code>GeometryBasics</code> for geometry primitives</li><li><code>Colors</code> and <code>ImageShow</code> for displaying rendered images</li></ul><h2 id="Part-1:-Our-Scene-A-Playful-Cat"><a class="docs-heading-anchor" href="#Part-1:-Our-Scene-A-Playful-Cat">Part 1: Our Scene - A Playful Cat</a><a id="Part-1:-Our-Scene-A-Playful-Cat-1"></a><a class="docs-heading-anchor-permalink" href="#Part-1:-Our-Scene-A-Playful-Cat" title="Permalink"></a></h2><p>Let&#39;s create a fun scene that we&#39;ll use throughout this tutorial. We&#39;ll load a cat model and place it in a simple room.</p><pre><code class="language-julia hljs"># Load the cat model and rotate it to face the camera
+cat_mesh = Makie.loadasset(&quot;cat.obj&quot;)
+# Rotate 150 degrees around Y axis so cat faces camera at an angle
+angle = deg2rad(150f0)
+rotation = Makie.Quaternionf(0, sin(angle/2), 0, cos(angle/2))
+rotated_coords = [rotation * Point3f(v) for v in coordinates(cat_mesh)]
+
+# Get bounding box and translate cat to sit on the floor
+cat_bbox = Rect3f(rotated_coords)
+floor_y = -1.5f0
+cat_offset = Vec3f(0, floor_y - cat_bbox.origin[2], 0)  # Translate so bottom sits on floor
+
+cat_mesh = GeometryBasics.normal_mesh(
+    [v + cat_offset for v in rotated_coords],
+    faces(cat_mesh)
+)
+
+# Create a simple room: floor, back wall, and side wall
+floor = normal_mesh(Rect3f(Vec3f(-5, -1.5, -2), Vec3f(10, 0.01, 10)))
+back_wall = normal_mesh(Rect3f(Vec3f(-5, -1.5, 8), Vec3f(10, 5, 0.01)))
+left_wall = normal_mesh(Rect3f(Vec3f(-5, -1.5, -2), Vec3f(0.01, 5, 10)))
+
+# Add a couple of spheres for visual interest (also on the floor)
+sphere1 = Tesselation(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0), 64)
+sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
+
+# Build our BVH acceleration structure
+scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
+bvh = Raycore.BVHAccel(scene_geometry)</code></pre><p><strong>Scene created!</strong></p><ul><li>Cat model with triangulated geometry</li><li>Room geometry: 3 walls</li><li>2 decorative spheres</li><li>BVH built for fast ray traversal</li></ul><h2 id="Part-2:-The-Simplest-Ray-Tracer-Binary-Hit-Detection"><a class="docs-heading-anchor" href="#Part-2:-The-Simplest-Ray-Tracer-Binary-Hit-Detection">Part 2: The Simplest Ray Tracer - Binary Hit Detection</a><a id="Part-2:-The-Simplest-Ray-Tracer-Binary-Hit-Detection-1"></a><a class="docs-heading-anchor-permalink" href="#Part-2:-The-Simplest-Ray-Tracer-Binary-Hit-Detection" title="Permalink"></a></h2><p>Let&#39;s start super simple: for each pixel, we shoot a ray and color it based on whether we hit something or not.</p><pre><code class="language-julia hljs"># Trace helper - runs a callback for each pixel
+function trace(f, bvh; width=700, height=300, camera_pos=Point3f(0, -0.9, -2.5), fov=45.0f0,
+               sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0))
+    img = Matrix{RGB{Float32}}(undef, height, width)
+
+    # Precompute camera parameters
+    aspect = Float32(width / height)
+    focal_length = 1.0f0 / tan(deg2rad(fov / 2))
+
+    for y in 1:height, x in 1:width
+        # Generate camera ray
+        ndc_x = (2.0f0 * x / width - 1.0f0) * aspect
+        ndc_y = 1.0f0 - 2.0f0 * y / height
+        direction = normalize(Vec3f(ndc_x, ndc_y, focal_length))
+        ray = Raycore.Ray(o=camera_pos, d=direction)
+
+        # Ray-scene intersection
+        hit_found, triangle, distance, bary_coords = Raycore.closest_hit(bvh, ray)
+
+        # Let the callback decide the color (pass sky_color for misses)
+        img[y, x] = hit_found ? f(triangle, distance, bary_coords, ray) : sky_color
+    end
+
+    return img
+end
+
+# Binary kernel - white if hit
+binary_kernel(triangle, distance, bary_coords, ray) = RGB(1.0f0, 1.0f0, 1.0f0)
+
+trace(binary_kernel, bvh, sky_color=RGB(0.0f0, 0.0f0, 0.0f0))</code></pre><p><strong>Our first render!</strong> Pure silhouette - you can see the cat and spheres.</p><h2 id="Part-3:-Adding-Depth-Distance-Based-Shading"><a class="docs-heading-anchor" href="#Part-3:-Adding-Depth-Distance-Based-Shading">Part 3: Adding Depth - Distance-Based Shading</a><a id="Part-3:-Adding-Depth-Distance-Based-Shading-1"></a><a class="docs-heading-anchor-permalink" href="#Part-3:-Adding-Depth-Distance-Based-Shading" title="Permalink"></a></h2><p>Let&#39;s make it more interesting by coloring based on distance (depth map).</p><pre><code class="language-julia hljs">function depth_kernel(triangle, distance, bary_coords, ray)
+    # Map distance to grayscale (closer = brighter)
+    normalized_depth = clamp(1.0f0 - (distance - 2.0f0) / 8.0f0, 0.0f0, 1.0f0)
+    RGB(normalized_depth, normalized_depth, normalized_depth)
+end
+
+trace(depth_kernel, bvh)</code></pre><p><strong>Depth perception!</strong> Now we can see the 3D structure - closer objects are brighter.</p><h2 id="Part-4:-Surface-Normals-The-Foundation-of-Lighting"><a class="docs-heading-anchor" href="#Part-4:-Surface-Normals-The-Foundation-of-Lighting">Part 4: Surface Normals - The Foundation of Lighting</a><a id="Part-4:-Surface-Normals-The-Foundation-of-Lighting-1"></a><a class="docs-heading-anchor-permalink" href="#Part-4:-Surface-Normals-The-Foundation-of-Lighting" title="Permalink"></a></h2><p>To do proper lighting, we need surface normals. Let&#39;s compute and visualize them.</p><pre><code class="language-julia hljs"># Helper to interpolate normals using barycentric coordinates
+function compute_normal(triangle, bary_coords)
+    n1, n2, n3 = triangle.normals
+    u, v, w = bary_coords
+    normalize(Vec3f(u * n1 + v * n2 + w * n3))
+end
+
+function normal_kernel(triangle, distance, bary_coords, ray)
+    normal = compute_normal(triangle, bary_coords)
+    # Map normal components [-1,1] to color [0,1]
+    RGB((normal .+ 1.0f0) ./ 2.0f0...)
+end
+
+trace(normal_kernel, bvh)</code></pre><p><strong>Surface normals visualized!</strong> Each color channel represents a normal component:</p><ul><li>Red = X direction</li><li>Green = Y direction</li><li>Blue = Z direction</li></ul><h2 id="Part-5:-Basic-Lighting-Diffuse-Shading"><a class="docs-heading-anchor" href="#Part-5:-Basic-Lighting-Diffuse-Shading">Part 5: Basic Lighting - Diffuse Shading</a><a id="Part-5:-Basic-Lighting-Diffuse-Shading-1"></a><a class="docs-heading-anchor-permalink" href="#Part-5:-Basic-Lighting-Diffuse-Shading" title="Permalink"></a></h2><p>Now we can add a light source and compute simple diffuse (Lambertian) shading!</p><pre><code class="language-julia hljs">light_pos = Point3f(3, 4, -2)
+light_intensity = 50.0f0
+
+function diffuse_kernel(triangle, distance, bary_coords, ray)
+    # Compute hit point and normal
+    hit_point = ray.o + ray.d * distance
+    normal = compute_normal(triangle, bary_coords)
+
+    # Light direction and distance
+    light_dir = light_pos - hit_point
+    light_distance = norm(light_dir)
+    light_dir = normalize(light_dir)
+
+    # Diffuse shading (Lambertian)
+    diffuse = max(0.0f0, dot(normal, light_dir))
+
+    # Light attenuation (inverse square law)
+    attenuation = light_intensity / (light_distance * light_distance)
+    color = diffuse * attenuation
+
+    RGB(color, color, color)
+end
+
+trace(diffuse_kernel, bvh)</code></pre><p><strong>Let there be light!</strong> Our scene now has proper shading based on surface orientation.</p><h2 id="Part-6:-Adding-Shadows-Shadow-Rays"><a class="docs-heading-anchor" href="#Part-6:-Adding-Shadows-Shadow-Rays">Part 6: Adding Shadows - Shadow Rays</a><a id="Part-6:-Adding-Shadows-Shadow-Rays-1"></a><a class="docs-heading-anchor-permalink" href="#Part-6:-Adding-Shadows-Shadow-Rays" title="Permalink"></a></h2><p>Time to add realism with shadows using Raycore&#39;s <code>any_hit</code> for fast occlusion testing.</p><pre><code class="language-julia hljs">ambient = 0.1f0  # Ambient lighting to prevent pure black shadows
+
+function shadow_kernel(triangle, distance, bary_coords, ray)
+    hit_point = ray.o + ray.d * distance
+    normal = compute_normal(triangle, bary_coords)
+
+    # Light direction
+    light_dir = light_pos - hit_point
+    light_distance = norm(light_dir)
+    light_dir = normalize(light_dir)
+
+    # Diffuse shading
+    diffuse = max(0.0f0, dot(normal, light_dir))
+
+    # Shadow ray - offset slightly to avoid self-intersection
+    shadow_ray_origin = hit_point + normal * 0.001f0
+    shadow_ray = Raycore.Ray(o=shadow_ray_origin, d=light_dir)
+
+    # Check if path to light is blocked
+    shadow_hit, _, shadow_dist, _ = Raycore.any_hit(bvh, shadow_ray)
+    in_shadow = shadow_hit &amp;&amp; shadow_dist &lt; light_distance
+
+    # Final color
+    color = if in_shadow
+        ambient  # Only ambient in shadow
+    else
+        attenuation = light_intensity / (light_distance * light_distance)
+        ambient + diffuse * attenuation
+    end
+
+    RGB(color, color, color)
+end
+
+trace(shadow_kernel, bvh)</code></pre><p><strong>Shadows!</strong> Notice how objects cast shadows on each other, adding depth and realism.</p><h2 id="Part-7:-Multiple-Lights"><a class="docs-heading-anchor" href="#Part-7:-Multiple-Lights">Part 7: Multiple Lights</a><a id="Part-7:-Multiple-Lights-1"></a><a class="docs-heading-anchor-permalink" href="#Part-7:-Multiple-Lights" title="Permalink"></a></h2><p>Let&#39;s add multiple lights to make the scene more interesting! We&#39;ll define a RenderContext to hold lights and materials:</p><pre><code class="language-julia hljs"># Define a simple point light structure
+struct PointLight
+    position::Point3f
+    intensity::Float32
+    color::RGB{Float32}
+end
+
+# Material structure (for later use)
+struct Material
+    base_color::RGB{Float32}
+    metallic::Float32
+    roughness::Float32
+end
+
+# Render context holds all scene data
+struct RenderContext
+    bvh::Raycore.BVHAccel
+    lights::Vector{PointLight}
+    materials::Vector{Material}
+    ambient::Float32
+end
+
+# Create multiple lights
+lights = [
+    PointLight(Point3f(3, 4, -2), 50.0f0, RGB(1.0f0, 0.9f0, 0.8f0)),    # Warm main light
+    PointLight(Point3f(-3, 2, 0), 20.0f0, RGB(0.7f0, 0.8f0, 1.0f0)),   # Cool fill light
+    PointLight(Point3f(0, 5, 5), 15.0f0, RGB(1.0f0, 1.0f0, 1.0f0))     # White back light
+]
+
+# Materials (will use these in Part 8)
+materials = [
+    Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0),  # 1: Cat
+    Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0),  # 2: Floor
+    Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0),  # 3: Back wall
+    Material(RGB(0.8f0, 0.7f0, 0.7f0), 0.0f0, 0.8f0),  # 4: Left wall
+    Material(RGB(0.95f0, 0.64f0, 0.54f0), 1.0f0, 0.1f0),  # 5: Sphere 1 - metallic
+    Material(RGB(0.8f0, 0.8f0, 0.9f0), 1.0f0, 0.0f0)   # 6: Sphere 2 - mirror
+]
+
+# Create render context
+ctx = RenderContext(bvh, lights, materials, 0.1f0)</code></pre><p>Now we need a new trace function that works with RenderContext:</p><pre><code class="language-julia hljs"># Trace with RenderContext
+function trace_ctx(f, ctx::RenderContext; width=700, height=300,camera_pos=Point3f(0, -0.9, -2.5), fov=45.0f0,
+                   sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0))
+    img = Matrix{RGB{Float32}}(undef, height, width)
+
+    aspect = Float32(width / height)
+    focal_length = 1.0f0 / tan(deg2rad(fov / 2))
+
+    for y in 1:height, x in 1:width
+        ndc_x = (2.0f0 * x / width - 1.0f0) * aspect
+        ndc_y = 1.0f0 - 2.0f0 * y / height
+        direction = normalize(Vec3f(ndc_x, ndc_y, focal_length))
+        ray = Raycore.Ray(o=camera_pos, d=direction)
+
+        hit_found, triangle, distance, bary_coords = Raycore.closest_hit(ctx.bvh, ray)
+        img[y, x] = hit_found ? f(ctx, triangle, distance, bary_coords, ray) : sky_color
+    end
+
+    return img
+end
+
+function multi_light_kernel(ctx, triangle, distance, bary_coords, ray)
+    hit_point = ray.o + ray.d * distance
+    normal = compute_normal(triangle, bary_coords)
+
+    # Start with ambient (grayscale)
+    total_color = Vec3f(ctx.ambient, ctx.ambient, ctx.ambient)
+
+    # Accumulate contribution from each light
+    for light in ctx.lights
+        light_vec = light.position - hit_point
+        light_distance = norm(light_vec)
+        light_dir = light_vec / light_distance
+
+        diffuse = max(0.0f0, dot(normal, light_dir))
+
+        shadow_ray = Raycore.Ray(o=hit_point + normal * 0.001f0, d=light_dir)
+        shadow_hit, _, shadow_dist, _ = Raycore.any_hit(ctx.bvh, shadow_ray)
+        in_shadow = shadow_hit &amp;&amp; shadow_dist &lt; light_distance
+
+        if !in_shadow
+            attenuation = light.intensity / (light_distance * light_distance)
+            light_col = Vec3f(light.color.r, light.color.g, light.color.b)
+            total_color += light_col * (diffuse * attenuation)
+        end
+    end
+
+    RGB{Float32}(total_color...)
+end
+
+trace_ctx(multi_light_kernel, ctx)</code></pre><p><strong>Multiple lights!</strong> The scene now has three different colored lights creating a more dynamic lighting environment.</p><h2 id="Part-8:-Colored-Materials-with-Multiple-Lights"><a class="docs-heading-anchor" href="#Part-8:-Colored-Materials-with-Multiple-Lights">Part 8: Colored Materials with Multiple Lights</a><a id="Part-8:-Colored-Materials-with-Multiple-Lights-1"></a><a class="docs-heading-anchor-permalink" href="#Part-8:-Colored-Materials-with-Multiple-Lights" title="Permalink"></a></h2><p>Now let&#39;s combine materials with our multiple lights!</p><pre><code class="language-julia hljs">function material_multi_light_kernel(ctx, triangle, distance, bary_coords, ray)
+    hit_point = ray.o + ray.d * distance
+    normal = compute_normal(triangle, bary_coords)
+
+    # Get material from context
+    mat = ctx.materials[triangle.material_idx]
+    base_color = Vec3f(mat.base_color.r, mat.base_color.g, mat.base_color.b)
+
+    # Start with ambient
+    total_color = base_color * ctx.ambient
+
+    # Accumulate contribution from each light
+    for light in ctx.lights
+        light_vec = light.position - hit_point
+        light_distance = norm(light_vec)
+        light_dir = light_vec / light_distance
+
+        diffuse = max(0.0f0, dot(normal, light_dir))
+
+        # Shadow test
+        shadow_ray = Raycore.Ray(o=hit_point + normal * 0.001f0, d=light_dir)
+        shadow_hit, _, shadow_dist, _ = Raycore.any_hit(ctx.bvh, shadow_ray)
+        in_shadow = shadow_hit &amp;&amp; shadow_dist &lt; light_distance
+
+        if !in_shadow
+            attenuation = light.intensity / (light_distance * light_distance)
+            light_col = Vec3f(light.color.r, light.color.g, light.color.b)
+            total_color += base_color .* light_col * (diffuse * attenuation)
+        end
+    end
+
+    RGB{Float32}(total_color...)
+end
+
+trace_ctx(material_multi_light_kernel, ctx)</code></pre><p><strong>Colored materials!</strong></p><ul><li>Orange/tan cat</li><li>Green floor</li><li>Light blue back wall</li><li>Pink side wall</li><li>Red and blue spheres</li></ul><h2 id="Part-9:-Reflective-Materials-Mirrors-and-Metals"><a class="docs-heading-anchor" href="#Part-9:-Reflective-Materials-Mirrors-and-Metals">Part 9: Reflective Materials - Mirrors and Metals</a><a id="Part-9:-Reflective-Materials-Mirrors-and-Metals-1"></a><a class="docs-heading-anchor-permalink" href="#Part-9:-Reflective-Materials-Mirrors-and-Metals" title="Permalink"></a></h2><p>The materials we defined in Part 7 already have metallic and roughness properties. Let&#39;s use them for reflections!</p><pre><code class="language-julia hljs"># Helper: compute direct lighting with multiple lights
+function compute_multi_light(ctx, point, normal, mat)
+    base_color = Vec3f(mat.base_color.r, mat.base_color.g, mat.base_color.b)
+
+    # Start with ambient
+    total_color = base_color * ctx.ambient
+
+    for light in ctx.lights
+        light_vec = light.position - point
+        light_distance = norm(light_vec)
+        light_dir = light_vec / light_distance
+
+        diffuse = max(0.0f0, dot(normal, light_dir))
+
+        # Shadow test
+        shadow_ray = Raycore.Ray(o=point + normal * 0.001f0, d=light_dir)
+        shadow_hit, _, shadow_dist, _ = Raycore.any_hit(ctx.bvh, shadow_ray)
+        in_shadow = shadow_hit &amp;&amp; shadow_dist &lt; light_distance
+
+        if !in_shadow
+            attenuation = light.intensity / (light_distance * light_distance)
+            light_col = Vec3f(light.color.r, light.color.g, light.color.b)
+            total_color += base_color .* light_col * (diffuse * attenuation)
+        end
+    end
+
+    return RGB{Float32}(total_color...)
+end
+
+function reflective_kernel(ctx, triangle, distance, bary_coords, ray, sky_color)
+    hit_point = ray.o + ray.d * distance
+    normal = compute_normal(triangle, bary_coords)
+    mat = ctx.materials[triangle.material_idx]
+
+    # Compute direct lighting (diffuse component)
+    direct_color = compute_multi_light(ctx, hit_point, normal, mat)
+
+    # Add reflection for metallic materials
+    if mat.metallic &gt; 0.0f0
+        # Compute reflection direction: reflect outgoing direction about normal
+        # Note: ray.d points toward surface, but reflect() expects outgoing direction
+        wo = -ray.d  # outgoing direction (away from surface)
+        reflect_dir = Raycore.reflect(wo, normal)
+
+        # Add roughness by perturbing reflection direction
+        if mat.roughness &gt; 0.0f0
+            # Simple roughness: add random offset in tangent space
+            random_offset = (rand(Vec3f) .* 2.0f0 .- 1.0f0) * mat.roughness
+            reflect_dir = normalize(reflect_dir + random_offset)
+        end
+
+        # Cast reflection ray (offset to avoid self-intersection)
+        reflect_ray = Raycore.Ray(o=hit_point + normal * 0.001f0, d=reflect_dir)
+        refl_hit, refl_tri, refl_dist, refl_bary = Raycore.closest_hit(ctx.bvh, reflect_ray)
+
+        # Get reflection color
+        reflection_color = if refl_hit
+            refl_point = reflect_ray.o + reflect_ray.d * refl_dist
+            refl_normal = compute_normal(refl_tri, refl_bary)
+            refl_mat = ctx.materials[refl_tri.material_idx]
+
+            # Compute lighting for reflected surface
+            compute_multi_light(ctx, refl_point, refl_normal, refl_mat)
+        else
+            sky_color
+        end
+
+        # Blend between diffuse and reflection based on metallic parameter
+        return direct_color * (1.0f0 - mat.metallic) + reflection_color * mat.metallic
+    else
+        # Pure diffuse material
+        return direct_color
+    end
+end
+
+trace_ctx(ctx) do ctx, triangle, distance, bary_coords, ray
+    reflective_kernel(ctx, triangle, distance, bary_coords, ray, RGB(0.5f0, 0.7f0, 1.0f0))
+end</code></pre><p><strong>Reflective materials!</strong> The spheres now have metallic properties:</p><ul><li>One smooth copper-colored metal with slight roughness</li><li>One perfect mirror reflecting the scene</li></ul><p>Notice how reflections capture both the scene geometry and lighting!</p><h2 id="Part-10:-Multi-threading-for-Performance"><a class="docs-heading-anchor" href="#Part-10:-Multi-threading-for-Performance">Part 10: Multi-threading for Performance</a><a id="Part-10:-Multi-threading-for-Performance-1"></a><a class="docs-heading-anchor-permalink" href="#Part-10:-Multi-threading-for-Performance" title="Permalink"></a></h2><p>Let&#39;s add multi-threading to make our ray tracer much faster!</p><pre><code class="language-julia hljs"></code></pre><pre><code class="language-julia hljs">using BenchmarkTools
+function trace_ctx_threaded(f, ctx::RenderContext; width=400, height=300, camera_pos=Point3f(0, 1, -2.5), fov=45.0f0,
+                            sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0))
+    img = Matrix{RGB{Float32}}(undef, height, width)
+
+    aspect = Float32(width / height)
+    focal_length = 1.0f0 / tan(deg2rad(fov / 2))
+
+    Threads.@threads for y in 1:height
+        for x in 1:width
+            ndc_x = (2.0f0 * x / width - 1.0f0) * aspect
+            ndc_y = 1.0f0 - 2.0f0 * y / height
+            direction = normalize(Vec3f(ndc_x, ndc_y, focal_length))
+            ray = Raycore.Ray(o=camera_pos, d=direction)
+
+            hit_found, triangle, distance, bary_coords = Raycore.closest_hit(ctx.bvh, ray)
+            img[y, x] = hit_found ? f(ctx, triangle, distance, bary_coords, ray) : sky_color
+        end
+    end
+
+    return img
+end
+
+# Benchmark single-threaded vs multi-threaded
+b1 = @belapsed trace_ctx(material_multi_light_kernel, ctx, width=800, height=600);
+
+b2 = @belapsed trace_ctx_threaded(material_multi_light_kernel, ctx, width=800, height=600);
+md&quot;&quot;&quot;
+Threads: $(Threads.nthreads())
+
+Single: $(b1)
+
+Multi: $(b2)
+&quot;&quot;&quot;</code></pre><p><strong>Performance boost with threading!</strong> The speedup should be close to the number of CPU cores.</p><p>Notice how we can reuse the same kernel function with both <code>trace_ctx()</code> and <code>trace_ctx_threaded()</code> - this is great for composability!</p><h2 id="Part-11:-Multi-Sampling-for-Anti-Aliasing"><a class="docs-heading-anchor" href="#Part-11:-Multi-Sampling-for-Anti-Aliasing">Part 11: Multi-Sampling for Anti-Aliasing</a><a id="Part-11:-Multi-Sampling-for-Anti-Aliasing-1"></a><a class="docs-heading-anchor-permalink" href="#Part-11:-Multi-Sampling-for-Anti-Aliasing" title="Permalink"></a></h2><p>Let&#39;s add multiple samples per pixel with jittered camera rays for smooth anti-aliasing:</p><pre><code class="language-julia hljs">function trace_ctx_sampled(f, ctx::RenderContext; 
+        width=700, height=300, 
+        camera_pos=Point3f(0, -0.9, -2.5), fov=45.0f0, 
+        sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0), 
+        samples=4)
+    img = Matrix{RGB{Float32}}(undef, height, width)
+
+    aspect = Float32(width / height)
+    focal_length = 1.0f0 / tan(deg2rad(fov / 2))
+    pixel_size = 1.0f0 / width
+
+    Threads.@threads for y in 1:height
+        for x in 1:width
+            # Accumulate multiple samples per pixel using Vec3f for math
+            color_sum = Vec3f(0.0f0, 0.0f0, 0.0f0)
+
+            for _ in 1:samples
+                jitter_x = (rand(Float32) - 0.5f0) * pixel_size
+                jitter_y = (rand(Float32) - 0.5f0) * pixel_size
+
+                ndc_x = (2.0f0 * (x + jitter_x) / width - 1.0f0) * aspect
+                ndc_y = 1.0f0 - 2.0f0 * (y + jitter_y) / height
+                direction = normalize(Vec3f(ndc_x, ndc_y, focal_length))
+                ray = Raycore.Ray(o=camera_pos, d=direction)
+
+                hit_found, triangle, distance, bary_coords = Raycore.closest_hit(ctx.bvh, ray)
+
+                color = if hit_found
+                    result = f(ctx, triangle, distance, bary_coords, ray)
+                    Vec3f(result.r, result.g, result.b)
+                else
+                    Vec3f(sky_color.r, sky_color.g, sky_color.b)
+                end
+
+                color_sum += color
+            end
+
+            # Average samples and convert back to RGB
+            avg = color_sum / samples
+            img[y, x] = RGB{Float32}(avg...)
+        end
+    end
+
+    return img
+end
+
+# Render with 16 samples per pixel for smooth anti-aliasing
+@time trace_ctx_sampled(ctx, samples=64) do ctx, triangle, distance, bary_coords, ray
+    reflective_kernel(ctx, triangle, distance, bary_coords, ray, RGB(0.5f0, 0.7f0, 1.0f0))
+end</code></pre><p><strong>Anti-aliased render!</strong> 32 samples per pixel with jittered camera rays eliminate jagged edges.</p><h2 id="Summary-What-We-Built"><a class="docs-heading-anchor" href="#Summary-What-We-Built">Summary - What We Built</a><a id="Summary-What-We-Built-1"></a><a class="docs-heading-anchor-permalink" href="#Summary-What-We-Built" title="Permalink"></a></h2><p>We created a complete ray tracer that includes:</p><h3 id="Features-Implemented"><a class="docs-heading-anchor" href="#Features-Implemented">Features Implemented</a><a id="Features-Implemented-1"></a><a class="docs-heading-anchor-permalink" href="#Features-Implemented" title="Permalink"></a></h3><ol><li><strong>Camera system</strong> - Perspective projection with configurable FOV</li><li><strong>Ray-scene intersection</strong> - Using Raycore&#39;s BVH for fast traversal</li><li><strong>Surface normals</strong> - Smooth shading from vertex normals</li><li><strong>Diffuse lighting</strong> - Lambertian shading with distance attenuation</li><li><strong>Hard shadows</strong> - Using <code>any_hit</code> for efficient occlusion testing</li><li><strong>Simple materials</strong> - Per-object color assignment</li><li><strong>Multi-threading</strong> - Parallel rendering across CPU cores</li><li><strong>Callback-based API</strong> - Flexible <code>trace()</code> function for experimentation</li></ol><h3 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h3><p>To make this into a full path tracer (like <code>Trace</code>), you would add:</p><ul><li><strong>Recursive ray tracing</strong> - Reflections and refractions</li><li><strong>Multiple light sources</strong> - Area lights, environment lighting</li><li><strong>Advanced materials</strong> - Specular, glossy, transparent</li><li><strong>Sampling</strong> - Multiple samples per pixel for anti-aliasing</li><li><strong>Better normal interpolation</strong> - Proper barycentric interpolation</li><li><strong>GPU support</strong> - Using KernelAbstractions.jl</li></ul><p>The <code>Trace</code> package implements all of these features and more!</p><h3 id="Key-Raycore-Functions-Used"><a class="docs-heading-anchor" href="#Key-Raycore-Functions-Used">Key Raycore Functions Used</a><a id="Key-Raycore-Functions-Used-1"></a><a class="docs-heading-anchor-permalink" href="#Key-Raycore-Functions-Used" title="Permalink"></a></h3><ul><li><code>Raycore.BVHAccel(meshes)</code> - Build acceleration structure</li><li><code>Raycore.Ray(o=origin, d=direction)</code> - Create ray</li><li><code>Raycore.closest_hit(bvh, ray)</code> - Find nearest intersection</li><li><code>Raycore.any_hit(bvh, ray)</code> - Test for any intersection (fast!)</li><li><code>Raycore.vertices(triangle)</code> - Get triangle vertex positions</li><li><code>Raycore.normals(triangle)</code> - Get triangle vertex normals</li></ul><p>Happy ray tracing!</p></article><nav class="docs-footer"><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 28 October 2025 19:26">Tuesday 28 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
