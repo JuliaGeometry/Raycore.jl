@@ -221,3 +221,4 @@ This document demonstrated:
 6. `any_hit` is typically faster than `closest_hit` due to early termination
 
 All tests passed! ✓
+

@@ -15,6 +15,10 @@ makedocs(;
     authors = "Anton Smirnov, Simon Danisch and contributors",
     pages = [
         "Home" => "index.md",
+        "Tutorials" => [
+            "Ray Tracing Tutorial" => "raytracing_tutorial.md",
+            "BVH Hit Tests" => "bvh_hit_tests.md",
+        ],
     ],
 )
 
