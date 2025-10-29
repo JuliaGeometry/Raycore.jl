@@ -26,41 +26,19 @@ struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<
     end
 end
 
-function TriangleMesh(
-        object_to_world::Transformation,
-        indices::Vector{UInt32},
-        vertices::Vector{Point3f},
-        normals::Vector{Normal3f} = Normal3f[],
-        tangents::Vector{Vec3f} = Vec3f[],
-        uv::Vector{Point2f} = Point2f[],
-    )
-    vertices = object_to_world.(vertices)
-    return TriangleMesh(
-        vertices,
-        copy(indices), copy(normals),
-        copy(tangents), copy(uv),
-    )
-end
-
-function TriangleMesh(ArrType, mesh::TriangleMesh)
-    TriangleMesh(
-        ArrType(mesh.vertices),
-        ArrType(mesh.indices),
-        ArrType(mesh.normals),
-        ArrType(mesh.tangents),
-        ArrType(mesh.uv),
-    )
-end
-
 struct Triangle <: AbstractShape
     vertices::SVector{3,Point3f}
     normals::SVector{3,Normal3f}
     tangents::SVector{3,Vec3f}
     uv::SVector{3,Point2f}
     material_idx::UInt32
+    primitive_idx::UInt32
 end
 
-function Triangle(m::TriangleMesh, face_indx, material_idx=0)
+Triangle(tri::Triangle; material_idx=tri.material_idx, primitive_idx=tri.primitive_idx) =
+    Triangle(tri.vertices, tri.normals, tri.tangents, tri.uv, material_idx, primitive_idx)
+
+function Triangle(m::TriangleMesh, face_indx, material_idx=0, primidx=0)
     f_idx = 1 + (3 * (face_indx - 1))
     vs = @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
     ns = @SVector [m.normals[m.indices[f_idx + i]] for i in 0:2] # Every mesh should have normals!?
@@ -74,24 +52,10 @@ function Triangle(m::TriangleMesh, face_indx, material_idx=0)
     else
         uv = SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
     end
-    return Triangle(vs, ns, ts, uv, material_idx)
+    return Triangle(vs, ns, ts, uv, material_idx, primidx)
 end
 
-function create_triangle_mesh(
-        core::ShapeCore,
-        indices::Vector{UInt32},
-        vertices::Vector{Point3f},
-        normals::Vector{Normal3f} = Normal3f[],
-        tangents::Vector{Vec3f} = Vec3f[],
-        uv::Vector{Point2f} = Point2f[],
-    )
-    return TriangleMesh(
-        core.object_to_world, indices, vertices,
-        normals, tangents, uv,
-    )
-end
-
-function create_triangle_mesh(mesh::GeometryBasics.Mesh, core::ShapeCore=ShapeCore())
+function TriangleMesh(mesh::GeometryBasics.Mesh)
     nmesh = GeometryBasics.expand_faceviews(mesh)
     fs = decompose(TriangleFace{UInt32}, nmesh)
     vertices = decompose(Point3f, nmesh)
@@ -102,7 +66,7 @@ function create_triangle_mesh(mesh::GeometryBasics.Mesh, core::ShapeCore=ShapeCo
     end
     indices = collect(reinterpret(UInt32, fs))
     return TriangleMesh(
-        core.object_to_world, indices, vertices,
+        vertices, indices,
         normals, Vec3f[], Point2f.(uvs),
     )
 end
@@ -201,7 +165,6 @@ end
     f(x[1]) && f(x[2]) && f(x[3])
 end
 
-
 @inline function normal_derivatives(
         t::Triangle, uv::AbstractVector{Point2f},
     )::Tuple{Normal3f,Normal3f}
@@ -219,84 +182,9 @@ end
     ∂n∂u, ∂n∂v
 end
 
-
-@inline function init_triangle_shading_geometry(
-        triangle::Triangle, surf_interact::SurfaceInteraction,
-        bary_coords::Point3f, tex_coords::AbstractVector{Point2f},
-    )
-    # Check if the triangle has valid normal and tangent vectors
-    has_normals = _all(x -> _all(isfinite, x), triangle.normals)
-    has_tangents = _all(x -> _all(isfinite, x), triangle.tangents)
-
-    # If no valid shading geometry exists, return the original surface interaction
-    !has_normals && !has_tangents && return surf_interact
-
-    # Initialize triangle shading geometry by computing shading normal, tangent & bitangent
-    shading_normal = surf_interact.core.n  # Start with geometric normal
-
-    # If we have valid normals, interpolate them using barycentric coordinates
-    if has_normals
-        shading_normal = normalize(sum_mul(bary_coords, triangle.normals))
-    end
-
-    # Calculate shading tangent - either from triangle tangents or from position derivatives
-    shading_tangent = Vector3f(0)
-    if has_tangents
-        shading_tangent = normalize(sum_mul(bary_coords, triangle.tangents))
-    else
-        shading_tangent = normalize(surf_interact.pos_deriv_u)  # Assuming ∂p∂u was renamed to pos_deriv_u
-    end
-
-    # Calculate shading bitangent from normal and tangent
-    shading_bitangent = shading_normal × shading_tangent
-
-    # Check if bitangent is valid, otherwise create a new coordinate system
-    if (shading_bitangent ⋅ shading_bitangent) > 0f0
-        shading_bitangent = Vec3f(normalize(shading_bitangent))
-        shading_tangent = Vec3f(shading_bitangent × shading_normal)  # Ensure orthogonality
-    else
-        # Create a new coordinate system if the vectors are nearly parallel
-        _, shading_tangent, shading_bitangent = coordinate_system(Vec3f(shading_normal))
-    end
-
-    # Calculate normal derivatives
-    nd_u, nd_v = normal_derivatives(triangle, tex_coords)
-
-    # Set the shading geometry on the surface interaction
-    return set_shading_geometry(
-        surf_interact,
-        shading_tangent,
-        shading_bitangent,
-        nd_u,
-        nd_v,
-        true
-    )
-end
-
-
-function surface_interaction(triangle, ray, bary_coords)
-
-    verts = vertices(triangle)
-    tex_coords = uvs(triangle)  # Get texture coordinates
-
-    # Calculate position derivatives and triangle edges
-    pos_deriv_u, pos_deriv_v, edge1, edge2 = partial_derivatives(triangle, verts, tex_coords)
-
-    # Interpolate hit point and texture coordinates using barycentric coordinates
-    hit_point = sum_mul(bary_coords, verts)
-    hit_uv = sum_mul(bary_coords, tex_coords)
-
-    # Calculate surface normal from triangle edges
-    normal = normalize(edge1 × edge2)
-
-    # Create surface interaction data at hit point
-    surf_interact = SurfaceInteraction(
-        normal, hit_point, ray.time, -ray.d, hit_uv,
-        pos_deriv_u, pos_deriv_v, Normal3f(0f0), Normal3f(0f0)
-    )
-    # TODO test against alpha texture if present.
-    return init_triangle_shading_geometry(triangle, surf_interact, bary_coords, tex_coords)
-end
+# Note: surface_interaction and init_triangle_shading_geometry have been removed
+# These functions are now handled by Trace.jl's triangle_to_surface_interaction
+# Raycore only provides low-level ray-triangle intersection via intersect_triangle
 
 @inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
     verts = vertices(triangle)  # Get triangle vertices

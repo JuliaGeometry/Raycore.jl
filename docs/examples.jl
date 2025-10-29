@@ -1,4 +1,4 @@
-using RayCaster, GeometryBasics, LinearAlgebra
+using Raycore, GeometryBasics, LinearAlgebra
 using GLMakie, FileIO
 
 function LowSphere(radius, contact=Point3f(0); ntriangles=10)
@@ -14,20 +14,20 @@ begin
     l = 0.5
     floor = Rect3f(-l, -l, -0.01, 2l, 2l, 0.01)
     cat = load(Makie.assetpath("cat.obj"))
-    bvh = RayCaster.BVHAccel([s1, s2, s3, s4, cat]);
+    bvh = Raycore.BVHAccel([s1, s2, s3, s4, cat]);
     world_mesh = GeometryBasics.Mesh(bvh)
     f, ax, pl = Makie.mesh(world_mesh; color=:teal)
     center!(ax.scene)
     viewdir = normalize(ax.scene.camera.view_direction[])
 end
 
-hitpoints, centroid = RayCaster.get_centroid(bvh, viewdir)
+hitpoints, centroid = Raycore.get_centroid(bvh, viewdir)
 
 
 begin
-    @time "hitpoints" hitpoints, centroid = RayCaster.get_centroid(bvh, viewdir)
-    @time "illum" illum = RayCaster.get_illumination(bvh, viewdir)
-    @time "viewf_matrix" viewf_matrix = RayCaster.view_factors(bvh, rays_per_triangle=1000)
+    @time "hitpoints" hitpoints, centroid = Raycore.get_centroid(bvh, viewdir)
+    @time "illum" illum = Raycore.get_illumination(bvh, viewdir)
+    @time "viewf_matrix" viewf_matrix = Raycore.view_factors(bvh, rays_per_triangle=1000)
     viewfacts = map(i-> Float32(sum(view(viewf_matrix, :, i))), 1:length(bvh.primitives))
     world_mesh = GeometryBasics.Mesh(bvh)
     N = length(world_mesh.faces)
@@ -67,11 +67,11 @@ end
 using KernelAbstractions, Atomix
 
 function random_scatter_kernel!(bvh, triangle, u, v, normal)
-    point = RayCaster.random_triangle_point(triangle)
+    point = Raycore.random_triangle_point(triangle)
     o = point .+ (normal .* 0.01f0) # Offset so it doesn't self intersect
-    dir = RayCaster.random_hemisphere_uniform(normal, u, v)
-    ray = RayCaster.Ray(; o=o, d=dir)
-    hit, prim, _ = RayCaster.intersect!(bvh, ray)
+    dir = Raycore.random_hemisphere_uniform(normal, u, v)
+    ray = Raycore.Ray(; o=o, d=dir)
+    hit, prim, _ = Raycore.closest_hit(bvh, ray)
     return hit, prim
 end
 
@@ -109,10 +109,10 @@ using AMDGPU
 prim_info = map(bvh.primitives) do triangle
     n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
     normal = normalize(Vec3f(n))
-    u, v = RayCaster.get_orthogonal_basis(normal)
+    u, v = Raycore.get_orthogonal_basis(normal)
     return triangle, u, v, normal
 end
-bvh_gpu = RayCaster.to_gpu(ROCArray, bvh)
+bvh_gpu = Raycore.to_gpu(ROCArray, bvh)
 result_gpu = ROCArray(result)
 prim_info_gpu = ROCArray(prim_info)
 @time begin
@@ -158,11 +158,11 @@ final_rays / 10^6
 prim_info = map(bvh.primitives) do triangle
     n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
     normal = normalize(Vec3f(n))
-    u, v = RayCaster.get_orthogonal_basis(normal)
+    u, v = Raycore.get_orthogonal_basis(normal)
     return triangle, u, v, normal
 end
 
-bvh_gpu = RayCaster.to_gpu(ROCArray, bvh)
+bvh_gpu = Raycore.to_gpu(ROCArray, bvh)
 result_gpu = ROCArray(result)
 prim_info_gpu = ROCArray(prim_info)
 @time begin

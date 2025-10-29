@@ -223,6 +223,7 @@ Base.:+(q1::Quaternion, q2::Quaternion) = Quaternion(q1.v .+ q2.v, q1.w + q2.w)
 Base.:-(q1::Quaternion, q2::Quaternion) = Quaternion(q1.v .- q2.v, q1.w - q2.w)
 Base.:/(q::Quaternion, f::Float32) = Quaternion(q.v ./ f, q.w / f)
 Base.:*(q::Quaternion, f::Float32) = Quaternion(q.v .* f, q.w * f)
+Base.:*(f::Float32, q::Quaternion) = q * f
 LinearAlgebra.dot(q1::Quaternion, q2::Quaternion) = q1.v ⋅ q2.v + q1.w * q2.w
 LinearAlgebra.normalize(q::Quaternion) = q / sqrt(q ⋅ q)
 
@@ -252,11 +253,11 @@ end
 
 function slerp(q1::Quaternion, q2::Quaternion, t::Float32)
 
-    cos_θ = q1 ⋅ q2
+    cos_θ = Float32(q1 ⋅ q2)
     cos_θ > 0.9995f0 && return normalize((1 - t) * q1 + t * q2)
 
-    θ = acos(cos_θ)
+    θ = Float32(acos(cos_θ))
     θ_p = θ * t
     q_perp = normalize(q2 - q1 * cos_θ)
-    q1 * cos(θ_p) + q_perp * sin(θ_p)
+    q1 * Float32(cos(θ_p)) + q_perp * Float32(sin(θ_p))
 end
