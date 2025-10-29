@@ -60,4 +60,4 @@ vf_matrix = view_factors(bvh; rays_per_triangle=1000)
 - [Full API Documentation](https://juliageometry.github.io/Raycore.jl/)
 - [Ray Tracing Tutorial](https://juliageometry.github.io/Raycore.jl/raytracing_tutorial.html) - Build a complete ray tracer from scratch
 
-![Ray tracing example](./docs/raytracing.png)
+![Ray tracing example](./docs/src/raytracing.png)
