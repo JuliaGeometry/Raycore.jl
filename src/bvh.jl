@@ -291,11 +291,12 @@ Returns:
         current_node = nodes[current_node_idx]
         # Test ray against current node's bounding box
         if intersect_p(current_node.bounds, ray, inv_dir, dir_is_neg)
-            if !current_node.is_interior && current_node.n_primitives > Int32(0)
+            local cnprim::Int32 = current_node.n_primitives % Int32
+            if !current_node.is_interior && cnprim > Int32(0)
                 # Leaf node - test all primitives
                 offset = current_node.offset % Int32
 
-                for i in Int32(0):(current_node.n_primitives - Int32(1))
+                for i in Int32(0):(cnprim - Int32(1))
                     primitive = primitives[offset + i]
 
                     # Call the callback for this primitive
@@ -364,7 +365,7 @@ Returns:
 """
 @inline function closest_hit(bvh::BVHAccel{P}, ray::AbstractRay, allocator=MemAllocator()) where {P}
     # Traverse BVH with closest-hit callback
-    _, _, result = traverse_bvh(closest_hit_callback, bvh, ray, allocator)
+    _, _, result = @inline traverse_bvh(closest_hit_callback, bvh, ray, allocator)
     return result::Tuple{Bool, Triangle, Float32, Point3f}
 end
 
