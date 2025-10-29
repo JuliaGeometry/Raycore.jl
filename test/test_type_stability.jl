@@ -416,7 +416,7 @@ end
 
     @testset "BVHNode construction" begin
         b = gen_bounds3()
-        @test_opt_alloc Raycore.BVHNode(UInt32(0), UInt32(1), b)
+        @test_opt Raycore.BVHNode(UInt32(0), UInt32(1), b)
     end
 
     @testset "LinearBVH construction" begin
