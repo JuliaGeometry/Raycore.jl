@@ -90,7 +90,6 @@ function to_triangle_mesh(x::GeometryBasics.AbstractGeometry)
     return TriangleMesh(m)
 end
 
-
 function BVHAccel(
         primitives::AbstractVector{P}, max_node_primitives::Integer=1,
     ) where {P}
@@ -99,10 +98,13 @@ function BVHAccel(
         triangle_mesh = to_triangle_mesh(prim)
         vertices = triangle_mesh.vertices
         for i in 1:div(length(triangle_mesh.indices), 3)
-            push!(triangles, Triangle(triangle_mesh, i, mi))
+            push!(triangles, Triangle(triangle_mesh, i, mi, length(triangles) + 1))
         end
     end
     ordered_primitives, max_prim, nodes = primitives_to_bvh(triangles, max_node_primitives)
+    ordered_primitives = map(enumerate(ordered_primitives)) do (i, tri)
+        Triangle(tri, primitive_idx=UInt32(i))
+    end
     return BVHAccel(ordered_primitives, UInt8(max_prim), nodes)
 end
 
@@ -489,7 +491,7 @@ end
 function GeometryBasics.Mesh(bvh::BVHAccel)
     points = Point3f[]
     faces = GLTriangleFace[]
-    prims = sort(bvh.primitives; by=x -> x.material_idx)
+    prims = bvh.primitives# sort(bvh.primitives; by=x -> x.material_idx)
     for (ti, tringle) in enumerate(prims)
         push!(points, tringle.vertices...)
         tt = ((ti - 1) * 3) + 1

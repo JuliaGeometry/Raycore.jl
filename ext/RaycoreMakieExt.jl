@@ -47,15 +47,15 @@ plot(session)
 @recipe(RayPlot, session) do scene
     Attributes(
         show_bvh = true,
-        bvh_alpha = 0.4,
-        bvh_colors = [:red, :yellow, :blue],
+        bvh_alpha = 1.0,
+        bvh_colors = Makie.wong_colors(),
         ray_colors = nothing,
-        ray_color = :black,
+        ray_color = :green,
         hit_color = :green,
-        miss_color = :gray,
+        miss_color = (:gray, 0.5),
         ray_length = 15.0f0,
         show_hit_points = true,
-        hit_markersize = 0.2,
+        hit_markersize = 0.1,
         show_labels = false,
     )
 end
@@ -223,7 +223,7 @@ function draw_bvh!(plot, bvh::Raycore.BVHAccel, colors, alpha)
             plot,
             mesh_obj,
             color = (color, alpha),
-            transparency = true
+            transparency=alpha < 1.0
         )
     end
 end

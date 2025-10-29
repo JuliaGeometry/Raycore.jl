@@ -14,7 +14,7 @@ function hits_from_grid(bvh, viewdir; grid_size=32)
         ray = Raycore.Ray(; o=o, d=ray_direction)
         hit, prim, dist, bary = Raycore.closest_hit(bvh, ray)
         hitpoint = sum_mul(bary, prim.vertices)
-        @inbounds result[idx] = RayHit(hit, hitpoint, prim.material_idx)
+        @inbounds result[idx] = RayHit(hit, hitpoint, prim.primitive_idx)
     end
     return result
 end
@@ -29,23 +29,21 @@ function view_factors!(result, bvh, rays_per_triangle=10000)
         @inbounds begin
             triangle = bvh.primitives[idx]
             n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
-            normal = normalize(Vec3f(n))
+            normal = normalize(n)
             u, v = get_orthogonal_basis(normal)
             for i in 1:rays_per_triangle
                 point_on_triangle = random_triangle_point(triangle)
                 o = point_on_triangle .+ (normal .* 0.01f0) # Offset so it doesn't self intersect
                 ray = Ray(; o=o, d=random_hemisphere_uniform(normal, u, v))
                 hit, prim, dist, _ = closest_hit(bvh, ray)
-                if hit && prim.material_idx != triangle.material_idx
-                    # weigh by angle?
-                    result[triangle.material_idx, prim.material_idx] += 1
+                if hit && prim.primitive_idx != triangle.primitive_idx
+                    result[triangle.primitive_idx, prim.primitive_idx] += UInt32(1)
                 end
             end
         end
     end
     return result
 end
-
 
 function get_centroid(bvh, viewdir; grid_size=32)
     # Calculate grid bounds
@@ -54,18 +52,14 @@ function get_centroid(bvh, viewdir; grid_size=32)
     return surface_points, mean(surface_points)
 end
 
-
 function get_illumination(bvh, viewdir; grid_size=1000)
     # Calculate grid bounds
     hits = hits_from_grid(bvh, viewdir; grid_size=grid_size)
     result = Dict{UInt32, Float32}()
     for hit in hits
         if hit.hit
-            if haskey(result, hit.prim_idx)
-                result[hit.prim_idx] += 1f0
-            else
-                result[hit.prim_idx] = 1f0
-            end
+            count = get!(result, hit.prim_idx, 0f0)
+            result[hit.prim_idx] = count + 1f0
         end
     end
     return [get(result, UInt32(idx), 0.0f0) for idx in 1:length(bvh.primitives)]

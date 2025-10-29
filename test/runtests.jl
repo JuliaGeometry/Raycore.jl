@@ -3,6 +3,9 @@ using GeometryBasics
 using LinearAlgebra
 using Raycore
 using JET
+using Aqua
+
+Aqua.test_all(Raycore)
 
 @testset "Raycore Tests" begin
     @testset "Intersection" begin

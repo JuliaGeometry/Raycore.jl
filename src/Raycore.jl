@@ -48,6 +48,19 @@ include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
 
+# Core types
+export Ray, RayDifferentials, Triangle, TriangleMesh, BVHAccel, Bounds3, Normal3f
+
+# Ray intersection functions
+export closest_hit, any_hit, world_bound
+
+# Math utilities
+export reflect
+
+# Analysis functions (key features)
+export get_centroid, get_illumination, view_factors
+
+# Ray intersection session
 export RayIntersectionSession, hit_points, hit_distances, hit_count, miss_count
 
 end

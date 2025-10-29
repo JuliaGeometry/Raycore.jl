@@ -4,39 +4,60 @@
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://juliageometry.github.io/Raycore.jl/stable/)
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliageometry.github.io/Raycore.jl/dev/)
 
-Performant ray intersection engine for CPU and GPU.
+High-performance ray-triangle intersection engine with BVH acceleration for CPU and GPU.
+
+## Features
+
+- **Fast BVH acceleration** for ray-triangle intersection
+- **CPU and GPU support** via KernelAbstractions.jl
+- **Analysis tools**: centroid calculation, illumination analysis, view factors for radiosity
+- **Makie integration** for visualization
 
 ## Getting Started
-
-To get started with Raycore.jl, first add the package to your Julia environment:
 
 ```julia
 using Pkg
 Pkg.add(url="https://github.com/JuliaGeometry/Raycore.jl")
 ```
 
-Then you can create a basic ray intersection scene:
+### Basic Ray Intersection
 
 ```julia
 using Raycore, GeometryBasics, LinearAlgebra
 
-# Create some simple spheres
-function LowSphere(radius, contact=Point3f(0); ntriangles=10)
-    return Tesselation(Sphere(contact .+ Point3f(0, 0, radius), radius), ntriangles)
+# Create geometry
+sphere = Tesselation(Sphere(Point3f(0, 0, 2), 1.0f0), 20)
+
+# Build BVH acceleration structure
+bvh = BVHAccel([sphere])
+
+# Cast rays and find intersections
+ray = Ray(o=Point3f(0, 0, 0), d=Vec3f(0, 0, 1))
+hit_found, triangle, distance, bary_coords = closest_hit(bvh, ray)
+
+if hit_found
+    hit_point = ray.o + ray.d * distance
+    println("Hit at distance $distance: $hit_point")
 end
+```
 
-# Build a scene with multiple objects
-s1 = LowSphere(0.5f0, Point3f(-0.5, 0.0, 0); ntriangles=10)
-s2 = LowSphere(0.3f0, Point3f(1, 0.5, 0); ntriangles=10)
+### Analysis Features
 
-# Create BVH acceleration structure
-bvh = Raycore.BVHAccel([s1, s2])
-
-# Perform ray-scene intersections
+```julia
+# Calculate scene centroid from a viewing direction
 viewdir = normalize(Vec3f(0, 0, -1))
-hitpoints, centroid = Raycore.get_centroid(bvh, viewdir)
+hitpoints, centroid = get_centroid(bvh, viewdir)
+
+# Analyze illumination
+illumination = get_illumination(bvh, viewdir)
+
+# Compute view factors for radiosity
+vf_matrix = view_factors(bvh; rays_per_triangle=1000)
 ```
 
 ## Documentation
 
-For detailed examples and API documentation, see the [full documentation](https://juliageometry.github.io/Raycore.jl/).
+- [Full API Documentation](https://juliageometry.github.io/Raycore.jl/)
+- [Ray Tracing Tutorial](https://juliageometry.github.io/Raycore.jl/raytracing_tutorial.html) - Build a complete ray tracer from scratch
+
+![Ray tracing example](./docs/raytracing.png)
