@@ -5,7 +5,8 @@ using Raycore
 using JET
 using Aqua
 
-Aqua.test_all(Raycore)
+# ambiguities come from GeometryBasics.@fixed_vector Normal = StaticVector
+Aqua.test_all(Raycore; ambiguities=(; broken=true))
 
 @testset "Raycore Tests" begin
     @testset "Intersection" begin

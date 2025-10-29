@@ -3,7 +3,6 @@ module Raycore
 using GeometryBasics
 using LinearAlgebra
 using StaticArrays
-using Atomix
 using KernelAbstractions
 import GeometryBasics as GB
 using Statistics
@@ -11,10 +10,7 @@ using Statistics
 abstract type AbstractRay end
 abstract type AbstractShape end
 abstract type Primitive end
-abstract type Material end
 const Maybe{T} = Union{T,Nothing}
-const Radiance = UInt8(1)
-const Importance = UInt8(2)
 
 GB.@fixed_vector Normal = StaticVector
 const Normal3f = Normal{3, Float32}
@@ -57,7 +53,7 @@ export closest_hit, any_hit, world_bound
 # Math utilities
 export reflect
 
-# Analysis functions (key features)
+# Analysis functions
 export get_centroid, get_illumination, view_factors
 
 # Ray intersection session

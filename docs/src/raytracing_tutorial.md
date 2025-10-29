@@ -1,14 +1,14 @@
 # Ray Tracing with Raycore
 
 ```@setup raytracing
-using Bonito
+using Bonito, BonitoBook, Raycore
+book_app = App() do
+    path = normpath(joinpath(dirname(pathof(Raycore)), "..", "docs", "src", "raytracing_tutorial_content.md"))
+    BonitoBook.InlineBook(path)
+end
 Bonito.Page()
 ```
 
 ```@example raytracing
-using Bonito, BonitoBook, Raycore
-App() do
-    path = normpath(joinpath(dirname(pathof(Raycore)), "..", "docs", "src", "raytracing_tutorial_content.md"))
-    BonitoBook.InlineBook(path)
-end
+book_app # hide
 ```
