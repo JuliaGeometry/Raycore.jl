@@ -40,12 +40,13 @@ include("transformations.jl")
 include("math.jl")
 include("triangle_mesh.jl")
 include("bvh.jl")
+include("bvh-gpu.jl")
 include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
 
 # Core types
-export Ray, RayDifferentials, Triangle, TriangleMesh, BVHAccel, Bounds3, Normal3f
+export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVHAccel, GPUBVH, Bounds3, Normal3f
 
 # Ray intersection functions
 export closest_hit, any_hit, world_bound

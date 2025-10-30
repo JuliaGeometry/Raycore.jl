@@ -21,3 +21,11 @@ function to_gpu(ArrayType, bvh::Raycore.BVHAccel; preserve=[])
     nodes = to_gpu(ArrayType, bvh.nodes; preserve=preserve)
     return Raycore.BVHAccel(primitives, bvh.max_node_primitives, nodes)
 end
+
+# GPU conversion for GPUBVH
+function to_gpu(ArrayType, gpubvh::Raycore.GPUBVH; preserve=[])
+    nodes = to_gpu(ArrayType, gpubvh.nodes; preserve=preserve)
+    triangles = to_gpu(ArrayType, gpubvh.triangles; preserve=preserve)
+    original_triangles = to_gpu(ArrayType, gpubvh.original_triangles; preserve=preserve)
+    return Raycore.GPUBVH(nodes, triangles, original_triangles, gpubvh.max_node_primitives)
+end
