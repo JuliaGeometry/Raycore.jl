@@ -1,17 +1,17 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>View Factors and More · Raycore</title><meta name="title" content="View Factors and More · Raycore"/><meta property="og:title" content="View Factors and More · Raycore"/><meta property="twitter:title" content="View Factors and More · Raycore"/><meta name="description" content="Documentation for Raycore."/><meta property="og:description" content="Documentation for Raycore."/><meta property="twitter:description" content="Documentation for Raycore."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">Raycore</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="index.html">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="bvh_hit_tests.html">BVH Hit Tests</a></li><li><a class="tocitem" href="raytracing_tutorial.html">Ray Tracing Tutorial</a></li><li class="is-active"><a class="tocitem" href="viewfactors.html">View Factors and More</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Examples</a></li><li class="is-active"><a href="viewfactors.html">View Factors and More</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="viewfactors.html">View Factors and More</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl/blob/master/docs/src/viewfactors.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="View-Factors-and-More"><a class="docs-heading-anchor" href="#View-Factors-and-More">View Factors and More</a><a id="View-Factors-and-More-1"></a><a class="docs-heading-anchor-permalink" href="#View-Factors-and-More" title="Permalink"></a></h1><div>
-  <div class="bonito-fragment" id="12b34e74-5301-484b-b202-2b15bdb6f91b" data-jscall-id="root">
+  <div class="bonito-fragment" id="4609591e-0e9d-4ca3-b240-3c44213ffadc" data-jscall-id="root">
     <div>
       <script src="bonito/js/Bonito.bundled7457269554592506375.js" type="module"></script>
       <style></style>
     </div>
     <div>
-      <script type="module">Bonito.init_session("12b34e74-5301-484b-b202-2b15bdb6f91b", null, "root", false);
+      <script type="module">Bonito.init_session("4609591e-0e9d-4ca3-b240-3c44213ffadc", null, "root", false);
 </script>
       <span></span>
     </div>
   </div>
-  <div class="bonito-fragment" id="7d165ca2-9ef8-49de-95f0-dab9c696f1d1" data-jscall-id="subsession-application-dom">
+  <div class="bonito-fragment" id="b53e5ae7-1b7d-4996-8cdf-860ed61c399c" data-jscall-id="subsession-application-dom">
     <div>
       <style>.style_2 {
   width: 1.2em;
@@ -207,11 +207,11 @@ span.sgr107 {
 </style>
     </div>
     <div>
-      <script type="module">Bonito.init_session("7d165ca2-9ef8-49de-95f0-dab9c696f1d1", Bonito.fetch_binary('bonito/bin/5834ff99c2d65bab72a5e399790934c2dd61a123-9400094640747603598.bin'), "sub", false);
+      <script type="module">Bonito.init_session("b53e5ae7-1b7d-4996-8cdf-860ed61c399c", Bonito.fetch_binary('bonito/bin/05babfdb6ccb19ce378a91ec8f78ebf641c1ae89-8291371607301725202.bin'), "sub", false);
 </script>
       <div data-jscall-id="1">
         <div data-jscall-id="3">
-          <div class="bonito-fragment" id="b3baab0a-bf20-4f99-a4f8-903e807886e8" data-jscall-id="subsession-application-dom">
+          <div class="bonito-fragment" id="5267cc43-6fe1-4649-82c9-48015a3fd140" data-jscall-id="subsession-application-dom">
             <div data-jscall-id="4">
               <style data-jscall-id="5"></style>
               <style data-jscall-id="6">:root {
@@ -1492,7 +1492,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
 </style>
             </div>
             <div data-jscall-id="7">
-              <script data-jscall-id="8" type="module">Bonito.init_session("b3baab0a-bf20-4f99-a4f8-903e807886e8", null, "sub", false);
+              <script data-jscall-id="8" type="module">Bonito.init_session("5267cc43-6fe1-4649-82c9-48015a3fd140", null, "sub", false);
 </script>
               <span data-jscall-id="2"></span>
             </div>
@@ -1513,10 +1513,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     </div>
                   </div>
                 </div>
-                <div class="cell-editor-container editor-collapsed" id="61ae0b6e-b849-4822-9528-f28e0ef41a25" data-jscall-id="20">
-                  <div class=" style_5" style="" data-jscall-id="21" id="61ae0b6e-b849-4822-9528-f28e0ef41a25-container" tabindex="0">
+                <div class="cell-editor-container editor-collapsed" id="b27fe170-49c1-4820-989f-7edefbc68f25" data-jscall-id="20">
+                  <div class=" style_5" style="" data-jscall-id="21" id="b27fe170-49c1-4820-989f-7edefbc68f25-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="22">
-                      <div class="hover-buttons" id="61ae0b6e-b849-4822-9528-f28e0ef41a25-hover" data-jscall-id="23">
+                      <div class="hover-buttons" id="b27fe170-49c1-4820-989f-7edefbc68f25-hover" data-jscall-id="23">
                         <button onclick="" class="small-button toggle-button" data-jscall-id="24">
                           <img class="codicon  style_2" style="" data-jscall-id="25" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1530,7 +1530,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="31" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor hide-vertical" id="61ae0b6e-b849-4822-9528-f28e0ef41a25-card-content" data-jscall-id="32" style="position: relative;">
+                      <div class="cell-editor hide-vertical" id="b27fe170-49c1-4820-989f-7edefbc68f25-card-content" data-jscall-id="32" style="position: relative;">
                         <div data-jscall-id="33">
                           <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="34"></div>
                         </div>
@@ -1544,12 +1544,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="40" tabindex="0">
                         <div class="cell-output cell-output-markdown " data-jscall-id="35">
                           <div data-jscall-id="46">
-                            <div class="bonito-fragment" id="04b2470d-f568-4509-9ac2-a13d1ae99014" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="911a38d2-4147-4e57-8228-a147743ff8d5" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="47">
                                 <style data-jscall-id="48"></style>
                               </div>
                               <div data-jscall-id="49">
-                                <script data-jscall-id="50" type="module">Bonito.init_session("04b2470d-f568-4509-9ac2-a13d1ae99014", null, "sub", false);
+                                <script data-jscall-id="50" type="module">Bonito.init_session("911a38d2-4147-4e57-8228-a147743ff8d5", null, "sub", false);
 </script>
                                 <span data-jscall-id="41">
                                   <div class="markdown-body" data-jscall-id="42">
@@ -1567,10 +1567,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="51"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container" id="047c6423-e003-41fe-b546-ab60734f2802" data-jscall-id="52">
-                  <div class=" style_5" style="" data-jscall-id="53" id="047c6423-e003-41fe-b546-ab60734f2802-container" tabindex="0">
+                <div class="cell-editor-container" id="caa7453b-e1a7-429c-a9b1-29b85f93ce20" data-jscall-id="52">
+                  <div class=" style_5" style="" data-jscall-id="53" id="caa7453b-e1a7-429c-a9b1-29b85f93ce20-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="54">
-                      <div class="hover-buttons" id="047c6423-e003-41fe-b546-ab60734f2802-hover" data-jscall-id="55">
+                      <div class="hover-buttons" id="caa7453b-e1a7-429c-a9b1-29b85f93ce20-hover" data-jscall-id="55">
                         <button onclick="" class="small-button toggle-button active" data-jscall-id="56">
                           <img class="codicon  style_2" style="" data-jscall-id="57" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1584,7 +1584,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="63" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor " id="047c6423-e003-41fe-b546-ab60734f2802-card-content" data-jscall-id="64" style="position: relative;">
+                      <div class="cell-editor " id="caa7453b-e1a7-429c-a9b1-29b85f93ce20-card-content" data-jscall-id="64" style="position: relative;">
                         <div data-jscall-id="65">
                           <div class="monaco-editor-div language-julia" data-jscall-id="66"></div>
                         </div>
@@ -1598,12 +1598,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="72" tabindex="0">
                         <div class="cell-output cell-output-julia " data-jscall-id="67">
                           <div data-jscall-id="76">
-                            <div class="bonito-fragment" id="6cf223c8-0fa5-4f16-820a-e4b99b3eee91" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="e7d66f3d-981b-4158-bcfa-ee4551e91845" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="77">
                                 <style data-jscall-id="78"></style>
                               </div>
                               <div data-jscall-id="79">
-                                <script data-jscall-id="80" type="module">Bonito.init_session("6cf223c8-0fa5-4f16-820a-e4b99b3eee91", Bonito.fetch_binary('bonito/bin/6c9895800eebfafd0d91f4389fe66cf5bf370d3f-16656781101352883636.bin'), "sub", false);
+                                <script data-jscall-id="80" type="module">Bonito.init_session("e7d66f3d-981b-4158-bcfa-ee4551e91845", Bonito.fetch_binary('bonito/bin/5b5e8e44509a72cb37f4fa57156e5a91b939603b-13085042615615632356.bin'), "sub", false);
 </script>
                                 <span data-jscall-id="73">
                                   <div style="width: 100%; height: 100%" data-jscall-id="74">
@@ -1619,10 +1619,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="81"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container editor-collapsed" id="5178e62c-4f3a-415f-94f1-4118f0e2d815" data-jscall-id="82">
-                  <div class=" style_5" style="" data-jscall-id="83" id="5178e62c-4f3a-415f-94f1-4118f0e2d815-container" tabindex="0">
+                <div class="cell-editor-container editor-collapsed" id="b8f57bb1-0ada-43ed-9ecf-bf2778c9db41" data-jscall-id="82">
+                  <div class=" style_5" style="" data-jscall-id="83" id="b8f57bb1-0ada-43ed-9ecf-bf2778c9db41-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="84">
-                      <div class="hover-buttons" id="5178e62c-4f3a-415f-94f1-4118f0e2d815-hover" data-jscall-id="85">
+                      <div class="hover-buttons" id="b8f57bb1-0ada-43ed-9ecf-bf2778c9db41-hover" data-jscall-id="85">
                         <button onclick="" class="small-button toggle-button" data-jscall-id="86">
                           <img class="codicon  style_2" style="" data-jscall-id="87" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1636,7 +1636,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="93" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor hide-vertical" id="5178e62c-4f3a-415f-94f1-4118f0e2d815-card-content" data-jscall-id="94" style="position: relative;">
+                      <div class="cell-editor hide-vertical" id="b8f57bb1-0ada-43ed-9ecf-bf2778c9db41-card-content" data-jscall-id="94" style="position: relative;">
                         <div data-jscall-id="95">
                           <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="96"></div>
                         </div>
@@ -1650,12 +1650,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="102" tabindex="0">
                         <div class="cell-output cell-output-markdown " data-jscall-id="97">
                           <div data-jscall-id="107">
-                            <div class="bonito-fragment" id="9d4c7ccd-f6bf-442d-bbd6-98b9dff4e597" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="24f30f7e-52e3-48d5-b1cb-7417f68d9587" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="108">
                                 <style data-jscall-id="109"></style>
                               </div>
                               <div data-jscall-id="110">
-                                <script data-jscall-id="111" type="module">Bonito.init_session("9d4c7ccd-f6bf-442d-bbd6-98b9dff4e597", null, "sub", false);
+                                <script data-jscall-id="111" type="module">Bonito.init_session("24f30f7e-52e3-48d5-b1cb-7417f68d9587", null, "sub", false);
 </script>
                                 <span data-jscall-id="103">
                                   <div class="markdown-body" data-jscall-id="104">
@@ -1672,10 +1672,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="112"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container" id="5cccf75b-b782-4cca-9480-67fae3bbcdf6" data-jscall-id="113">
-                  <div class=" style_5" style="" data-jscall-id="114" id="5cccf75b-b782-4cca-9480-67fae3bbcdf6-container" tabindex="0">
+                <div class="cell-editor-container" id="18d42a09-3220-4f0e-ae3a-865a73b51b8a" data-jscall-id="113">
+                  <div class=" style_5" style="" data-jscall-id="114" id="18d42a09-3220-4f0e-ae3a-865a73b51b8a-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="115">
-                      <div class="hover-buttons" id="5cccf75b-b782-4cca-9480-67fae3bbcdf6-hover" data-jscall-id="116">
+                      <div class="hover-buttons" id="18d42a09-3220-4f0e-ae3a-865a73b51b8a-hover" data-jscall-id="116">
                         <button onclick="" class="small-button toggle-button active" data-jscall-id="117">
                           <img class="codicon  style_2" style="" data-jscall-id="118" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1689,7 +1689,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="124" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor " id="5cccf75b-b782-4cca-9480-67fae3bbcdf6-card-content" data-jscall-id="125" style="position: relative;">
+                      <div class="cell-editor " id="18d42a09-3220-4f0e-ae3a-865a73b51b8a-card-content" data-jscall-id="125" style="position: relative;">
                         <div data-jscall-id="126">
                           <div class="monaco-editor-div language-julia" data-jscall-id="127"></div>
                         </div>
@@ -1703,12 +1703,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="133" tabindex="0">
                         <div class="cell-output cell-output-julia " data-jscall-id="128">
                           <div data-jscall-id="137">
-                            <div class="bonito-fragment" id="de87eb22-911e-49b1-a7e5-d01ac650ab79" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="14fd1d4e-9154-4de5-b90a-7a2ec8d9f275" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="138">
                                 <style data-jscall-id="139"></style>
                               </div>
                               <div data-jscall-id="140">
-                                <script data-jscall-id="141" type="module">Bonito.init_session("de87eb22-911e-49b1-a7e5-d01ac650ab79", Bonito.fetch_binary('bonito/bin/1949989b4cbad07b9f582b8ad1e7a940e8c7c740-4100368711523227520.bin'), "sub", false);
+                                <script data-jscall-id="141" type="module">Bonito.init_session("14fd1d4e-9154-4de5-b90a-7a2ec8d9f275", Bonito.fetch_binary('bonito/bin/bd6e13758fbd59557536526f1c1d4fecba33935b-4007424906203096244.bin'), "sub", false);
 </script>
                                 <span data-jscall-id="134">
                                   <div style="width: 100%; height: 100%" data-jscall-id="135">
@@ -1724,10 +1724,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="142"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container editor-collapsed" id="f9a04ca9-bc41-4226-af1c-c5c470ec1cf9" data-jscall-id="143">
-                  <div class=" style_5" style="" data-jscall-id="144" id="f9a04ca9-bc41-4226-af1c-c5c470ec1cf9-container" tabindex="0">
+                <div class="cell-editor-container editor-collapsed" id="47cd5fdb-3ffc-4e6e-9cfc-173d59188c11" data-jscall-id="143">
+                  <div class=" style_5" style="" data-jscall-id="144" id="47cd5fdb-3ffc-4e6e-9cfc-173d59188c11-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="145">
-                      <div class="hover-buttons" id="f9a04ca9-bc41-4226-af1c-c5c470ec1cf9-hover" data-jscall-id="146">
+                      <div class="hover-buttons" id="47cd5fdb-3ffc-4e6e-9cfc-173d59188c11-hover" data-jscall-id="146">
                         <button onclick="" class="small-button toggle-button" data-jscall-id="147">
                           <img class="codicon  style_2" style="" data-jscall-id="148" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1741,7 +1741,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="154" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor hide-vertical" id="f9a04ca9-bc41-4226-af1c-c5c470ec1cf9-card-content" data-jscall-id="155" style="position: relative;">
+                      <div class="cell-editor hide-vertical" id="47cd5fdb-3ffc-4e6e-9cfc-173d59188c11-card-content" data-jscall-id="155" style="position: relative;">
                         <div data-jscall-id="156">
                           <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="157"></div>
                         </div>
@@ -1755,12 +1755,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="163" tabindex="0">
                         <div class="cell-output cell-output-markdown " data-jscall-id="158">
                           <div data-jscall-id="169">
-                            <div class="bonito-fragment" id="3c561f2d-76fd-48b8-abff-7fd16526df84" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="5ac3a62e-9532-4a68-a3e7-1a49ac06b3af" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="170">
                                 <style data-jscall-id="171"></style>
                               </div>
                               <div data-jscall-id="172">
-                                <script data-jscall-id="173" type="module">Bonito.init_session("3c561f2d-76fd-48b8-abff-7fd16526df84", null, "sub", false);
+                                <script data-jscall-id="173" type="module">Bonito.init_session("5ac3a62e-9532-4a68-a3e7-1a49ac06b3af", null, "sub", false);
 </script>
                                 <span data-jscall-id="164">
                                   <div class="markdown-body" data-jscall-id="165">
@@ -1778,10 +1778,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="174"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container" id="0c7076a3-bf93-4928-a416-1d8de2c3908d" data-jscall-id="175">
-                  <div class=" style_5" style="" data-jscall-id="176" id="0c7076a3-bf93-4928-a416-1d8de2c3908d-container" tabindex="0">
+                <div class="cell-editor-container" id="f977524e-e90f-4702-a1f1-eaf13963a109" data-jscall-id="175">
+                  <div class=" style_5" style="" data-jscall-id="176" id="f977524e-e90f-4702-a1f1-eaf13963a109-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="177">
-                      <div class="hover-buttons" id="0c7076a3-bf93-4928-a416-1d8de2c3908d-hover" data-jscall-id="178">
+                      <div class="hover-buttons" id="f977524e-e90f-4702-a1f1-eaf13963a109-hover" data-jscall-id="178">
                         <button onclick="" class="small-button toggle-button active" data-jscall-id="179">
                           <img class="codicon  style_2" style="" data-jscall-id="180" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1795,7 +1795,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="186" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor " id="0c7076a3-bf93-4928-a416-1d8de2c3908d-card-content" data-jscall-id="187" style="position: relative;">
+                      <div class="cell-editor " id="f977524e-e90f-4702-a1f1-eaf13963a109-card-content" data-jscall-id="187" style="position: relative;">
                         <div data-jscall-id="188">
                           <div class="monaco-editor-div language-julia" data-jscall-id="189"></div>
                         </div>
@@ -1809,12 +1809,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="195" tabindex="0">
                         <div class="cell-output cell-output-julia " data-jscall-id="190">
                           <div data-jscall-id="199">
-                            <div class="bonito-fragment" id="86f16883-b704-4170-bcb3-fc960cad0f74" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="6bbfddea-4aa3-4df5-841c-525dc76a3cc6" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="200">
                                 <style data-jscall-id="201"></style>
                               </div>
                               <div data-jscall-id="202">
-                                <script data-jscall-id="203" type="module">Bonito.init_session("86f16883-b704-4170-bcb3-fc960cad0f74", Bonito.fetch_binary('bonito/bin/fc36236baf893edf40aaae3251476792f4afd51b-8621408217296060202.bin'), "sub", false);
+                                <script data-jscall-id="203" type="module">Bonito.init_session("6bbfddea-4aa3-4df5-841c-525dc76a3cc6", Bonito.fetch_binary('bonito/bin/947e307ce5d4269855586e1ce0b0823fd0fafd42-16694316797653168690.bin'), "sub", false);
 </script>
                                 <span data-jscall-id="196">
                                   <div style="width: 100%; height: 100%" data-jscall-id="197">
@@ -1830,10 +1830,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="204"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container editor-collapsed" id="e59eb95c-3653-4315-9124-1ab5f1703fea" data-jscall-id="205">
-                  <div class=" style_5" style="" data-jscall-id="206" id="e59eb95c-3653-4315-9124-1ab5f1703fea-container" tabindex="0">
+                <div class="cell-editor-container editor-collapsed" id="26a72663-7eab-4dbc-aa7f-8a175a79b46b" data-jscall-id="205">
+                  <div class=" style_5" style="" data-jscall-id="206" id="26a72663-7eab-4dbc-aa7f-8a175a79b46b-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="207">
-                      <div class="hover-buttons" id="e59eb95c-3653-4315-9124-1ab5f1703fea-hover" data-jscall-id="208">
+                      <div class="hover-buttons" id="26a72663-7eab-4dbc-aa7f-8a175a79b46b-hover" data-jscall-id="208">
                         <button onclick="" class="small-button toggle-button" data-jscall-id="209">
                           <img class="codicon  style_2" style="" data-jscall-id="210" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1847,7 +1847,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="216" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor hide-vertical" id="e59eb95c-3653-4315-9124-1ab5f1703fea-card-content" data-jscall-id="217" style="position: relative;">
+                      <div class="cell-editor hide-vertical" id="26a72663-7eab-4dbc-aa7f-8a175a79b46b-card-content" data-jscall-id="217" style="position: relative;">
                         <div data-jscall-id="218">
                           <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="219"></div>
                         </div>
@@ -1861,12 +1861,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="225" tabindex="0">
                         <div class="cell-output cell-output-markdown " data-jscall-id="220">
                           <div data-jscall-id="231">
-                            <div class="bonito-fragment" id="da6d64f6-0be1-4eff-82a7-1473439efc07" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="b8c7f05a-e747-4dcb-bbad-21c3517aac99" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="232">
                                 <style data-jscall-id="233"></style>
                               </div>
                               <div data-jscall-id="234">
-                                <script data-jscall-id="235" type="module">Bonito.init_session("da6d64f6-0be1-4eff-82a7-1473439efc07", null, "sub", false);
+                                <script data-jscall-id="235" type="module">Bonito.init_session("b8c7f05a-e747-4dcb-bbad-21c3517aac99", null, "sub", false);
 </script>
                                 <span data-jscall-id="226">
                                   <div class="markdown-body" data-jscall-id="227">
@@ -1884,10 +1884,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="236"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container" id="9a08ec9c-32a6-42a9-98a8-68c2c2f22393" data-jscall-id="237">
-                  <div class=" style_5" style="" data-jscall-id="238" id="9a08ec9c-32a6-42a9-98a8-68c2c2f22393-container" tabindex="0">
+                <div class="cell-editor-container" id="dd7ef902-23be-4d76-b688-adb2be1202c4" data-jscall-id="237">
+                  <div class=" style_5" style="" data-jscall-id="238" id="dd7ef902-23be-4d76-b688-adb2be1202c4-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="239">
-                      <div class="hover-buttons" id="9a08ec9c-32a6-42a9-98a8-68c2c2f22393-hover" data-jscall-id="240">
+                      <div class="hover-buttons" id="dd7ef902-23be-4d76-b688-adb2be1202c4-hover" data-jscall-id="240">
                         <button onclick="" class="small-button toggle-button active" data-jscall-id="241">
                           <img class="codicon  style_2" style="" data-jscall-id="242" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1901,7 +1901,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="248" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor " id="9a08ec9c-32a6-42a9-98a8-68c2c2f22393-card-content" data-jscall-id="249" style="position: relative;">
+                      <div class="cell-editor " id="dd7ef902-23be-4d76-b688-adb2be1202c4-card-content" data-jscall-id="249" style="position: relative;">
                         <div data-jscall-id="250">
                           <div class="monaco-editor-div language-julia" data-jscall-id="251"></div>
                         </div>
@@ -1915,12 +1915,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="257" tabindex="0">
                         <div class="cell-output cell-output-julia " data-jscall-id="252">
                           <div data-jscall-id="261">
-                            <div class="bonito-fragment" id="fce2301f-6837-48d0-aac3-c9bfab549401" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="524cc11e-fa21-4e1e-b37d-0856ffa021d6" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="262">
                                 <style data-jscall-id="263"></style>
                               </div>
                               <div data-jscall-id="264">
-                                <script data-jscall-id="265" type="module">Bonito.init_session("fce2301f-6837-48d0-aac3-c9bfab549401", Bonito.fetch_binary('bonito/bin/d4389611728930b3e86cac99508521e980eebdc1-4438350012170589770.bin'), "sub", false);
+                                <script data-jscall-id="265" type="module">Bonito.init_session("524cc11e-fa21-4e1e-b37d-0856ffa021d6", Bonito.fetch_binary('bonito/bin/766b58abf4127e19d4a44219b5ac081f7e887f6d-8950347965276516429.bin'), "sub", false);
 </script>
                                 <span data-jscall-id="258">
                                   <div style="width: 100%; height: 100%" data-jscall-id="259">
@@ -1936,10 +1936,10 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                     <div class="cell-menu-proximity-area" data-jscall-id="266"></div>
                   </div>
                 </div>
-                <div class="cell-editor-container editor-collapsed" id="2185eb32-49b9-4ce7-a14b-9953777ee7cf" data-jscall-id="267">
-                  <div class=" style_5" style="" data-jscall-id="268" id="2185eb32-49b9-4ce7-a14b-9953777ee7cf-container" tabindex="0">
+                <div class="cell-editor-container editor-collapsed" id="c1a06ee4-0f7f-4200-b7cf-659d592411d3" data-jscall-id="267">
+                  <div class=" style_5" style="" data-jscall-id="268" id="c1a06ee4-0f7f-4200-b7cf-659d592411d3-container" tabindex="0">
                     <div class=" style_5" style="" data-jscall-id="269">
-                      <div class="hover-buttons" id="2185eb32-49b9-4ce7-a14b-9953777ee7cf-hover" data-jscall-id="270">
+                      <div class="hover-buttons" id="c1a06ee4-0f7f-4200-b7cf-659d592411d3-hover" data-jscall-id="270">
                         <button onclick="" class="small-button toggle-button" data-jscall-id="271">
                           <img class="codicon  style_2" style="" data-jscall-id="272" src="bonito/svg/code18139302498156533340.svg" />
                         </button>
@@ -1953,7 +1953,7 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                           <img class="codicon  style_3" style="" data-jscall-id="278" src="bonito/svg/close17235711529866555203.svg" />
                         </button>
                       </div>
-                      <div class="cell-editor hide-vertical" id="2185eb32-49b9-4ce7-a14b-9953777ee7cf-card-content" data-jscall-id="279" style="position: relative;">
+                      <div class="cell-editor hide-vertical" id="c1a06ee4-0f7f-4200-b7cf-659d592411d3-card-content" data-jscall-id="279" style="position: relative;">
                         <div data-jscall-id="280">
                           <div class="monaco-editor-div language-markdown hide-horizontal" data-jscall-id="281"></div>
                         </div>
@@ -1967,12 +1967,12 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
                       <div data-jscall-id="287" tabindex="0">
                         <div class="cell-output cell-output-markdown " data-jscall-id="282">
                           <div data-jscall-id="291">
-                            <div class="bonito-fragment" id="63bebc5c-6fe9-4562-b418-7f24efdd7515" data-jscall-id="subsession-application-dom">
+                            <div class="bonito-fragment" id="c2963b23-65c8-4c11-9348-a28b4f168665" data-jscall-id="subsession-application-dom">
                               <div data-jscall-id="292">
                                 <style data-jscall-id="293"></style>
                               </div>
                               <div data-jscall-id="294">
-                                <script data-jscall-id="295" type="module">Bonito.init_session("63bebc5c-6fe9-4562-b418-7f24efdd7515", null, "sub", false);
+                                <script data-jscall-id="295" type="module">Bonito.init_session("c2963b23-65c8-4c11-9348-a28b4f168665", null, "sub", false);
 </script>
                                 <span data-jscall-id="288">
                                   <div class="markdown-body" data-jscall-id="289">
@@ -1995,4 +1995,4 @@ body.bonito-export-mode .hover-buttons, body.bonito-export-mode .cell-menu-proxi
       </div>
     </div>
   </div>
-</div></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="raytracing_tutorial.html">« Ray Tracing Tutorial</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Wednesday 29 October 2025 23:43">Wednesday 29 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+</div></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="raytracing_tutorial.html">« Ray Tracing Tutorial</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Thursday 30 October 2025 11:34">Thursday 30 October 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
