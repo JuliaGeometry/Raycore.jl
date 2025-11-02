@@ -206,7 +206,8 @@ Uses manual traversal with compact triangle intersection for best performance.
     # Initialize traversal
     local to_visit_offset::Int32 = Int32(1)
     current_node_idx = Int32(1)
-    nodes_to_visit = _allocate(allocator, Int32, Val(64))
+    # Direct MVector construction for type stability (critical for GPU, especially OpenCL/SPIR-V)
+    nodes_to_visit = MVector{64, Int32}(undef)
     nodes = gpubvh.nodes
     triangles = gpubvh.triangles
     original_tris = gpubvh.original_triangles
@@ -252,11 +253,20 @@ Uses manual traversal with compact triangle intersection for best performance.
                 current_node_idx = nodes_to_visit[to_visit_offset]
             else
                 # Interior node - push children to stack
-                if dir_is_neg[current_node.split_axis] == Int32(2)
-                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node_idx + Int32(1))
+                # Explicitly unroll axis cases to avoid LLVM select chains in SPIR-V
+                local is_neg = if current_node.split_axis == Int32(1)
+                    dir_is_neg[1] == Int32(2)
+                elseif current_node.split_axis == Int32(2)
+                    dir_is_neg[2] == Int32(2)
+                else  # split_axis == 3
+                    dir_is_neg[3] == Int32(2)
+                end
+
+                if is_neg
+                    nodes_to_visit[to_visit_offset] = current_node_idx + Int32(1)
                     current_node_idx = current_node.offset % Int32
                 else
-                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node.offset % Int32)
+                    nodes_to_visit[to_visit_offset] = current_node.offset % Int32
                     current_node_idx += Int32(1)
                 end
                 to_visit_offset += Int32(1)
@@ -301,7 +311,8 @@ Stops at the first intersection found.
     # Initialize traversal
     local to_visit_offset::Int32 = Int32(1)
     current_node_idx = Int32(1)
-    nodes_to_visit = _allocate(allocator, Int32, Val(64))
+    # Direct MVector construction for type stability (critical for GPU, especially OpenCL/SPIR-V)
+    nodes_to_visit = MVector{64, Int32}(undef)
     nodes = gpubvh.nodes
     triangles = gpubvh.triangles
     original_tris = gpubvh.original_triangles
@@ -339,11 +350,20 @@ Stops at the first intersection found.
                 current_node_idx = nodes_to_visit[to_visit_offset]
             else
                 # Interior node - push children to stack
-                if dir_is_neg[current_node.split_axis] == Int32(2)
-                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node_idx + Int32(1))
+                # Explicitly unroll axis cases to avoid LLVM select chains in SPIR-V
+                local is_neg = if current_node.split_axis == Int32(1)
+                    dir_is_neg[1] == Int32(2)
+                elseif current_node.split_axis == Int32(2)
+                    dir_is_neg[2] == Int32(2)
+                else  # split_axis == 3
+                    dir_is_neg[3] == Int32(2)
+                end
+
+                if is_neg
+                    nodes_to_visit[to_visit_offset] = current_node_idx + Int32(1)
                     current_node_idx = current_node.offset % Int32
                 else
-                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node.offset % Int32)
+                    nodes_to_visit[to_visit_offset] = current_node.offset % Int32
                     current_node_idx += Int32(1)
                 end
                 to_visit_offset += Int32(1)

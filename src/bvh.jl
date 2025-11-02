@@ -242,7 +242,7 @@ end
 
 struct MemAllocator
 end
-@inline _allocate(::MemAllocator, T::Type, n::Val{N}) where {N} = zeros(MVector{N,T})
+@inline _allocate(::MemAllocator, T::Type, n::Val{N}) where {N} = MVector{N,T}(undef)
 Base.@propagate_inbounds function _setindex(arr::MVector{N, T}, idx::Integer, value::T) where {N, T}
     arr[idx] = value
     return arr
