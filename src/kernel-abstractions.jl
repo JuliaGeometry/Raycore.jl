@@ -14,18 +14,10 @@ function to_gpu(ArrayType, m::AbstractArray; preserve=[])
     return KA.argconvert(kernel, arr)
 end
 
-# Conversion constructor for e.g. GPU arrays
-# TODO, create tree on GPU? Not sure if that will gain much though...
-function to_gpu(ArrayType, bvh::Raycore.BVHAccel; preserve=[])
-    primitives = to_gpu(ArrayType, bvh.primitives; preserve=preserve)
+# GPU conversion for BVH
+function to_gpu(ArrayType, bvh::Raycore.BVH; preserve=[])
     nodes = to_gpu(ArrayType, bvh.nodes; preserve=preserve)
-    return Raycore.BVHAccel(primitives, bvh.max_node_primitives, nodes)
-end
-
-# GPU conversion for GPUBVH
-function to_gpu(ArrayType, gpubvh::Raycore.GPUBVH; preserve=[])
-    nodes = to_gpu(ArrayType, gpubvh.nodes; preserve=preserve)
-    triangles = to_gpu(ArrayType, gpubvh.triangles; preserve=preserve)
-    original_triangles = to_gpu(ArrayType, gpubvh.original_triangles; preserve=preserve)
-    return Raycore.GPUBVH(nodes, triangles, original_triangles, gpubvh.max_node_primitives)
+    triangles = to_gpu(ArrayType, bvh.triangles; preserve=preserve)
+    original_triangles = to_gpu(ArrayType, bvh.original_triangles; preserve=preserve)
+    return Raycore.BVH(nodes, triangles, original_triangles, bvh.max_node_primitives)
 end
