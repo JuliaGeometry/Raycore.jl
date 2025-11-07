@@ -22,7 +22,7 @@ begin
     back = tmesh(Rect3f(Vec3f(-5, -3, 0), Vec3f(10, 0.01, 10)), material_red)
     l = tmesh(Rect3f(Vec3f(-2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
     r = tmesh(Rect3f(Vec3f(2, -5, 0), Vec3f(0.01, 10, 10)), material_red)
-    bvh = Raycore.BVHAccel([s1, s2, s3, s4, ground, back, l, r]);
+    bvh = Raycore.BVH([s1, s2, s3, s4, ground, back, l, r]);
 end
 
 # using AMDGPU

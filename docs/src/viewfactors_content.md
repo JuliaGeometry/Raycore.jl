@@ -21,7 +21,7 @@ s4 = LowSphere(0.4f0, Point3f(0, 1.0, 0); ntriangles)
 cat = load(Makie.assetpath("cat.obj"))
 
 # Build BVH acceleration structure
-bvh = BVHAccel([s1, s2, s3, s4, cat])
+bvh = BVH([s1, s2, s3, s4, cat])
 world_mesh = GeometryBasics.Mesh(bvh)
 
 # Visualize the scene

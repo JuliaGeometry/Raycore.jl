@@ -29,7 +29,7 @@ using Raycore, GeometryBasics, LinearAlgebra
 sphere = Tesselation(Sphere(Point3f(0, 0, 2), 1.0f0), 20)
 
 # Build BVH acceleration structure
-bvh = BVHAccel([sphere])
+bvh = BVH([sphere])
 
 # Cast rays and find intersections
 ray = Ray(o=Point3f(0, 0, 0), d=Vec3f(0, 0, 1))

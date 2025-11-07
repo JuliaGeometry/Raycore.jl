@@ -28,7 +28,7 @@ sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
 # Build our BVH acceleration structure
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-bvh = Raycore.BVHAccel(scene_geometry)
+bvh = Raycore.BVH(scene_geometry)
 
 # Compute interpolated normal at hit point
 function compute_normal(triangle, bary_coords)
@@ -100,6 +100,4 @@ depth_kernel(bvh, tri, dist, bary, ray) = RGB(1.0f0 - min(dist / 10.0f0, 1.0f0))
 # Save the scene
 save("test-ray1.png", img_cl)
 using BenchmarkTools
-gbvh = GPUBVH(bvh)
-@btime ka_trace!(depth_kernel, Array, gbvh)
 @btime ka_trace!(depth_kernel, Array, bvh)

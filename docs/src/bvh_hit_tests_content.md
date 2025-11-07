@@ -17,7 +17,7 @@ function create_test_scene()
     sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)   # Middle
     sphere3 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)   # Closest
 
-    bvh = Raycore.BVHAccel([sphere1, sphere2, sphere3])
+    bvh = Raycore.BVH([sphere1, sphere2, sphere3])
     return bvh
 end
 
@@ -89,7 +89,7 @@ for i in 1:30
     push!(complex_spheres, Tesselation(Sphere(Point3f(x, y, z), r), 8))
 end
 
-complex_bvh = Raycore.BVHAccel(complex_spheres)
+complex_bvh = Raycore.BVH(complex_spheres)
 # Test rays to find cases where any_hit differs from closest_hit
 test_rays = map(rand(Point2f, 200)) do p  
     p = (p .* 14f0) .- 8f0

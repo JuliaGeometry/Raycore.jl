@@ -31,7 +31,7 @@ using Raycore, GeometryBasics, GLMakie
 # Create geometry
 sphere1 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
 sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)
-bvh = Raycore.BVHAccel([sphere1, sphere2])
+bvh = Raycore.BVH([sphere1, sphere2])
 
 # Create rays
 rays = [
@@ -183,10 +183,10 @@ end
 """
 Helper function to draw BVH geometry
 """
-function draw_bvh!(plot, bvh::Raycore.BVHAccel, colors, alpha)
+function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
     # Group primitives by their material_idx
     primitive_groups = Dict{UInt32, Vector{Raycore.Triangle}}()
-    for prim in bvh.primitives
+    for prim in bvh.original_triangles
         mat_idx = prim.material_idx
         if !haskey(primitive_groups, mat_idx)
             primitive_groups[mat_idx] = Raycore.Triangle[]

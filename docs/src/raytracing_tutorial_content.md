@@ -50,7 +50,7 @@ sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
 # Build our BVH acceleration structure
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-bvh = Raycore.BVHAccel(scene_geometry)
+bvh = Raycore.BVH(scene_geometry)
 ```
 **Scene created!** Cat model, room geometry, decorative spheres, and BVH for fast ray traversal.
 
@@ -376,7 +376,7 @@ We built a complete ray tracer with:
 
 **Key Raycore Functions:**
 
-  * `Raycore.BVHAccel(meshes)` - Build acceleration structure
+  * `Raycore.BVH(meshes)` - Build acceleration structure
   * `Raycore.Ray(o=origin, d=direction)` - Create ray
   * `Raycore.closest_hit(bvh, ray)` - Find nearest intersection
   * `Raycore.any_hit(bvh, ray)` - Test for any intersection
@@ -390,4 +390,3 @@ We built a complete ray tracer with:
 This shows how a well-designed function can handle multiple use cases cleanly!
 
 Happy ray tracing!
-
