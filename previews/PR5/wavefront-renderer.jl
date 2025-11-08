@@ -11,15 +11,6 @@ using Colors
 using KernelAbstractions
 using KernelAbstractions: @kernel, @index, @Const
 import KernelAbstractions as KA
-using StructArrays
-
-# Helper function to convert StructArray to GPU-compatible NamedTuple
-function Raycore.to_gpu(Arr, data::StructArrays.StructVector; preserve=[])
-    fields = map(propertynames(data)) do pname
-        pname => Raycore.to_gpu(Arr, getproperty(data, pname); preserve=preserve)
-    end
-    return (; fields...)
-end
 
 # ============================================================================
 # Work Queue Structures
