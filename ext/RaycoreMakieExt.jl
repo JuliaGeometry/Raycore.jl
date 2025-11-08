@@ -228,4 +228,24 @@ function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
     end
 end
 
+Makie.plottype(::Raycore.BVH) = Makie.Mesh
+
+function Makie.convert_arguments(::Type{Makie.Mesh}, bvh::Raycore.BVH)
+    # Convert BVH to a Mesh for plotting
+    vertices = Point3f[]
+    faces = GeometryBasics.TriangleFace{Int}[]
+    colors = Float32[]
+    normals = Vec3f[]
+    for (i, prim) in enumerate(bvh.original_triangles)
+        start_idx = length(vertices)
+        for (v, n) in zip(prim.vertices, prim.normals)
+            push!(vertices, v)
+            push!(colors, prim.material_idx)
+            push!(normals, Vec3f(n))
+        end
+        push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
+    end
+    return (GeometryBasics.Mesh(vertices, faces; normal=normals, color=colors), )
+end
+
 end # module
