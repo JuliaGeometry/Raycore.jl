@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>GPU Ray Tracing with Raycore · Raycore</title><meta name="title" content="GPU Ray Tracing with Raycore · Raycore"/><meta property="og:title" content="GPU Ray Tracing with Raycore · Raycore"/><meta property="twitter:title" content="GPU Ray Tracing with Raycore · Raycore"/><meta name="description" content="Documentation for Raycore."/><meta property="og:description" content="Documentation for Raycore."/><meta property="twitter:description" content="Documentation for Raycore."/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../index.html">Raycore</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../index.html">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="../../bvh_hit_tests.html">BVH Hit Tests</a></li><li><a class="tocitem" href="../../raytracing_tutorial.html">Ray Tracing Tutorial</a></li><li><a class="tocitem" href="../../gpu_raytracing.html">GPU Ray Tracing Tutorial</a></li><li><a class="tocitem" href="../../viewfactors.html">View Factors and More</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href="gpu_raytracing_tutorial-2025-11-08_140502.html">GPU Ray Tracing with Raycore</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="gpu_raytracing_tutorial-2025-11-08_140502.html">GPU Ray Tracing with Raycore</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl/blob/master/docs/src/.gpu_raytracing_tutorial-bbook/.versions/gpu_raytracing_tutorial-2025-11-08_140502.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="GPU-Ray-Tracing-with-Raycore"><a class="docs-heading-anchor" href="#GPU-Ray-Tracing-with-Raycore">GPU Ray Tracing with Raycore</a><a id="GPU-Ray-Tracing-with-Raycore-1"></a><a class="docs-heading-anchor-permalink" href="#GPU-Ray-Tracing-with-Raycore" title="Permalink"></a></h1><p>In this tutorial, we&#39;ll take the ray tracer from the previous tutorial and port it to the GPU using <strong>KernelAbstractions.jl</strong> and a GPU backend of choice (CUDA.jl, AMDGPU.jl, OpenCL.jl, OneApi.jl, or Metal.jl). We&#39;ll explore three different kernel implementations, each with different optimization strategies, and benchmark their performance against each other.</p><p>By the end, you&#39;ll understand how to write efficient GPU kernels for ray tracing and the tradeoffs between different approaches!</p><h2 id="Setup"><a class="docs-heading-anchor" href="#Setup">Setup</a><a id="Setup-1"></a><a class="docs-heading-anchor-permalink" href="#Setup" title="Permalink"></a></h2><pre><code class="language-julia hljs">using Raycore, GeometryBasics, LinearAlgebra
+using Colors, ImageShow
+using WGLMakie
+using KernelAbstractions
+using BenchmarkTools</code></pre><pre><code class="language-julia hljs">#using CUDA; GArray = CuArray; # For NVIDIA GPUS
+using AMDGPU; GArray = ROCArray; # for AMD GPUs
+#using Metal; GArray = MtlArray; # for Apple hardware
+#using oneAPI; GArray = oneArray; # for intel
+# OpenCL with the pocl backend should work for most CPUs and some GPUs, but might not be as fast.
+# using pocl_jll, OpenCL; GArray = CLArray;
+#GArray = CLArray # For the tutorial to run on CI we need to use OpenCL</code></pre><p><strong>Ready for GPU!</strong> We have:</p><ul><li><code>Raycore</code> for fast ray-triangle intersections</li><li><code>KernelAbstractions</code> for portable GPU kernels</li><li><code>AMDGPU</code> for AMD GPU support</li><li><code>BenchmarkTools</code> for performance comparison</li></ul><h2 id="Part-1:-Scene-Setup-(Same-as-CPU-Tutorial)"><a class="docs-heading-anchor" href="#Part-1:-Scene-Setup-(Same-as-CPU-Tutorial)">Part 1: Scene Setup (Same as CPU Tutorial)</a><a id="Part-1:-Scene-Setup-(Same-as-CPU-Tutorial)-1"></a><a class="docs-heading-anchor-permalink" href="#Part-1:-Scene-Setup-(Same-as-CPU-Tutorial)" title="Permalink"></a></h2><p>Let&#39;s use the exact same scene as the CPU tutorial - the Makie cat with room geometry:</p><pre><code class="language-julia hljs"># Load and prepare the cat model
+include(&quot;raytracing-core.jl&quot;)
+bvh, ctx = example_scene()
+# We have a Makie extension for plotting the scene graph
+f, ax, pl = plot(bvh; axis=(; show_axis=false)) 
+f</code></pre><pre><code class="language-julia hljs">cam = cameracontrols(ax.scene)
+cam.eyeposition[] = [0, 1.0, -5]
+cam.lookat[] = [0, 0, 2]
+cam.upvector[] = [0.0, 1, 0.0]
+cam.fov[] = 45.0</code></pre><h2 id="Part-5:-GPU-Kernel-Version-1-Basic-Naive-Approach"><a class="docs-heading-anchor" href="#Part-5:-GPU-Kernel-Version-1-Basic-Naive-Approach">Part 5: GPU Kernel Version 1 - Basic Naive Approach</a><a id="Part-5:-GPU-Kernel-Version-1-Basic-Naive-Approach-1"></a><a class="docs-heading-anchor-permalink" href="#Part-5:-GPU-Kernel-Version-1-Basic-Naive-Approach" title="Permalink"></a></h2><p>The simplest GPU kernel - one thread per pixel:</p><pre><code class="language-julia hljs">import KernelAbstractions as KA
+
+# Basic kernel: one thread per pixel, straightforward implementation
+@kernel function raytrace_kernel_v1!(
+    img, @Const(bvh), @Const(ctx),
+    camera_pos, focal_length, aspect, sky_color, ::Val{NSamples}
+) where {NSamples}
+    # Get pixel coordinates
+    idx = @index(Global, Linear)
+    height, width = size(img)
+    # Convert linear index to 2D coordinates
+    x = ((idx - 1) % width) + 1
+    y = ((idx - 1) ÷ width) + 1
+    if x &lt;= width &amp;&amp; y &lt;= height
+        # Generate camera ray and do a calculate a simple light model
+        color = Vec3f(0)
+        for i in 1:NSamples 
+            color = color .+ sample_light(bvh, ctx, width, height, camera_pos, focal_length, aspect, x, y, sky_color)
+        end
+        @inbounds img[y, x] = to_rgb(color ./ NSamples)
+    end
+end</code></pre><p>The <code>trace_gpu</code> function is a universal launcher that works with any of our kernels. It handles the backend-specific setup automatically using <strong>KernelAbstractions.jl</strong>:</p><pre><code class="language-julia hljs">function trace_gpu(kernel, img, bvh, ctx;
+        camera_pos=Point3f(0, -0.9, -2.5), fov=45.0f0,
+        sky_color=RGB{Float32}(0.5f0,0.7f0,1.0f0),
+        samples_per_pixel=4,
+        ndrange=length(img), tilesize=nothing
+    )
+    height, width = size(img)
+    aspect = Float32(width / height)
+    focal_length = 1.0f0 / tan(deg2rad(fov / 2))
+
+    # KernelAbstractions automatically detects the backend (CPU/GPU) from the array type
+    backend = KA.get_backend(img)
+
+    # Create the kernel with or without tilesize (for workgroup configuration)
+    kernel! = isnothing(tilesize) ? kernel(backend) : kernel(backend, tilesize)
+
+    kernel!(img, bvh, ctx, camera_pos, focal_length, aspect, sky_color, Val(samples_per_pixel), ndrange=ndrange)
+
+    # Ensure GPU computation completes before returning
+    KA.synchronize(backend)
+    return img
+end</code></pre><p><strong>Key KernelAbstractions.jl concepts:</strong></p><ul><li><strong>Backend detection</strong>: <code>get_backend(array)</code> automatically determines if we&#39;re using CPU, AMD GPU, NVIDIA GPU, etc.</li><li><strong>Kernel compilation</strong>: <code>kernel(backend)</code> compiles the kernel for the specific backend</li><li><strong>Workgroup configuration</strong>: Optional <code>tilesize</code> parameter controls thread organization</li><li><strong>Thread indexing</strong>: Inside kernels, use <code>@index(Global, Linear)</code> or <code>@index(Global, Cartesian)</code> to get thread IDs</li><li><strong>Synchronization</strong>: <code>synchronize(backend)</code> ensures all GPU work completes before continuing</li></ul><p>Let&#39;s test kernel v1 on the CPU (yes, they always work with normal Arrays):</p><pre><code class="language-julia hljs">img = fill(RGBf(0, 0, 0), 400, 720)
+bench_kernel_cpu_v1 = @benchmark trace_gpu(raytrace_kernel_v1!, img, bvh, ctx)
+img</code></pre><p>To run things on the GPU, we simply convert the arrays to the GPU backend array type. <code>to_gpu</code> is a helper in Raycore to convert nested structs correctly for the kernel. It&#39;s not doing anything special, besides that struct of arrays need to be converted to device arrays and for pure arrays <code>GPUArray(array)</code> is enough.</p><pre><code class="language-julia hljs">using Raycore: to_gpu
+img = fill(RGBf(0, 0, 0), 400, 720)
+img_gpu = GArray(img);
+bvh_gpu = to_gpu(GArray, bvh);
+ctx_gpu = to_gpu(GArray, ctx);
+bench_kernel_v1 = @benchmark trace_gpu(raytrace_kernel_v1!, img_gpu, bvh_gpu, ctx_gpu)
+# bring back to GPU to display image
+Array(img_gpu)</code></pre><p><strong>First GPU render!</strong> This is the simplest approach - one thread per pixel with no optimization.</p><h2 id="Part-6:-Optimized-Kernel-Loop-Unrolling"><a class="docs-heading-anchor" href="#Part-6:-Optimized-Kernel-Loop-Unrolling">Part 6: Optimized Kernel - Loop Unrolling</a><a id="Part-6:-Optimized-Kernel-Loop-Unrolling-1"></a><a class="docs-heading-anchor-permalink" href="#Part-6:-Optimized-Kernel-Loop-Unrolling" title="Permalink"></a></h2><p>Loop overhead is significant on GPUs! Manually unrolling the sampling loop eliminates this overhead:</p><pre><code class="language-julia hljs"># Optimized kernel: Unrolled sampling loop
+@kernel function raytrace_kernel_unrolled!(
+        img, @Const(bvh), @Const(ctx),
+        camera_pos, focal_length, aspect, sky_color, ::Val{NSamples}
+    ) where {NSamples}
+    idx = @index(Global, Linear)
+    height, width = size(img)
+    x = ((idx - 1) % width) + 1
+    y = ((idx - 1) ÷ width) + 1
+    if x &lt;= width &amp;&amp; y &lt;= height
+        # ntuple with compile-time constant for unrolling
+        samples = ntuple(NSamples) do i 
+            sample_light(bvh, ctx, width, height, 
+                camera_pos, focal_length, aspect, 
+                x, y, sky_color
+            )
+        end
+        color = mean(samples)
+        @inbounds img[y, x] = to_rgb(color)
+    end
+end
+
+bench_kernel_unrolled = @benchmark trace_gpu(raytrace_kernel_unrolled!, img_gpu, bvh_gpu, ctx_gpu)
+Array(img_gpu)</code></pre><ul><li>This eliminates branch overhead from loop conditions</li><li>Reduces register pressure</li><li>Better instruction-level parallelism</li><li><strong>1.39x faster than baseline!</strong></li></ul><h2 id="Part-7:-Tiled-Kernel-with-Optimized-Tile-Size"><a class="docs-heading-anchor" href="#Part-7:-Tiled-Kernel-with-Optimized-Tile-Size">Part 7: Tiled Kernel with Optimized Tile Size</a><a id="Part-7:-Tiled-Kernel-with-Optimized-Tile-Size-1"></a><a class="docs-heading-anchor-permalink" href="#Part-7:-Tiled-Kernel-with-Optimized-Tile-Size" title="Permalink"></a></h2><p>The tile size dramatically affects performance. Let&#39;s use the optimal size discovered through benchmarking:</p><pre><code class="language-julia hljs"># Tiled kernel with optimized tile size
+@kernel function raytrace_kernel_tiled!(
+    img, bvh, ctx,
+    camera_pos, focal_length, aspect, sky_color, ::Val{NSamples}
+) where {NSamples}
+    # Get tile and local coordinates
+    _tile_xy = @index(Group, Cartesian)
+    _local_xy = @index(Local, Cartesian)
+    _groupsize = @groupsize()
+
+    # Direct tuple unpacking is faster than Vec construction
+    tile_x, tile_y = Tuple(_tile_xy)
+    local_x, local_y = Tuple(_local_xy)
+    group_w, group_h = _groupsize
+
+    # Compute global pixel coordinates
+    x = (tile_x - 1) * group_w + local_x
+    y = (tile_y - 1) * group_h + local_y
+
+    height, width = size(img)
+    if x &lt;= width &amp;&amp; y &lt;= height
+        samples = ntuple(NSamples) do i 
+            sample_light(bvh, ctx, width, height, 
+                camera_pos, focal_length, aspect, 
+                x, y, sky_color
+            )
+        end
+        color = mean(samples)
+        @inbounds img[y, x] = to_rgb(color)
+    end
+end
+bench_kernel_tiled_32_16 = @benchmark trace_gpu(
+    $raytrace_kernel_tiled!, $img_gpu, $bvh_gpu, $ctx_gpu;
+    ndrange=size($img_gpu), tilesize=(32,16))
+
+# Benchmark two more important tile sizes for comparison
+bench_kernel_tiled_32_32 = @benchmark trace_gpu(
+    $raytrace_kernel_tiled!, $img_gpu, $bvh_gpu, $ctx_gpu;
+    ndrange=size($img_gpu), tilesize=(32,32))
+
+bench_kernel_tiled_8_8 = @benchmark trace_gpu(
+    $raytrace_kernel_tiled!, $img_gpu, $bvh_gpu, $ctx_gpu;
+    ndrange=size($img_gpu), tilesize=(8,8))
+
+# Use optimal tile size: (32, 16) - discovered through benchmarking!
+Array(img_gpu)</code></pre><p><strong>Tile size matters!</strong> With <code>(32, 16)</code> tiles, this kernel is <strong>1.22x faster</strong> than baseline. With poor tile sizes like <code>(8, 8)</code>, it can be <strong>2.5x slower</strong>!</p><h2 id="Part-8:-Comprehensive-Performance-Benchmarks"><a class="docs-heading-anchor" href="#Part-8:-Comprehensive-Performance-Benchmarks">Part 8: Comprehensive Performance Benchmarks</a><a id="Part-8:-Comprehensive-Performance-Benchmarks-1"></a><a class="docs-heading-anchor-permalink" href="#Part-8:-Comprehensive-Performance-Benchmarks" title="Permalink"></a></h2><p>Now let&#39;s compare all kernels with the most important tile sizes:</p><pre><code class="language-julia hljs">benchmarks = [
+    bench_kernel_v1, bench_kernel_cpu_v1, bench_kernel_unrolled,
+    bench_kernel_tiled_8_8, bench_kernel_tiled_32_16, bench_kernel_tiled_32_32
+]
+labels = [
+    &quot;Baseline&quot;, &quot;Baseline (cpu)&quot;, &quot;Unrolled&quot;,
+    &quot;Tiled\n(8×8)&quot;, &quot;Tiled\n(32×16)&quot;, &quot;Tiled\n(32×32)&quot;
+]
+length(benchmarks)</code></pre><pre><code class="language-julia hljs"># Create comprehensive benchmark visualization using helper function
+benchmarks = [
+    bench_kernel_v1, bench_kernel_cpu_v1, bench_kernel_unrolled,
+    bench_kernel_tiled_8_8, bench_kernel_tiled_32_16, bench_kernel_tiled_32_32
+]
+labels = [
+    &quot;Baseline&quot;, &quot;Baseline (cpu)&quot;, &quot;Unrolled&quot;,
+    &quot;Tiled\n(8×8)&quot;, &quot;Tiled\n(32×16)&quot;, &quot;Tiled\n(32×32)&quot;
+]
+
+fig, times, speedups = plot_kernel_benchmarks(benchmarks, labels)
+save(&quot;gpu-benchmarks.png&quot;, fig)
+# We use the Fig from my local run, since on CI this won&#39;t show the differences
+DOM.img(src=Asset(&quot;gpu-benchmarks.png&quot;), width=&quot;710px&quot;)
+fig</code></pre><h3 id="Next-Steps"><a class="docs-heading-anchor" href="#Next-Steps">Next Steps</a><a id="Next-Steps-1"></a><a class="docs-heading-anchor-permalink" href="#Next-Steps" title="Permalink"></a></h3><ul><li>Implement <strong>wavefront path tracing</strong> to reduce thread divergence</li><li>Add <strong>adaptive sampling</strong> (more samples only where needed)</li><li>Explore <strong>shared memory</strong> optimizations for BVH traversal</li><li>Implement <strong>streaming multisampling</strong> across frames</li><li>Try <strong>persistent threads</strong> with dynamic work distribution</li></ul><p>Happy GPU ray tracing!</p></article><nav class="docs-footer"><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Saturday 8 November 2025 22:40">Saturday 8 November 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
