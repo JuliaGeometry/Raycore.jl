@@ -241,7 +241,7 @@ renderer_gpu = to_gpu(GArray, renderer_cpu)
 bench_wavefront_gpu = @benchmark render!($renderer_gpu)
 
 renderer_gpu = to_gpu(GArray, WavefrontRenderer(img, bvh, ctx; samples_per_pixel=16))
-bench_wavefront_gpu = render!(renderer_gpu)
+render!(renderer_gpu)
 # Display result
 Array(renderer_gpu.framebuffer)
 ```
