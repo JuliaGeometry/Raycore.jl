@@ -13,14 +13,16 @@ using WGLMakie
 using KernelAbstractions
 using BenchmarkTools
 ```
+To run things on the GPU with KernelAbstractions, you need to chose the correct package for your GPU and set the array type we use from there on.
+
 ```julia (editor=true, logging=false, output=true)
 #using CUDA; GArray = CuArray; # For NVIDIA GPUS
-using AMDGPU; GArray = ROCArray; # for AMD GPUs
+#using AMDGPU; GArray = ROCArray; # for AMD GPUs
 #using Metal; GArray = MtlArray; # for Apple hardware
 #using oneAPI; GArray = oneArray; # for intel
 # OpenCL with the pocl backend should work for most CPUs and some GPUs, but might not be as fast.
 # using pocl_jll, OpenCL; GArray = CLArray;
-#GArray = CLArray # For the tutorial to run on CI we need to use OpenCL
+GArray = Array # For the tutorial to run on CI we just use the CPU
 ```
 **Ready for GPU!** We have:
 
@@ -38,7 +40,7 @@ Let's use the exact same scene as the CPU tutorial - the Makie cat with room geo
 include("raytracing-core.jl")
 bvh, ctx = example_scene()
 # We have a Makie extension for plotting the scene graph
-f, ax, pl = plot(bvh; axis=(; show_axis=false)) 
+f, ax, pl = plot(bvh; axis=(; show_axis=false))
 f
 ```
 ```julia (editor=true, logging=false, output=true)
@@ -69,7 +71,7 @@ import KernelAbstractions as KA
     if x <= width && y <= height
         # Generate camera ray and do a calculate a simple light model
         color = Vec3f(0)
-        for i in 1:NSamples 
+        for i in 1:NSamples
             color = color .+ sample_light(bvh, ctx, width, height, camera_pos, focal_length, aspect, x, y, sky_color)
         end
         @inbounds img[y, x] = to_rgb(color ./ NSamples)
@@ -147,9 +149,9 @@ Loop overhead is significant on GPUs! Manually unrolling the sampling loop elimi
     y = ((idx - 1) ÷ width) + 1
     if x <= width && y <= height
         # ntuple with compile-time constant for unrolling
-        samples = ntuple(NSamples) do i 
-            sample_light(bvh, ctx, width, height, 
-                camera_pos, focal_length, aspect, 
+        samples = ntuple(NSamples) do i
+            sample_light(bvh, ctx, width, height,
+                camera_pos, focal_length, aspect,
                 x, y, sky_color
             )
         end
@@ -192,9 +194,9 @@ The tile size dramatically affects performance. Let's use the optimal size disco
 
     height, width = size(img)
     if x <= width && y <= height
-        samples = ntuple(NSamples) do i 
-            sample_light(bvh, ctx, width, height, 
-                camera_pos, focal_length, aspect, 
+        samples = ntuple(NSamples) do i
+            sample_light(bvh, ctx, width, height,
+                camera_pos, focal_length, aspect,
                 x, y, sky_color
             )
         end
@@ -220,44 +222,61 @@ Array(img_gpu)
 ```
 **Tile size matters!** With `(32, 16)` tiles, this kernel is **1.22x faster** than baseline. With poor tile sizes like `(8, 8)`, it can be **2.5x slower**!
 
-## Part 8: Comprehensive Performance Benchmarks
+## Part 8: Wavefront Path Tracing
 
-Now let's compare all kernels with the most important tile sizes:
+The wavefront approach reorganizes ray tracing to minimize thread divergence by grouping similar work together. Instead of each thread handling an entire pixel's path, we separate the work into stages. Discussing the excat implementation is outside the scope of this tutorial, so we only include the finished renderer here:
 
 ```julia (editor=true, logging=false, output=true)
-benchmarks = [
-    bench_kernel_v1, bench_kernel_cpu_v1, bench_kernel_unrolled,
-    bench_kernel_tiled_8_8, bench_kernel_tiled_32_16, bench_kernel_tiled_32_32
-]
-labels = [
-    "Baseline", "Baseline (cpu)", "Unrolled",
-    "Tiled\n(8×8)", "Tiled\n(32×16)", "Tiled\n(32×32)"
-]
-length(benchmarks)
+include("wavefront-renderer.jl")
 ```
+Let's benchmark the wavefront renderer on both CPU and GPU:
+
 ```julia (editor=true, logging=false, output=true)
-# Create comprehensive benchmark visualization using helper function
+# CPU benchmark
+renderer_cpu = WavefrontRenderer(img, bvh, ctx)
+bench_wavefront_cpu = @benchmark render!($renderer_cpu)
+
+# GPU benchmark
+renderer_gpu = to_gpu(GArray, renderer_cpu)
+bench_wavefront_gpu = @benchmark render!($renderer_gpu)
+
+renderer_gpu = to_gpu(GArray, WavefrontRenderer(img, bvh, ctx; samples_per_pixel=16))
+bench_wavefront_gpu = render!(renderer_gpu)
+# Display result
+Array(renderer_gpu.framebuffer)
+```
+**Wavefront benefits:**
+
+  * Reduces thread divergence by grouping similar work
+  * Better memory access patterns
+  * Scales well with scene complexity
+  * Enables advanced features like path tracing
+
+## Part 9: Comprehensive Performance Benchmarks
+
+Now let's compare all kernels including the wavefront renderer:
+
+```julia (editor=true, logging=false, output=true)
 benchmarks = [
     bench_kernel_v1, bench_kernel_cpu_v1, bench_kernel_unrolled,
-    bench_kernel_tiled_8_8, bench_kernel_tiled_32_16, bench_kernel_tiled_32_32
+    bench_kernel_tiled_8_8, bench_kernel_tiled_32_16, bench_kernel_tiled_32_32,
+    bench_wavefront_cpu, bench_wavefront_gpu
 ]
 labels = [
-    "Baseline", "Baseline (cpu)", "Unrolled",
-    "Tiled\n(8×8)", "Tiled\n(32×16)", "Tiled\n(32×32)"
+    "Baseline\n(gpu)", "Baseline\n(cpu)", "Unrolled",
+    "Tiled\n(8×8)", "Tiled\n(32×16)", "Tiled\n(32×32)",
+    "Wavefront\n(cpu)", "Wavefront\n(gpu)"
 ]
 
 fig, times, speedups = plot_kernel_benchmarks(benchmarks, labels)
-# save("gpu-benchmarks.png", fig)
+# save(data"gpu-benchmarks.png", fig; backend=Main.GLMakie)
 # We use the Fig from my local run, since on CI this won't show the differences
-DOM.img(src=Asset("gpu-benchmarks.png"), width="710px")
+DOM.img(src=Asset(data"gpu-benchmarks.png"), width="700px")
 ```
 ### Next Steps
 
-  * Implement **wavefront path tracing** to reduce thread divergence
   * Add **adaptive sampling** (more samples only where needed)
   * Explore **shared memory** optimizations for BVH traversal
   * Implement **streaming multisampling** across frames
   * Try **persistent threads** with dynamic work distribution
-
-Happy GPU ray tracing!
 
