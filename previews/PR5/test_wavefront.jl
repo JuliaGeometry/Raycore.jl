@@ -25,6 +25,8 @@ begin
     )
     Array(@time render!(renderer))
 end
+using FileIO
+save("wavefront.png", map(col -> mapc(c -> clamp(c, 0f0, 1f0), col), renderer.framebuffer))
 
 using AMDGPU
 amd_renderer = to_gpu(ROCArray, renderer);

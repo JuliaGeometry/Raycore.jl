@@ -262,6 +262,55 @@ function trace_gpu_v1(kernel, img, bvh, ctx;
     KA.synchronize(backend)
     return img
 end
+# Helper function to plot kernel benchmark comparisons
+function plot_kernel_benchmarks(benchmarks, labels; title="GPU Kernel Performance")
+    # Extract median times in milliseconds
+    times = [median(b.times) / 1e6 for b in benchmarks]
+
+    # Calculate speedups relative to baseline
+    speedups = times[1] ./ times
+
+    # Create performance visualization
+    fig = Figure()
+
+    # Plot 1: Execution time comparison
+    ax1 = Axis(fig[1, 1],
+        title=title,
+        xlabel="Kernel Configuration",
+        ylabel="Time (ms)",
+        xticks=(1:length(labels), labels))
+
+    barplot!(ax1, 1:length(times), times)
+
+    # Add value labels
+    for (i, t) in enumerate(times)
+        text!(ax1, i, t, text="$(round(t, digits=1))ms",
+              align=(:center, :bottom), fontsize=12)
+    end
+
+    # Plot 2: Speedup comparison
+    ax2 = Axis(fig[1, 2],
+        title="Speedup Relative to Baseline",
+        xlabel="Kernel Configuration",
+        ylabel="Speedup Factor",
+        xticks=(1:length(labels), labels))
+
+    barplot!(ax2, 1:length(speedups), speedups)
+    hlines!(ax2, [1.0], color=:gray, linestyle=:dash, linewidth=1)
+
+    # Add value labels
+    for (i, s) in enumerate(speedups)
+        text!(ax2, i, s, text="$(round(s, digits=2))x",
+              align=(:center, :bottom), fontsize=12)
+    end
+
+    # Highlight the winner
+    scatter!(ax2, [argmax(speedups)], [maximum(speedups)],
+             color=:red, markersize=25, marker=:star5)
+
+    return fig, times, speedups
+end
+
 # using Raycore: to_gpu
 # bvh, ctx = example_scene()
 # img = fill(RGBf(0, 0, 0), 512, 512)
