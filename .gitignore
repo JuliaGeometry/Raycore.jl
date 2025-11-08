@@ -6,3 +6,4 @@ docs/build
 
 Manifest*.toml
 .*-bbook/
+!.gpu_raytracing_tutorial-bbook
