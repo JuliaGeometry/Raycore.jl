@@ -18,6 +18,7 @@ makedocs(;
         "Examples" => [
             "BVH Hit Tests" => "bvh_hit_tests.md",
             "Ray Tracing Tutorial" => "raytracing_tutorial.md",
+            "GPU Ray Tracing Tutorial" => "gpu_raytracing.md",
             "View Factors and More" => "viewfactors.md",
         ],
     ],

@@ -390,3 +390,4 @@ We built a complete ray tracer with:
 This shows how a well-designed function can handle multiple use cases cleanly!
 
 Happy ray tracing!
+

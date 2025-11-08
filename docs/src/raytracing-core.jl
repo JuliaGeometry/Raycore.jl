@@ -267,48 +267,38 @@ function plot_kernel_benchmarks(benchmarks, labels; title="GPU Kernel Performanc
     # Extract median times in milliseconds
     times = [median(b.times) / 1e6 for b in benchmarks]
 
-    # Calculate speedups relative to baseline
-    speedups = times[1] ./ times
+    # Sort by performance (fastest first)
+    sorted_indices = sortperm(times)
+    sorted_times = times[sorted_indices]
+    sorted_labels = labels[sorted_indices]
+
+    # Generate colors for bars based on number of benchmarks
+    n = length(benchmarks)
+    colors = Makie.resample_cmap(:viridis, n)
 
     # Create performance visualization
-    fig = Figure()
+    fig = Figure(size=(700, 400))
 
-    # Plot 1: Execution time comparison
-    ax1 = Axis(fig[1, 1],
+    # Single plot: Execution time comparison (sorted by performance)
+    ax = Axis(fig[1, 1],
         title=title,
         xlabel="Kernel Configuration",
         ylabel="Time (ms)",
-        xticks=(1:length(labels), labels))
+        xticks=(1:length(sorted_labels), sorted_labels))
 
-    barplot!(ax1, 1:length(times), times)
+    barplot!(ax, 1:length(sorted_times), sorted_times, color=colors[sorted_indices])
 
     # Add value labels
-    for (i, t) in enumerate(times)
-        text!(ax1, i, t, text="$(round(t, digits=1))ms",
+    for (i, t) in enumerate(sorted_times)
+        text!(ax, i, t, text="$(round(t, digits=1))ms",
               align=(:center, :bottom), fontsize=12)
     end
 
-    # Plot 2: Speedup comparison
-    ax2 = Axis(fig[1, 2],
-        title="Speedup Relative to Baseline",
-        xlabel="Kernel Configuration",
-        ylabel="Speedup Factor",
-        xticks=(1:length(labels), labels))
+    # Highlight the winner (fastest)
+    scatter!(ax, [1], [sorted_times[1]],
+             color=:gold, markersize=30, marker=:star5)
 
-    barplot!(ax2, 1:length(speedups), speedups)
-    hlines!(ax2, [1.0], color=:gray, linestyle=:dash, linewidth=1)
-
-    # Add value labels
-    for (i, s) in enumerate(speedups)
-        text!(ax2, i, s, text="$(round(s, digits=2))x",
-              align=(:center, :bottom), fontsize=12)
-    end
-
-    # Highlight the winner
-    scatter!(ax2, [argmax(speedups)], [maximum(speedups)],
-             color=:red, markersize=25, marker=:star5)
-
-    return fig, times, speedups
+    return fig, times, sorted_indices
 end
 
 # using Raycore: to_gpu
