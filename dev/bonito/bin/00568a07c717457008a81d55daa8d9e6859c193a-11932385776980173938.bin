@@ -1,4 +1,4 @@
-’Ç,j“Ù$7c4c8176-9590-43fb-84fb-cc1b26368b32€£sub‘ÈPk’Ç,j“Ù$7c4c8176-9590-43fb-84fb-cc1b26368b32€£sub‚§payloadÈf“€ÚÅ(function() {
+’Ç,j“Ù$ac3d431c-6417-4631-b5c1-37f00934b54f€£sub‘ÈPk’Ç,j“Ù$ac3d431c-6417-4631-b5c1-37f00934b54f€£sub‚§payloadÈf“€ÚÅ(function() {
     const container = document.querySelector('[data-jscall-id="379"]');
     let sort_directions = {};
     const table = container.querySelector('.comparison-table');
@@ -134,4 +134,4 @@
         });
     }
 })();
-Ù</home/runner/.julia/packages/Bonito/7NFZv/src/widgets.jl:538¨msg_type¡2
+Ù</home/runner/.julia/packages/Bonito/IGFf4/src/widgets.jl:540¨msg_type¡2
