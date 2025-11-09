@@ -27,11 +27,11 @@ Build a complete ray tracer from scratch with shadows, materials, reflections, a
 
 [Ray Tracing with Raycore](@ref)
 
-### Ray on the GPU Tutorial
+### GPU Ray Tracing Tutorial
 
-Take the previous ray tracer and run it on the GPU
+Port the ray tracer to the GPU with KernelAbstractions.jl. Learn about kernel optimization, loop unrolling, tiling, and wavefront rendering.
 
-![Ray Tracing](.gpu_raytracing_tutorial-bbook/data/gpu-benchmarks.png)
+![GPU Ray Tracing](.gpu_raytracing_tutorial-bbook/data/gpu-benchmarks.png)
 
 [GPU Ray Tracing with Raycore](@ref)
 

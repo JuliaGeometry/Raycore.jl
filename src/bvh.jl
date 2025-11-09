@@ -196,7 +196,7 @@ Key optimizations:
 Fields:
 - nodes: LinearBVH nodes (flat array, depth-first layout)
 - triangles: Pre-transformed compact triangles
-- original_triangles: Original triangles (for normals, UVs, materials)
+- primitives: Original triangles (for normals, UVs, materials)
 - max_node_primitives: Maximum primitives per leaf node
 """
 struct BVH{
@@ -206,7 +206,7 @@ struct BVH{
 } <: AccelPrimitive
     nodes::NodeVec
     triangles::TriVec
-    original_triangles::OrigTriVec
+    primitives::OrigTriVec
     max_node_primitives::UInt8
 end
 
@@ -421,7 +421,7 @@ Returns:
     nodes_to_visit = MVector{64, Int32}(undef)
     nodes = bvh.nodes
     triangles = bvh.triangles
-    original_tris = bvh.original_triangles
+    original_tris = bvh.primitives
 
     # Track closest hit
     hit_found = false
@@ -531,7 +531,7 @@ Returns:
     nodes_to_visit = MVector{64, Int32}(undef)
     nodes = bvh.nodes
     triangles = bvh.triangles
-    original_tris = bvh.original_triangles
+    original_tris = bvh.primitives
 
     # Traverse BVH
     @_inbounds while true
@@ -687,7 +687,7 @@ end
 function GeometryBasics.Mesh(bvh::BVH)
     points = Point3f[]
     faces = GLTriangleFace[]
-    prims = bvh.original_triangles # Use original triangles, not compact ones
+    prims = bvh.primitives # Use original triangles, not compact ones
     for (ti, tringle) in enumerate(prims)
         push!(points, tringle.vertices...)
         tt = ((ti - 1) * 3) + 1

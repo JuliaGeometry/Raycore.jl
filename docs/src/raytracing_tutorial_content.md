@@ -1,7 +1,6 @@
 # Ray Tracing in one Hour
 
-Analougus to the famous [Ray Tracing in one Weekend](https://raytracing.github.io/), this tutorial uses Raycore to do the hard work of performant ray triangle intersection and therefore get a high performing ray tracer in a much shorter time.
-We'll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows, materials, and reflections.
+Analougus to the famous [Ray Tracing in one Weekend](https://raytracing.github.io/), this tutorial uses Raycore to do the hard work of performant ray triangle intersection and therefore get a high performing ray tracer in a much shorter time. We'll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows, materials, and reflections.
 
 ## Setup
 
@@ -49,9 +48,10 @@ sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 # Build our BVH acceleration structure
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
 bvh = Raycore.BVH(scene_geometry)
-plot(bvh; axis=(; show_axis=false))
+f, ax, pl = plot(bvh; axis=(; show_axis=false))
 ```
 Set the camera to something better:
+
 ```julia (editor=true, logging=false, output=true)
 cam = cameracontrols(ax.scene)
 cam.eyeposition[] = [0, 1.0, -4]
@@ -61,7 +61,6 @@ cam.fov[] = 45.0
 update_cam!(ax.scene, cam)
 nothing
 ```
-
 ## Part 2: Helper Functions - Building Blocks
 
 Let's define reusable helper functions we'll use throughout:
@@ -86,12 +85,9 @@ end
 to_vec3f(c::RGB) = Vec3f(c.r, c.g, c.b)
 to_rgb(v::Vec3f) = RGB{Float32}(v...)
 ```
-
 ## Part 3: The Simplest Ray Tracer - Depth Visualization
 
-We're using one main function to shoot rays for each pixel.
-For simplicity, we already added multisampling and simple multi threading, to enjoy smoother images and faster rendering times throughout the tutorial.
-Read the GPU tutorial how to further improve the performance of this simple, not yet optimal kernel.
+We're using one main function to shoot rays for each pixel. For simplicity, we already added multisampling and simple multi threading, to enjoy smoother images and faster rendering times throughout the tutorial. Read the GPU tutorial how to further improve the performance of this simple, not yet optimal kernel.
 
 ```julia (editor=true, logging=false, output=true)
 function trace(f, bvh; width=700, height=300,
@@ -130,7 +126,6 @@ depth_kernel(bvh, ctx, tri, dist, bary, ray) = RGB(1.0f0 - min(dist / 10.0f0, 1.
 ```julia (editor=true, logging=false, output=true)
 @time trace(depth_kernel, bvh, samples=16)
 ```
-
 **First render!** Depth visualization shows distance to surfaces. **Much faster with threading and smoother with multi-sampling!**
 
 ## Part 5: Lighting with Hard Shadows
@@ -202,7 +197,6 @@ end
 
 trace(shadow_kernel, bvh, samples=4)
 ```
-
 **Hard shadows working!** Scene has realistic lighting with sharp shadow edges.
 
 ## Part 6: Soft Shadows
@@ -351,8 +345,7 @@ end
 
 tone_mapping(img, a=0.38, y=1.0)
 ```
-For performance type stability is a must!
-We can use JET to test if a function is completely type stable, which we also test in the Raycore tests for all functions.
+For performance type stability is a must! We can use JET to test if a function is completely type stable, which we also test in the Raycore tests for all functions.
 
 ```julia (editor=true, logging=false, output=true)
 using JET
@@ -404,3 +397,4 @@ We built a complete ray tracer with:
   * `shadow_samples=4` → soft shadows
 
 This shows how a well-designed function can handle multiple use cases cleanly!
+

@@ -21,8 +21,8 @@ end
 function to_gpu(ArrayType, bvh::Raycore.BVH)
     nodes = to_gpu(ArrayType, bvh.nodes)
     triangles = to_gpu(ArrayType, bvh.triangles)
-    original_triangles = to_gpu(ArrayType, bvh.original_triangles)
-    return Raycore.BVH(nodes, triangles, original_triangles, bvh.max_node_primitives)
+    primitives = to_gpu(ArrayType, bvh.primitives)
+    return Raycore.BVH(nodes, triangles, primitives, bvh.max_node_primitives)
 end
 
 gpu_int(x) = Base.unsafe_trunc(Int32, x)

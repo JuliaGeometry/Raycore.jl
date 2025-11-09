@@ -1,4 +1,4 @@
-# GPU Ray Tracing with Raycore
+# Ray Tracing on the GPU
 
 In this tutorial, we'll take the ray tracer from the previous tutorial and port it to the GPU using **KernelAbstractions.jl** and a GPU backend of choice (CUDA.jl, AMDGPU.jl, OpenCL.jl, OneApi.jl, or Metal.jl). We'll explore three different kernel implementations, each with different optimization strategies, and benchmark their performance against each other.
 
@@ -13,8 +13,7 @@ using WGLMakie
 using KernelAbstractions
 using BenchmarkTools
 ```
-
-To run things on the GPU with KernelAbstractions, you need to chose the correct package for your GPU and set the array type we use from there on.
+To run things on the GPU with KernelAbstractions, you need to choose the correct package for your GPU and set the array type we use from there on.
 
 ```julia (editor=true, logging=false, output=true)
 #using CUDA; GArray = CuArray; # For NVIDIA GPUS
@@ -28,8 +27,7 @@ GArray = Array # For the tutorial to run on CI we just use the CPU
 **Ready for GPU!** We have:
 
   * `Raycore` for fast ray-triangle intersections
-  * `KernelAbstractions` for portable GPU kernels
-  * `AMDGPU` for AMD GPU support
+  * `KernelAbstractions` for portable GPU kernels (works with CUDA, AMD, Metal, oneAPI, and OpenCL)
   * `BenchmarkTools` for performance comparison
 
 ## Part 1: Scene Setup (Same as CPU Tutorial)
@@ -46,12 +44,12 @@ f
 ```
 ```julia (editor=true, logging=false, output=true)
 cam = cameracontrols(ax.scene)
-cam.eyeposition[] = [0, 1.0, -5]
+cam.eyeposition[] = [0, 1.0, -4]
 cam.lookat[] = [0, 0, 2]
 cam.upvector[] = [0.0, 1, 0.0]
 cam.fov[] = 45.0
 ```
-## Part 5: GPU Kernel Version 1 - Basic Naive Approach
+## Part 2: GPU Kernel Version 1 - Basic Naive Approach
 
 The simplest GPU kernel - one thread per pixel:
 
@@ -70,7 +68,7 @@ import KernelAbstractions as KA
     x = ((idx - 1) % width) + 1
     y = ((idx - 1) ÷ width) + 1
     if x <= width && y <= height
-        # Generate camera ray and do a calculate a simple light model
+        # Generate camera ray and calculate a simple light model
         color = Vec3f(0)
         for i in 1:NSamples
             color = color .+ sample_light(bvh, ctx, width, height, camera_pos, focal_length, aspect, x, y, sky_color)
@@ -129,12 +127,12 @@ img_gpu = GArray(img);
 bvh_gpu = to_gpu(GArray, bvh);
 ctx_gpu = to_gpu(GArray, ctx);
 bench_kernel_v1 = @benchmark trace_gpu(raytrace_kernel_v1!, img_gpu, bvh_gpu, ctx_gpu)
-# bring back to GPU to display image
+# Bring back to CPU to display image
 Array(img_gpu)
 ```
 **First GPU render!** This is the simplest approach - one thread per pixel with no optimization.
 
-## Part 6: Optimized Kernel - Loop Unrolling
+## Part 3: Optimized Kernel - Loop Unrolling
 
 Loop overhead is significant on GPUs! Manually unrolling the sampling loop eliminates this overhead:
 
@@ -169,7 +167,7 @@ Array(img_gpu)
   * Better instruction-level parallelism
   * **1.39x faster than baseline!**
 
-## Part 7: Tiled Kernel with Optimized Tile Size
+## Part 4: Tiled Kernel with Optimized Tile Size
 
 The tile size dramatically affects performance. Let's use the optimal size discovered through benchmarking:
 
@@ -223,10 +221,9 @@ Array(img_gpu)
 ```
 **Tile size matters!** With `(32, 16)` tiles, this kernel is **1.22x faster** than baseline. With poor tile sizes like `(8, 8)`, it can be **2.5x slower**!
 
-## Part 8: Wavefront Path Tracing
+## Part 5: Wavefront Path Tracing
 
-The wavefront approach reorganizes ray tracing to minimize thread divergence by grouping similar work together. Instead of each thread handling an entire pixel's path, we separate the work into stages.
-Discussing the excat implementation is outside the scope of this tutorial, so we only include the finished renderer here:
+The wavefront approach reorganizes ray tracing to minimize thread divergence by grouping similar work together. Instead of each thread handling an entire pixel's path, we separate the work into stages. Discussing the exact implementation is outside the scope of this tutorial, so we only include the finished renderer here:
 
 ```julia (editor=true, logging=false, output=true)
 include("wavefront-renderer.jl")
@@ -254,7 +251,7 @@ Array(renderer_gpu.framebuffer)
   * Scales well with scene complexity
   * Enables advanced features like path tracing
 
-## Part 9: Comprehensive Performance Benchmarks
+## Part 6: Comprehensive Performance Benchmarks
 
 Now let's compare all kernels including the wavefront renderer:
 
@@ -277,6 +274,7 @@ DOM.img(src=Asset(data"gpu-benchmarks.png"), width="700px")
 ```
 ### Next Steps
 
-* Add **adaptive sampling** (more samples only where needed)
-* Explore **shared memory** optimizations for BVH traversal
-* Implement **streaming multisampling** across frames
+  * Add **adaptive sampling** (more samples only where needed)
+  * Explore **shared memory** optimizations for BVH traversal
+  * Implement **streaming multisampling** across frames
+

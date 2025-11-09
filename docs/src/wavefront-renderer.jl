@@ -619,7 +619,7 @@ function WavefrontRenderer(
 
     # Allocate work queues as SoA
     primary_ray_queue = similar_soa(img, PrimaryRayWork, num_rays)
-    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh.original_triangles)}, num_rays)
+    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh.primitives)}, num_rays)
     shadow_ray_queue = similar_soa(img, ShadowRayWork, num_shadow_rays)
     shadow_result_queue = similar_soa(img, ShadowResult, num_shadow_rays)
     reflection_ray_soa = similar_soa(img, ReflectionRayWork, num_rays)
@@ -758,7 +758,7 @@ function render!(renderer::WavefrontRenderer)
     refl_shade_kernel!(
         renderer.primary_hit_queue,
         renderer.reflection_hit_soa,
-        renderer.bvh.original_triangles,
+        renderer.bvh.primitives,
         renderer.ctx,
         renderer.sky_color,
         renderer.shading_queue,
@@ -805,7 +805,7 @@ function trace_wavefront_full(
 
     # Allocate work queues as SoA
     primary_ray_queue = similar_soa(img, PrimaryRayWork, num_rays)
-    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh.original_triangles)}, num_rays)
+    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh.primitives)}, num_rays)
     shadow_ray_queue = similar_soa(img, ShadowRayWork, num_shadow_rays)
     shadow_result_queue = similar_soa(img, ShadowResult, num_shadow_rays)
     reflection_ray_soa = similar_soa(img, ReflectionRayWork, num_rays)
@@ -848,7 +848,7 @@ function trace_wavefront_full(
 
     # Stage 8: Shade reflections and blend (using SoA)
     refl_shade_kernel! = shade_reflections_and_blend!(backend)
-    refl_shade_kernel!(primary_hit_queue, reflection_hit_soa, bvh.original_triangles, ctx, sky_color, shading_queue, ndrange=num_rays)
+    refl_shade_kernel!(primary_hit_queue, reflection_hit_soa, bvh.primitives, ctx, sky_color, shading_queue, ndrange=num_rays)
 
     # Stage 9: Accumulate final image
     accum_kernel! = accumulate_final!(backend)

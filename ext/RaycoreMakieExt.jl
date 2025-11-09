@@ -186,7 +186,7 @@ Helper function to draw BVH geometry
 function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
     # Group primitives by their material_idx
     primitive_groups = Dict{UInt32, Vector{Raycore.Triangle}}()
-    for prim in bvh.original_triangles
+    for prim in bvh.primitives
         mat_idx = prim.material_idx
         if !haskey(primitive_groups, mat_idx)
             primitive_groups[mat_idx] = Raycore.Triangle[]
@@ -236,7 +236,7 @@ function Makie.convert_arguments(::Type{Makie.Mesh}, bvh::Raycore.BVH)
     faces = GeometryBasics.TriangleFace{Int}[]
     colors = Float32[]
     normals = Vec3f[]
-    for (i, prim) in enumerate(bvh.original_triangles)
+    for (i, prim) in enumerate(bvh.primitives)
         start_idx = length(vertices)
         for (v, n) in zip(prim.vertices, prim.normals)
             push!(vertices, v)
