@@ -52,7 +52,7 @@ end
 # BVH
 function gen_bvh_accel()
     mesh = Rect3f(Point3f(0), Vec3f(1))
-    Raycore.BVHAccel([mesh], 1)
+    Raycore.BVH([mesh], 1)
 end
 
 # Quaternion

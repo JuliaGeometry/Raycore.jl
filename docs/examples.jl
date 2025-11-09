@@ -14,7 +14,7 @@ begin
     l = 0.5
     floor = Rect3f(-l, -l, -0.01, 2l, 2l, 0.01)
     cat = load(Makie.assetpath("cat.obj"))
-    bvh = Raycore.BVHAccel([s1, s2, s3, s4, cat]);
+    bvh = Raycore.BVH([s1, s2, s3, s4, cat]);
     world_mesh = GeometryBasics.Mesh(bvh)
     f, ax, pl = Makie.mesh(world_mesh; color=:teal)
     center!(ax.scene)

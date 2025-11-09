@@ -2,22 +2,27 @@ import KernelAbstractions as KA
 
 KA.@kernel some_kernel_f() = nothing
 
+global PRESERVE = []
+
 function some_kernel(arr)
     backend = KA.get_backend(arr)
     return some_kernel_f(backend)
 end
 
-function to_gpu(ArrayType, m::AbstractArray; preserve=[])
+function to_gpu(ArrayType, m::AbstractArray)
     arr = ArrayType(m)
-    push!(preserve, arr)
+    push!(PRESERVE, arr)
+    finalizer((arr) -> filter!(x-> x === arr, PRESERVE), arr)
     kernel = some_kernel(arr)
     return KA.argconvert(kernel, arr)
 end
 
-# Conversion constructor for e.g. GPU arrays
-# TODO, create tree on GPU? Not sure if that will gain much though...
-function to_gpu(ArrayType, bvh::Raycore.BVHAccel; preserve=[])
-    primitives = to_gpu(ArrayType, bvh.primitives; preserve=preserve)
-    nodes = to_gpu(ArrayType, bvh.nodes; preserve=preserve)
-    return Raycore.BVHAccel(primitives, bvh.max_node_primitives, nodes)
+# GPU conversion for BVH
+function to_gpu(ArrayType, bvh::Raycore.BVH)
+    nodes = to_gpu(ArrayType, bvh.nodes)
+    triangles = to_gpu(ArrayType, bvh.triangles)
+    primitives = to_gpu(ArrayType, bvh.primitives)
+    return Raycore.BVH(nodes, triangles, primitives, bvh.max_node_primitives)
 end
+
+gpu_int(x) = Base.unsafe_trunc(Int32, x)

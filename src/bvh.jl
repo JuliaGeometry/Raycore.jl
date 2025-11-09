@@ -73,13 +73,141 @@ function primitives_to_bvh(primitives, max_node_primitives=1)
     return (ordered_primitives, max_node_primitives, flattened)
 end
 
-struct BVHAccel{
-            PVec <:AbstractVector,
-            NodeVec <: AbstractVector{LinearBVH}
-        } <: AccelPrimitive
-    primitives::PVec
-    max_node_primitives::UInt8
+"""
+    CompactTriangle
+
+Pre-transformed triangle data for efficient GPU ray-triangle intersection.
+Uses edge vectors for Möller-Trumbore intersection algorithm.
+
+Fields:
+- v0: First vertex position (4th component for alignment)
+- edge1: v1 - v0 edge vector
+- edge2: v2 - v0 edge vector
+- normal: Face normal (4th component for alignment)
+- indices: [material_idx, primitive_idx] for shading
+"""
+struct CompactTriangle
+    v0::SVector{4, Float32}
+    edge1::SVector{4, Float32}
+    edge2::SVector{4, Float32}
+    normal::SVector{4, Float32}
+    indices::SVector{2, UInt32}
+end
+
+"""
+    to_compact_triangle(tri::Triangle) -> CompactTriangle
+
+Convert a Triangle to CompactTriangle format with pre-computed edge vectors.
+"""
+@inline function to_compact_triangle(tri::Triangle)::CompactTriangle
+    vs = vertices(tri)
+    v0, v1, v2 = vs[1], vs[2], vs[3]
+    edge1 = v1 - v0
+    edge2 = v2 - v0
+
+    # Compute face normal
+    face_normal = normalize(cross(Vec3f(edge1), Vec3f(edge2)))
+
+    return CompactTriangle(
+        SVector{4, Float32}(v0[1], v0[2], v0[3], 0f0),
+        SVector{4, Float32}(edge1[1], edge1[2], edge1[3], 0f0),
+        SVector{4, Float32}(edge2[1], edge2[2], edge2[3], 0f0),
+        SVector{4, Float32}(face_normal[1], face_normal[2], face_normal[3], 0f0),
+        SVector{2, UInt32}(tri.material_idx, tri.primitive_idx)
+    )
+end
+
+"""
+    intersect_compact_triangle(tri::CompactTriangle, ray_o, ray_d, t_max)
+
+Watertight Möller-Trumbore ray-triangle intersection for GPU.
+Uses pre-computed edge vectors for efficiency.
+
+Returns: (hit, t, u, v) where u,v are barycentric coordinates
+"""
+@inline function intersect_compact_triangle(
+    tri::CompactTriangle,
+    ray_o::Point3f,
+    ray_d::Vec3f,
+    t_max::Float32
+)
+    EPSILON = 1.0f-6
+
+    # Möller-Trumbore algorithm - work directly with SVector components to avoid allocations
+    # h = cross(ray_d, edge2)
+    h_x = ray_d[2] * tri.edge2[3] - ray_d[3] * tri.edge2[2]
+    h_y = ray_d[3] * tri.edge2[1] - ray_d[1] * tri.edge2[3]
+    h_z = ray_d[1] * tri.edge2[2] - ray_d[2] * tri.edge2[1]
+
+    # a = dot(edge1, h)
+    a = tri.edge1[1] * h_x + tri.edge1[2] * h_y + tri.edge1[3] * h_z
+
+    # Check if ray is parallel to triangle
+    if abs(a) < EPSILON
+        return (false, t_max, 0f0, 0f0)
+    end
+
+    f = 1f0 / a
+
+    # s = ray_o - v0
+    s_x = ray_o[1] - tri.v0[1]
+    s_y = ray_o[2] - tri.v0[2]
+    s_z = ray_o[3] - tri.v0[3]
+
+    # u = f * dot(s, h)
+    u = f * (s_x * h_x + s_y * h_y + s_z * h_z)
+
+    if u < 0f0 || u > 1f0
+        return (false, t_max, 0f0, 0f0)
+    end
+
+    # q = cross(s, edge1)
+    q_x = s_y * tri.edge1[3] - s_z * tri.edge1[2]
+    q_y = s_z * tri.edge1[1] - s_x * tri.edge1[3]
+    q_z = s_x * tri.edge1[2] - s_y * tri.edge1[1]
+
+    # v = f * dot(ray_d, q)
+    v = f * (ray_d[1] * q_x + ray_d[2] * q_y + ray_d[3] * q_z)
+
+    if v < 0f0 || u + v > 1f0
+        return (false, t_max, 0f0, 0f0)
+    end
+
+    # t = f * dot(edge2, q)
+    t = f * (tri.edge2[1] * q_x + tri.edge2[2] * q_y + tri.edge2[3] * q_z)
+
+    if t > EPSILON && t < t_max
+        return (true, t, u, v)
+    end
+
+    return (false, t_max, 0f0, 0f0)
+end
+
+"""
+    BVH{NodeVec, TriVec, OrigTriVec}
+
+GPU-optimized BVH acceleration structure.
+
+Key optimizations:
+- Uses LinearBVH node structure (flat array, depth-first layout)
+- Pre-transforms triangles with edge vectors for Möller-Trumbore
+- Designed for efficient GPU kernel traversal
+
+Fields:
+- nodes: LinearBVH nodes (flat array, depth-first layout)
+- triangles: Pre-transformed compact triangles
+- primitives: Original triangles (for normals, UVs, materials)
+- max_node_primitives: Maximum primitives per leaf node
+"""
+struct BVH{
+    NodeVec <: AbstractVector{LinearBVH},
+    TriVec <: AbstractVector{CompactTriangle},
+    OrigTriVec <: AbstractVector{Triangle}
+} <: AccelPrimitive
     nodes::NodeVec
+    triangles::TriVec
+    primitives::OrigTriVec
+    max_node_primitives::UInt8
 end
 
 
@@ -90,7 +218,18 @@ function to_triangle_mesh(x::GeometryBasics.AbstractGeometry)
     return TriangleMesh(m)
 end
 
-function BVHAccel(
+"""
+    BVH(primitives::AbstractVector, max_node_primitives::Integer=1)
+
+Construct a BVH acceleration structure from a list of primitives (meshes or geometries).
+
+Arguments:
+- `primitives`: Vector of triangle meshes or GeometryBasics geometries
+- `max_node_primitives`: Maximum number of primitives per leaf node (default: 1)
+
+Returns a GPU-optimized BVH with pre-transformed triangles for efficient ray tracing.
+"""
+function BVH(
         primitives::AbstractVector{P}, max_node_primitives::Integer=1,
     ) where {P}
     triangles = Triangle[]
@@ -105,7 +244,16 @@ function BVHAccel(
     ordered_primitives = map(enumerate(ordered_primitives)) do (i, tri)
         Triangle(tri, primitive_idx=UInt32(i))
     end
-    return BVHAccel(ordered_primitives, UInt8(max_prim), nodes)
+
+    # Convert triangles to compact format with pre-computed edges
+    compact_tris = [to_compact_triangle(tri) for tri in ordered_primitives]
+
+    return BVH(
+        nodes,
+        compact_tris,
+        ordered_primitives,
+        UInt8(max_prim)
+    )
 end
 
 mutable struct BucketInfo
@@ -236,13 +384,13 @@ function _unroll(
     l_offset + 1
 end
 
-@inline function world_bound(bvh::BVHAccel)::Bounds3
-    length(bvh.nodes) > Int32(0) ? bvh.nodes[1].bounds : Bounds3()
+@inline function world_bound(bvh::BVH)::Bounds3
+    length(bvh.nodes) > 0 ? bvh.nodes[1].bounds : Bounds3()
 end
 
 struct MemAllocator
 end
-@inline _allocate(::MemAllocator, T::Type, n::Val{N}) where {N} = zeros(MVector{N,T})
+@inline _allocate(::MemAllocator, T::Type, n::Val{N}) where {N} = MVector{N,T}(undef)
 Base.@propagate_inbounds function _setindex(arr::MVector{N, T}, idx::Integer, value::T) where {N, T}
     arr[idx] = value
     return arr
@@ -250,62 +398,61 @@ end
 
 
 """
-    traverse_bvh(bvh::BVHAccel{P}, ray::AbstractRay, hit_callback::F) where {P, F<:Function}
+    closest_hit(bvh::BVH, ray::AbstractRay)
 
-Internal function that traverses the BVH to find ray-primitive intersections.
-Uses a callback pattern to handle different intersection behaviors.
-
-Arguments:
-- `bvh`: The BVH acceleration structure
-- `ray`: The ray to test for intersections
-- `hit_callback`: Function called when primitive is tested. Signature:
-   hit_callback(primitive, ray) -> (continue_traversal::Bool, ray::AbstractRay, results::Any)
+Find the closest intersection between a ray and the GPU BVH.
+Uses manual traversal with compact triangle intersection for best performance.
 
 Returns:
-- The final result from the hit_callback
+- `hit_found`: Boolean indicating if an intersection was found
+- `hit_primitive`: The primitive that was hit (if any)
+- `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
+- `barycentric_coords`: Barycentric coordinates of the hit point
 """
-@inline function traverse_bvh(hit_callback::F, bvh::BVHAccel{P}, ray::AbstractRay, allocator=MemAllocator()) where {P, F<:Function}
-    if length(bvh.nodes) == 0
-        # We dont handle the empty case yet, since its not that easy to make it type stable
-        # Its possible, but why would we intersect an empty BVH?
-        error("BVH is empty; cannot traverse.")
-    end
-
-    # Prepare ray for traversal
+@inline function closest_hit(bvh::BVH, ray::AbstractRay, allocator=MemAllocator())
     ray = check_direction(ray)
     inv_dir = 1f0 ./ ray.d
     dir_is_neg = is_dir_negative(ray.d)
 
-    # Initialize traversal stack
+    # Initialize traversal
     local to_visit_offset::Int32 = Int32(1)
     current_node_idx = Int32(1)
-    nodes_to_visit = _allocate(allocator, Int32, Val(64))
-    primitives = bvh.primitives
+    # Direct MVector construction for type stability (critical for GPU, especially OpenCL/SPIR-V)
+    nodes_to_visit = MVector{64, Int32}(undef)
     nodes = bvh.nodes
+    triangles = bvh.triangles
+    original_tris = bvh.primitives
 
-    # State variables to hold callback results
-    continue_search = true
-    prim1 = primitives[1]
-    _, ray, result = hit_callback(prim1, ray, nothing)
+    # Track closest hit
+    hit_found = false
+    hit_tri_idx = Int32(0)
+    closest_t = ray.t_max
+    hit_u = 0f0
+    hit_v = 0f0
 
     # Traverse BVH
     @_inbounds while true
         current_node = nodes[current_node_idx]
+
         # Test ray against current node's bounding box
         if intersect_p(current_node.bounds, ray, inv_dir, dir_is_neg)
             local cnprim::Int32 = current_node.n_primitives % Int32
             if !current_node.is_interior && cnprim > Int32(0)
-                # Leaf node - test all primitives
+                # Leaf node - test all triangles
                 offset = current_node.offset % Int32
 
                 for i in Int32(0):(cnprim - Int32(1))
-                    primitive = primitives[offset + i]
+                    tri_idx = offset + i
+                    compact_tri = triangles[tri_idx]
 
-                    # Call the callback for this primitive
-                    continue_search, ray, result = hit_callback(primitive, ray, result)
-                    # Early exit if callback requests it
-                    if !continue_search
-                        return false, ray, result
+                    # Use compact intersection
+                    tmp_hit, t, u, v = intersect_compact_triangle(compact_tri, ray.o, ray.d, closest_t)
+                    if tmp_hit && t < closest_t
+                        closest_t = t
+                        hit_found = true
+                        hit_tri_idx = tri_idx
+                        hit_u = u
+                        hit_v = v
                     end
                 end
 
@@ -317,11 +464,20 @@ Returns:
                 current_node_idx = nodes_to_visit[to_visit_offset]
             else
                 # Interior node - push children to stack
-                if dir_is_neg[current_node.split_axis] == Int32(2)
-                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node_idx + Int32(1))
+                # Explicitly unroll axis cases to avoid LLVM select chains in SPIR-V
+                local is_neg = if current_node.split_axis == Int32(1)
+                    dir_is_neg[1] == Int32(2)
+                elseif current_node.split_axis == Int32(2)
+                    dir_is_neg[2] == Int32(2)
+                else  # split_axis == 3
+                    dir_is_neg[3] == Int32(2)
+                end
+
+                if is_neg
+                    nodes_to_visit[to_visit_offset] = current_node_idx + Int32(1)
                     current_node_idx = current_node.offset % Int32
                 else
-                    nodes_to_visit = _setindex(nodes_to_visit, to_visit_offset, current_node.offset % Int32)
+                    nodes_to_visit[to_visit_offset] = current_node.offset % Int32
                     current_node_idx += Int32(1)
                 end
                 to_visit_offset += Int32(1)
@@ -335,63 +491,27 @@ Returns:
             current_node_idx = nodes_to_visit[to_visit_offset]
         end
     end
-    # Return final state
-    return continue_search, ray, result
-end
 
-# Initialization
-closest_hit_callback(primitive, ray, ::Nothing) = false, ray, (false, primitive, 0.0f0, Point3f(0.0))
-
-function closest_hit_callback(primitive, ray, prev_result::Tuple{Bool, P, Float32, Point3f}) where {P}
-    # Test intersection and update if closer
-    tmp_hit, ray, tmp_bary = intersect_p!(primitive, ray)
-    if tmp_hit
-        # Calculate distance from ray origin to hit point
-        distance = ray.t_max
-        return true, ray, (true, primitive, distance, tmp_bary)
+    # Return result
+    if hit_found
+        orig_tri = original_tris[hit_tri_idx]
+        w = 1f0 - hit_u - hit_v
+        # Use SVector for GPU compatibility - Point3f is just an alias for SVector
+        bary_point = SVector{3, Float32}(w, hit_u, hit_v)
+        return (true, orig_tri, closest_t, bary_point)
+    else
+        # Return dummy result matching standard BVH behavior
+        dummy_tri = original_tris[1]
+        bary_point = SVector{3, Float32}(0f0, 0f0, 0f0)
+        return (false, dummy_tri, 0f0, bary_point)
     end
-    # Always continue search to find closest
-    return true, ray, prev_result
 end
 
 """
-    closest_hit(bvh::BVHAccel{P}, ray::AbstractRay) where {P}
+    any_hit(bvh::BVH, ray::AbstractRay)
 
-Find the closest intersection between a ray and the primitives stored in a BVH.
-
-Returns:
-- `hit_found`: Boolean indicating if an intersection was found
-- `hit_primitive`: The primitive that was hit (if any)
-- `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
-- `barycentric_coords`: Barycentric coordinates of the hit point
-"""
-@inline function closest_hit(bvh::BVHAccel{P}, ray::AbstractRay, allocator=MemAllocator()) where {P}
-    # Traverse BVH with closest-hit callback
-    _, _, result = @inline traverse_bvh(closest_hit_callback, bvh, ray, allocator)
-    return result::Tuple{Bool, Triangle, Float32, Point3f}
-end
-
-
-any_hit_callback(primitive, current_ray, result::Nothing) = (false, current_ray, (false, primitive, 0.0f0, Point3f(0.0)))
-
-# Define any-hit callback
-function any_hit_callback(primitive, current_ray, prev_result::Tuple{Bool, P, Float32, Point3f}) where {P}
-    # Test for intersection
-    tmp_hit, dist, tmp_bary = intersect(primitive, current_ray)
-    if tmp_hit
-        # Stop traversal on first hit and return hit info
-        return false, current_ray, (true, primitive, dist, tmp_bary)
-    end
-    # Continue search if no hit
-    return true, current_ray, prev_result
-end
-
-"""
-    any_hit(bvh::BVHAccel, ray::AbstractRay)
-
-Test if a ray intersects any primitive in the BVH (without finding the closest hit).
-This function stops at the first intersection found, making it faster than closest_hit
-when you only need to know if there's an intersection.
+Test if a ray intersects any primitive in the GPU BVH (for occlusion testing).
+Stops at the first intersection found.
 
 Returns:
 - `hit_found`: Boolean indicating if any intersection was found
@@ -399,10 +519,86 @@ Returns:
 - `distance`: Distance along the ray to the hit point (hit_point = ray.o + ray.d * distance)
 - `barycentric_coords`: Barycentric coordinates of the hit point
 """
-@inline function any_hit(bvh::BVHAccel, ray::AbstractRay, allocator=MemAllocator())
-    # Traverse BVH with any-hit callback
-    continue_search, _, result = traverse_bvh(any_hit_callback, bvh, ray, allocator)
-    return result::Tuple{Bool, Triangle, Float32, Point3f}
+@inline function any_hit(bvh::BVH, ray::AbstractRay, allocator=MemAllocator())
+    ray = check_direction(ray)
+    inv_dir = 1f0 ./ ray.d
+    dir_is_neg = is_dir_negative(ray.d)
+
+    # Initialize traversal
+    local to_visit_offset::Int32 = Int32(1)
+    current_node_idx = Int32(1)
+    # Direct MVector construction for type stability (critical for GPU, especially OpenCL/SPIR-V)
+    nodes_to_visit = MVector{64, Int32}(undef)
+    nodes = bvh.nodes
+    triangles = bvh.triangles
+    original_tris = bvh.primitives
+
+    # Traverse BVH
+    @_inbounds while true
+        current_node = nodes[current_node_idx]
+
+        # Test ray against current node's bounding box
+        if intersect_p(current_node.bounds, ray, inv_dir, dir_is_neg)
+            local cnprim::Int32 = current_node.n_primitives % Int32
+            if !current_node.is_interior && cnprim > Int32(0)
+                # Leaf node - test triangles
+                offset = current_node.offset % Int32
+
+                for i in Int32(0):(cnprim - Int32(1))
+                    tri_idx = offset + i
+                    compact_tri = triangles[tri_idx]
+
+                    # Test for any hit
+                    tmp_hit, t, u, v = intersect_compact_triangle(compact_tri, ray.o, ray.d, ray.t_max)
+                    if tmp_hit
+                        # Return immediately on first hit
+                        orig_tri = original_tris[tri_idx]
+                        w = 1f0 - u - v
+                        bary_point = SVector{3, Float32}(w, u, v)
+                        return (true, orig_tri, t, bary_point)
+                    end
+                end
+
+                # Done with leaf, pop next node from stack
+                if to_visit_offset === Int32(1)
+                    break
+                end
+                to_visit_offset -= Int32(1)
+                current_node_idx = nodes_to_visit[to_visit_offset]
+            else
+                # Interior node - push children to stack
+                # Explicitly unroll axis cases to avoid LLVM select chains in SPIR-V
+                local is_neg = if current_node.split_axis == Int32(1)
+                    dir_is_neg[1] == Int32(2)
+                elseif current_node.split_axis == Int32(2)
+                    dir_is_neg[2] == Int32(2)
+                else  # split_axis == 3
+                    dir_is_neg[3] == Int32(2)
+                end
+
+                if is_neg
+                    nodes_to_visit[to_visit_offset] = current_node_idx + Int32(1)
+                    current_node_idx = current_node.offset % Int32
+                else
+                    nodes_to_visit[to_visit_offset] = current_node.offset % Int32
+                    current_node_idx += Int32(1)
+                end
+                to_visit_offset += Int32(1)
+            end
+        else
+            # Miss - pop next node from stack
+            if to_visit_offset === Int32(1)
+                break
+            end
+            to_visit_offset -= Int32(1)
+            current_node_idx = nodes_to_visit[to_visit_offset]
+        end
+    end
+
+    # No hit found
+    dummy_tri = original_tris[1]
+    bary_point = SVector{3, Float32}(0f0, 0f0, 0f0)
+    return (false, dummy_tri, 0f0, bary_point)
 end
 
 function calculate_ray_grid_bounds(bounds::GeometryBasics.Rect, ray_direction::Vec3f)
@@ -411,7 +607,7 @@ function calculate_ray_grid_bounds(bounds::GeometryBasics.Rect, ray_direction::V
     # 1. Find a plane perpendicular to the ray direction
     # We need two basis vectors that are perpendicular to the ray direction
     # First, find a non-parallel vector to create our first basis vector
-    if abs(direction[1]) < 0.9
+    if abs(direction[1]) < 0.9f0
         temp = Vec3f(1.0, 0.0, 0.0)
     else
         temp = Vec3f(0.0, 1.0, 0.0)
@@ -476,11 +672,11 @@ function generate_ray_grid(grid_info, grid_size::Int)
 end
 
 """
-    generate_ray_grid(bvh::BVHAccel, ray_direction::Vec3f, grid_size::Int)
+    generate_ray_grid(bvh::BVH, ray_direction::Vec3f, grid_size::Int)
 
 Generate a grid of ray origins based on the BVH bounding box and a given ray direction.
 """
-function generate_ray_grid(bvh::BVHAccel, ray_direction::Vec3f, grid_size::Int)
+function generate_ray_grid(bvh::BVH, ray_direction::Vec3f, grid_size::Int)
     bounds = world_bound(bvh)
     bb = Rect3f(bounds.p_min, bounds.p_max .- bounds.p_min)
     grid_info = calculate_ray_grid_bounds(bb, ray_direction)
@@ -488,10 +684,10 @@ function generate_ray_grid(bvh::BVHAccel, ray_direction::Vec3f, grid_size::Int)
 end
 
 
-function GeometryBasics.Mesh(bvh::BVHAccel)
+function GeometryBasics.Mesh(bvh::BVH)
     points = Point3f[]
     faces = GLTriangleFace[]
-    prims = bvh.primitives# sort(bvh.primitives; by=x -> x.material_idx)
+    prims = bvh.primitives # Use original triangles, not compact ones
     for (ti, tringle) in enumerate(prims)
         push!(points, tringle.vertices...)
         tt = ((ti - 1) * 3) + 1
@@ -501,38 +697,26 @@ function GeometryBasics.Mesh(bvh::BVHAccel)
     return GeometryBasics.Mesh(points, faces)
 end
 
-# Pretty printing for BVHAccel
-function Base.show(io::IO, ::MIME"text/plain", bvh::BVHAccel)
-    n_triangles = length(bvh.primitives)
+# Pretty printing for BVH
+function Base.show(io::IO, ::MIME"text/plain", bvh::BVH)
+    n_triangles = length(bvh.triangles)
     n_nodes = length(bvh.nodes)
-    bounds = world_bound(bvh)
 
     # Count leaf vs interior nodes
     n_leaves = count(node -> !node.is_interior, bvh.nodes)
     n_interior = n_nodes - n_leaves
 
-    # Calculate average primitives per leaf
-    total_leaf_prims = sum(node -> node.is_interior ? 0 : Int(node.n_primitives), bvh.nodes)
-    avg_prims_per_leaf = n_leaves > 0 ? total_leaf_prims / n_leaves : 0.0
-
-    println(io, "BVHAccel:")
-    println(io, "  Triangles:     ", n_triangles)
+    println(io, "BVH:")
+    println(io, "  Triangles:     ", n_triangles, " (pre-transformed)")
     println(io, "  BVH nodes:     ", n_nodes, " (", n_interior, " interior, ", n_leaves, " leaves)")
-    println(io, "  Bounds:        ", bounds.p_min, " to ", bounds.p_max)
-    println(io, "  Max prims:     ", Int(bvh.max_node_primitives), " per leaf")
-    print(io,   "  Avg prims:     ", round(avg_prims_per_leaf, digits=2), " per leaf")
+    print(io,   "  Max prims:     ", Int(bvh.max_node_primitives), " per leaf")
 end
 
-function Base.show(io::IO, bvh::BVHAccel)
+function Base.show(io::IO, bvh::BVH)
     if get(io, :compact, false)
-        n_triangles = length(bvh.primitives)
+        n_triangles = length(bvh.triangles)
         n_nodes = length(bvh.nodes)
-        n_leaves = count(node -> !node.is_interior, bvh.nodes)
-        n_interior = n_nodes - n_leaves
-        print(io, "BVHAccel(")
-        print(io, "triangles=", n_triangles, ", ")
-        print(io, "nodes=", n_nodes, " (", n_interior, " interior, ", n_leaves, " leaves)")
-        print(io, ")")
+        print(io, "BVH(triangles=", n_triangles, ", nodes=", n_nodes, ")")
     else
         show(io, MIME("text/plain"), bvh)
     end

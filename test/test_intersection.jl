@@ -71,7 +71,7 @@ end
         push!(triangle_meshes, mesh)
     end
 
-    bvh = Raycore.BVHAccel(triangle_meshes)
+    bvh = Raycore.BVH(triangle_meshes)
     # Test basic BVH functionality with triangle meshes
     @test !isnothing(Raycore.world_bound(bvh))
 
@@ -99,7 +99,7 @@ end
         push!(triangle_meshes, mesh)
     end
 
-    bvh = Raycore.BVHAccel(triangle_meshes)
+    bvh = Raycore.BVH(triangle_meshes)
     # Test that BVH can be created and has a valid bound
     bound = Raycore.world_bound(bvh)
     @test !isnothing(bound)

@@ -6,7 +6,7 @@ and the computed intersection results.
 
 # Fields
 - `rays::Vector{<:AbstractRay}`: Array of rays to trace
-- `bvh::BVHAccel`: BVH acceleration structure to intersect against
+- `bvh::BVH`: BVH acceleration structure to intersect against
 - `hit_function::F`: Function to use for intersection testing (e.g., `closest_hit` or `any_hit`)
 - `hits::Vector{Tuple{Bool, Triangle, Float32, Point3f}}`: Results of hit_function applied to each ray
 
@@ -16,7 +16,7 @@ using Raycore, GeometryBasics
 
 # Create BVH from geometry
 sphere = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
-bvh = Raycore.BVHAccel([sphere])
+bvh = Raycore.BVH([sphere])
 
 # Create rays
 rays = [
@@ -39,10 +39,10 @@ end
 struct RayIntersectionSession{Rays, F}
     hit_function::F
     rays::Rays
-    bvh::BVHAccel
+    bvh::BVH
     hits::Vector{Tuple{Bool, Triangle, Float32, Point3f}}
 
-    function RayIntersectionSession(hit_function::F, rays::Rays, bvh::BVHAccel) where {Rays,F}
+    function RayIntersectionSession(hit_function::F, rays::Rays, bvh::BVH) where {Rays,F}
         # Compute all hits
         hits = [hit_function(bvh, ray) for ray in rays]
         new{Rays, F}(hit_function, rays, bvh, hits)

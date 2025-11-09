@@ -27,6 +27,14 @@ Build a complete ray tracer from scratch with shadows, materials, reflections, a
 
 [Ray Tracing with Raycore](@ref)
 
+### GPU Ray Tracing Tutorial
+
+Port the ray tracer to the GPU with KernelAbstractions.jl. Learn about kernel optimization, loop unrolling, tiling, and wavefront rendering.
+
+![GPU Ray Tracing](.gpu_raytracing_tutorial-bbook/data/gpu-benchmarks.png)
+
+[GPU Ray Tracing with Raycore](@ref)
+
 ### View Factors Analysis
 
 Calculate view factors, illumination, and centroids for radiosity and thermal analysis.

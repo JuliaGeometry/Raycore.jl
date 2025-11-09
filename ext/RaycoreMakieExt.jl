@@ -31,7 +31,7 @@ using Raycore, GeometryBasics, GLMakie
 # Create geometry
 sphere1 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
 sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)
-bvh = Raycore.BVHAccel([sphere1, sphere2])
+bvh = Raycore.BVH([sphere1, sphere2])
 
 # Create rays
 rays = [
@@ -183,7 +183,7 @@ end
 """
 Helper function to draw BVH geometry
 """
-function draw_bvh!(plot, bvh::Raycore.BVHAccel, colors, alpha)
+function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
     # Group primitives by their material_idx
     primitive_groups = Dict{UInt32, Vector{Raycore.Triangle}}()
     for prim in bvh.primitives
@@ -226,6 +226,26 @@ function draw_bvh!(plot, bvh::Raycore.BVHAccel, colors, alpha)
             transparency=alpha < 1.0
         )
     end
+end
+
+Makie.plottype(::Raycore.BVH) = Makie.Mesh
+
+function Makie.convert_arguments(::Type{Makie.Mesh}, bvh::Raycore.BVH)
+    # Convert BVH to a Mesh for plotting
+    vertices = Point3f[]
+    faces = GeometryBasics.TriangleFace{Int}[]
+    colors = Float32[]
+    normals = Vec3f[]
+    for (i, prim) in enumerate(bvh.primitives)
+        start_idx = length(vertices)
+        for (v, n) in zip(prim.vertices, prim.normals)
+            push!(vertices, v)
+            push!(colors, prim.material_idx)
+            push!(normals, Vec3f(n))
+        end
+        push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
+    end
+    return (GeometryBasics.Mesh(vertices, faces; normal=normals, color=colors), )
 end
 
 end # module
