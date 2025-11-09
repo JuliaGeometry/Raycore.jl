@@ -13,6 +13,7 @@ using WGLMakie
 using KernelAbstractions
 using BenchmarkTools
 ```
+
 To run things on the GPU with KernelAbstractions, you need to chose the correct package for your GPU and set the array type we use from there on.
 
 ```julia (editor=true, logging=false, output=true)
@@ -276,7 +277,6 @@ DOM.img(src=Asset(data"gpu-benchmarks.png"), width="700px")
 ```
 ### Next Steps
 
-  * Add **adaptive sampling** (more samples only where needed)
-  * Explore **shared memory** optimizations for BVH traversal
-  * Implement **streaming multisampling** across frames
-  * Try **persistent threads** with dynamic work distribution
+* Add **adaptive sampling** (more samples only where needed)
+* Explore **shared memory** optimizations for BVH traversal
+* Implement **streaming multisampling** across frames
