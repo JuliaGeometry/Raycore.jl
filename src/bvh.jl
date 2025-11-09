@@ -607,7 +607,7 @@ function calculate_ray_grid_bounds(bounds::GeometryBasics.Rect, ray_direction::V
     # 1. Find a plane perpendicular to the ray direction
     # We need two basis vectors that are perpendicular to the ray direction
     # First, find a non-parallel vector to create our first basis vector
-    if abs(direction[1]) < 0.9
+    if abs(direction[1]) < 0.9f0
         temp = Vec3f(1.0, 0.0, 0.0)
     else
         temp = Vec3f(0.0, 1.0, 0.0)

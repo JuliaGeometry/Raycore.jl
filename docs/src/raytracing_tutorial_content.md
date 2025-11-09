@@ -1,15 +1,13 @@
-# Ray Tracing with Raycore: Building a Real Ray Tracer
+# Ray Tracing in one Hour
 
-In this tutorial, we'll build a simple but complete ray tracer from scratch using Raycore. We'll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows, materials, and reflections.
-
-By the end, you'll have a working ray tracer that renders at interactive speeds!
+Analougus to the famous [Ray Tracing in one Weekend](https://raytracing.github.io/), this tutorial uses Raycore to do the hard work of performant ray triangle intersection and therefore get a high performing ray tracer in a much shorter time.
+We'll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows, materials, and reflections.
 
 ## Setup
 
 ```julia (editor=true, logging=false, output=true)
 using Raycore, GeometryBasics, LinearAlgebra
-using Colors, ImageShow
-using Makie  # For loading assets
+using Colors, ImageShow, WGLMakie
 using BenchmarkTools
 ```
 **Ready to go!** We have:
@@ -51,8 +49,18 @@ sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 # Build our BVH acceleration structure
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
 bvh = Raycore.BVH(scene_geometry)
+plot(bvh; axis=(; show_axis=false))
 ```
-**Scene created!** Cat model, room geometry, decorative spheres, and BVH for fast ray traversal.
+Set the camera to something better:
+```julia (editor=true, logging=false, output=true)
+cam = cameracontrols(ax.scene)
+cam.eyeposition[] = [0, 1.0, -4]
+cam.lookat[] = [0, 0, 2]
+cam.upvector[] = [0.0, 1, 0.0]
+cam.fov[] = 45.0
+update_cam!(ax.scene, cam)
+nothing
+```
 
 ## Part 2: Helper Functions - Building Blocks
 
@@ -78,7 +86,12 @@ end
 to_vec3f(c::RGB) = Vec3f(c.r, c.g, c.b)
 to_rgb(v::Vec3f) = RGB{Float32}(v...)
 ```
+
 ## Part 3: The Simplest Ray Tracer - Depth Visualization
+
+We're using one main function to shoot rays for each pixel.
+For simplicity, we already added multisampling and simple multi threading, to enjoy smoother images and faster rendering times throughout the tutorial.
+Read the GPU tutorial how to further improve the performance of this simple, not yet optimal kernel.
 
 ```julia (editor=true, logging=false, output=true)
 function trace(f, bvh; width=700, height=300,
@@ -92,12 +105,11 @@ function trace(f, bvh; width=700, height=300,
     Threads.@threads for y in 1:height
         for x in 1:width
             color_sum = Vec3f(0)
-
             for _ in 1:samples
                 jitter = samples > 1 ? rand(Vec2f) : Vec2f(0)
+                # Calculate the ray shooting from the camera pixel into the scene
                 ray = camera_ray(x, y, width, height, camera_pos, focal_length, aspect; jitter)
                 hit_found, triangle, distance, bary_coords = Raycore.closest_hit(bvh, ray)
-
                 color = if hit_found
                     to_vec3f(f(bvh, ctx, triangle, distance, bary_coords, ray))
                 else
@@ -109,7 +121,6 @@ function trace(f, bvh; width=700, height=300,
             img[y, x] = to_rgb(color_sum / samples)
         end
     end
-
     return img
 end
 
@@ -119,6 +130,7 @@ depth_kernel(bvh, ctx, tri, dist, bary, ray) = RGB(1.0f0 - min(dist / 10.0f0, 1.
 ```julia (editor=true, logging=false, output=true)
 @time trace(depth_kernel, bvh, samples=16)
 ```
+
 **First render!** Depth visualization shows distance to surfaces. **Much faster with threading and smoother with multi-sampling!**
 
 ## Part 5: Lighting with Hard Shadows
@@ -190,6 +202,7 @@ end
 
 trace(shadow_kernel, bvh, samples=4)
 ```
+
 **Hard shadows working!** Scene has realistic lighting with sharp shadow edges.
 
 ## Part 6: Soft Shadows
@@ -338,6 +351,9 @@ end
 
 tone_mapping(img, a=0.38, y=1.0)
 ```
+For performance type stability is a must!
+We can use JET to test if a function is completely type stable, which we also test in the Raycore tests for all functions.
+
 ```julia (editor=true, logging=false, output=true)
 using JET
 
@@ -346,10 +362,10 @@ test_ray = camera_ray(350, 150, 700, 300, Point3f(0, -0.9, -2.5), 1.0f0 / tan(de
 hit_found, test_tri, test_dist, test_bary = Raycore.closest_hit(bvh, test_ray)
 
 # Check kernel type stability (filter to Main module to ignore Base internals)
-@test_opt target_modules=(Main,) depth_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray)
-@test_opt target_modules=(Main,) shadow_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray)
-@test_opt target_modules=(Main,) material_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray)
-@test_opt target_modules=(Main,) reflective_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray, RGB(0.5f0, 0.7f0, 1.0f0))
+@test_opt depth_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray)
+@test_opt shadow_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray)
+@test_opt material_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray)
+@test_opt reflective_kernel(bvh, ctx, test_tri, test_dist, test_bary, test_ray, RGB(0.5f0, 0.7f0, 1.0f0))
 nothing
 ```
 ## Summary
@@ -388,6 +404,3 @@ We built a complete ray tracer with:
   * `shadow_samples=4` → soft shadows
 
 This shows how a well-designed function can handle multiple use cases cleanly!
-
-Happy ray tracing!
-
