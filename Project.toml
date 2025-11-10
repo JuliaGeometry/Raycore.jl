@@ -1,6 +1,6 @@
 name = "Raycore"
 uuid = "afc56b53-c9a9-482a-a956-d1d800e05559"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Anton Smirnov <tonysmn97@gmail.com>", "Simon Danisch <sdanisch@protonmail.com"]
 
 [deps]
