@@ -57,10 +57,10 @@ vf_matrix = view_factors(bvh; rays_per_triangle=1000)
 
 ## Documentation
 
-- [Full API Documentation](https://juliageometry.github.io/Raycore.jl/)
-- [Ray Tracing Tutorial](https://juliageometry.github.io/Raycore.jl/dev/raytracing_tutorial.html) - Build a complete ray tracer from scratch
-- [GPU Ray Tracing Tutorial](https://juliageometry.github.io/Raycore.jl/dev/gpu_raytracing.html) - Port the ray tracer to GPU with optimization techniques
+[Full API Documentation](https://juliageometry.github.io/Raycore.jl/)
 
+[Ray Tracing Tutorial](https://juliageometry.github.io/Raycore.jl/dev/raytracing_tutorial.html), build a complete ray tracer from scratch
 ![Ray tracing example](./docs/src/raytracing.png)
 
+[GPU Ray Tracing Tutorial](https://juliageometry.github.io/Raycore.jl/dev/gpu_raytracing.html), port the ray tracer to GPU with optimization techniques
 ![GPU Benchmarks](./docs/src/gpu-benchmarks.png)
