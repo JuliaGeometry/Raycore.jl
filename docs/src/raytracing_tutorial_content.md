@@ -7,6 +7,7 @@ Analougus to the famous [Ray Tracing in one Weekend](https://raytracing.github.i
 ```julia (editor=true, logging=false, output=true)
 using Raycore, GeometryBasics, LinearAlgebra
 using Colors, ImageShow, WGLMakie
+using MeshIO
 using BenchmarkTools
 ```
 **Ready to go!** We have:
@@ -14,6 +15,7 @@ using BenchmarkTools
   * `Raycore` for fast ray-triangle intersections
   * `GeometryBasics` for geometry primitives
   * `Colors` and `ImageShow` for displaying rendered images
+  * `MeshIO` for loading the cat data
 
 ## Part 1: Our Scene, The Makie Cat
 
