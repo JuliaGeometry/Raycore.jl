@@ -14,6 +14,7 @@ const Maybe{T} = Union{T,Nothing}
 
 GB.@fixed_vector Normal = StaticVector
 const Normal3f = Normal{3, Float32}
+const Normal3d = Normal{3, Float64}
 
 const DO_ASSERTS = false
 macro real_assert(expr, msg="")

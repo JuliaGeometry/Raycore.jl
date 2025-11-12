@@ -1,47 +1,60 @@
-Base.@kwdef struct Ray <: AbstractRay
-    o::Point3f
-    d::Vec3f
-    t_max::Float32 = Inf32
-    time::Float32 = 0.0f0
+struct Ray{T} <: AbstractRay
+    o::Point{3,T}
+    d::Vec{3,T}
+    t_max::T
+    time::T
 end
 
-@inline function Ray(ray::Ray; o::Point3f = ray.o, d::Vec3f = ray.d, t_max::Float32 = ray.t_max, time::Float32 = ray.time)
-    Ray(o, d, t_max, time)
+# Constructor that infers T from arguments
+function Ray(; o::Point{3,T}, d::Vec{3,T}, t_max::T = T(Inf), time::T = zero(T)) where {T}
+    Ray{T}(o, d, t_max, time)
+end
+
+@inline function Ray(ray::Ray{T}; o::Point{3,T} = ray.o, d::Vec{3,T} = ray.d, t_max::T = ray.t_max, time::T = ray.time) where {T}
+    Ray{T}(o, d, t_max, time)
 end
 
 
-Base.@kwdef struct RayDifferentials <: AbstractRay
-    o::Point3f
-    d::Vec3f
-    t_max::Float32 = Inf32
-    time::Float32 = 0.0f0
+struct RayDifferentials{T} <: AbstractRay
+    o::Point{3,T}
+    d::Vec{3,T}
+    t_max::T
+    time::T
 
-    has_differentials::Bool = false
-    rx_origin::Point3f = zeros(Point3f)
-    ry_origin::Point3f = zeros(Point3f)
-    rx_direction::Vec3f = zeros(Vec3f)
-    ry_direction::Vec3f = zeros(Vec3f)
+    has_differentials::Bool
+    rx_origin::Point{3,T}
+    ry_origin::Point{3,T}
+    rx_direction::Vec{3,T}
+    ry_direction::Vec{3,T}
 end
 
-@inline function RayDifferentials(ray::RayDifferentials;
-        o::Point3f = ray.o, d::Vec3f = ray.d, t_max::Float32 = ray.t_max, time::Float32 = ray.time,
-        has_differentials::Bool = ray.has_differentials, rx_origin::Point3f = ray.rx_origin, ry_origin::Point3f = ray.ry_origin,
-        rx_direction::Vec3f = ray.rx_direction, ry_direction::Vec3f = ray.ry_direction
-    )
-    RayDifferentials(o, d, t_max, time, has_differentials, rx_origin, ry_origin, rx_direction, ry_direction)
+# Constructor that infers T from arguments
+function RayDifferentials(; o::Point{3,T}, d::Vec{3,T}, t_max = T(Inf), time = zero(T),
+        has_differentials::Bool = false, rx_origin = zeros(Point{3,T}),
+        ry_origin = zeros(Point{3,T}), rx_direction = zeros(Vec{3,T}),
+        ry_direction = zeros(Vec{3,T})) where {T}
+    RayDifferentials{T}(o, d, t_max, time, has_differentials, rx_origin, ry_origin, rx_direction, ry_direction)
 end
 
-@inline function RayDifferentials(r::Ray)::RayDifferentials
+@inline function RayDifferentials(ray::RayDifferentials{T};
+        o::Point{3,T} = ray.o, d::Vec{3,T} = ray.d, t_max::T = ray.t_max, time::T = ray.time,
+        has_differentials::Bool = ray.has_differentials, rx_origin::Point{3,T} = ray.rx_origin, ry_origin::Point{3,T} = ray.ry_origin,
+        rx_direction::Vec{3,T} = ray.rx_direction, ry_direction::Vec{3,T} = ray.ry_direction
+    ) where {T}
+    RayDifferentials{T}(o, d, t_max, time, has_differentials, rx_origin, ry_origin, rx_direction, ry_direction)
+end
+
+@inline function RayDifferentials(r::Ray{T})::RayDifferentials{T} where {T}
     RayDifferentials(o = r.o, d = r.d, t_max = r.t_max, time = r.time)
 end
 
-@inline function set_direction(r::Ray, d::Vec3f)
-    d = map(i-> i ≈ 0f0 ? 0f0 : i, d)
+@inline function set_direction(r::Ray{T}, d::Vec{3,T}) where {T}
+    d = map(i-> i ≈ zero(T) ? zero(T) : i, d)
     return Ray(r, d=d)
 end
 
-@inline function set_direction(r::RayDifferentials, d::Vec3f)
-    d = map(i -> i ≈ 0.0f0 ? 0.0f0 : i, d)
+@inline function set_direction(r::RayDifferentials{T}, d::Vec{3,T}) where {T}
+    d = map(i -> i ≈ zero(T) ? zero(T) : i, d)
     return RayDifferentials(r, d=d)
 end
 
@@ -49,7 +62,7 @@ end
 
 apply(r::AbstractRay, t::Number) = r.o + r.d * t
 
-@inline function scale_differentials(rd::RayDifferentials, s::Float32)
+@inline function scale_differentials(rd::RayDifferentials{T}, s::T) where {T}
     return RayDifferentials(rd;
         rx_origin = rd.o + (rd.rx_origin - rd.o) * s,
         ry_origin = rd.o + (rd.ry_origin - rd.o) * s,
@@ -58,8 +71,8 @@ apply(r::AbstractRay, t::Number) = r.o + r.d * t
     )
 end
 
-increase_hit(ray::Ray, t_hit) = Ray(ray; t_max=t_hit)
-increase_hit(ray::RayDifferentials, t_hit) = RayDifferentials(ray; t_max=t_hit)
+increase_hit(ray::Ray{T}, t_hit) where {T} = Ray(ray; t_max=t_hit)
+increase_hit(ray::RayDifferentials{T}, t_hit) where {T} = RayDifferentials(ray; t_max=t_hit)
 
 @inline function intersect_p!(shape::AbstractShape, ray::R) where {R<:AbstractRay}
     intersects, t_hit, barycentric = intersect(shape, ray)
