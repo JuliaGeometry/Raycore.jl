@@ -1,6 +1,7 @@
 using Raycore, GeometryBasics, LinearAlgebra
 using Colors, ImageShow
 import KernelAbstractions as KA
+using KernelAbstractions: @kernel, @index
 function compute_normal(triangle, bary_coords)
     v0, v1, v2 = Raycore.normals(triangle)
     u, v, w = bary_coords[1], bary_coords[2], bary_coords[3]
@@ -29,7 +30,12 @@ struct Material
     base_color::RGB{Float32}
     metallic::Float32
     roughness::Float32
+    ior::Float32           # Index of refraction (1.0 = opaque, 1.5 = glass)
+    transmission::Float32  # 0 = opaque, 1 = fully transparent
 end
+
+# Convenience constructor for backward compatibility
+Material(base_color, metallic, roughness) = Material(base_color, metallic, roughness, 1.0f0, 0.0f0)
 
 struct RenderContext{L<:AbstractVector{PointLight},M<:AbstractVector{Material}}
     lights::L
@@ -41,7 +47,7 @@ function Raycore.to_gpu(Arr, ctx::RenderContext)
     return RenderContext(to_gpu(Arr, ctx.lights), to_gpu(Arr, ctx.materials), ctx.ambient)
 end
 
-function render_context()
+function render_context(; glass_cat=false)
     # Create lights and materials
     lights = [
         PointLight(Point3f(3, 4, -2), 50.0f0, RGB(1.0f0, 0.9f0, 0.8f0)),
@@ -49,13 +55,22 @@ function render_context()
         PointLight(Point3f(0, 5, 5), 15.0f0, RGB(1.0f0, 1.0f0, 1.0f0))
     ]
 
+    # Material: base_color, metallic, roughness, ior, transmission
+    cat_material = if glass_cat
+        # Glass cat: clear glass with slight green tint, ior=1.5
+        Material(RGB(0.95f0, 1.0f0, 0.95f0), 0.0f0, 0.0f0, 1.5f0, 1.0f0)
+    else
+        # Original diffuse cat
+        Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0)
+    end
+
     materials = [
-        Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0),  # cat
-        Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0),  # floor
-        Material(RGB(0.8f0, 0.6f0, 0.5f0), 0.8f0, 0.05f0),  # back wall
-        Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0),  # left wall
-        Material(RGB(0.9f0, 0.9f0, 0.9f0), 0.8f0, 0.02f0),  # sphere1 - metallic
-        Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0),  # sphere2 - semi-metallic
+        cat_material,                                                    # cat (index 1)
+        Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0, 1.0f0, 0.0f0),  # floor - diffuse
+        Material(RGB(0.8f0, 0.6f0, 0.5f0), 0.8f0, 0.05f0, 1.0f0, 0.0f0), # back wall - metallic
+        Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0),  # left wall - diffuse
+        Material(RGB(0.9f0, 0.9f0, 0.9f0), 0.8f0, 0.02f0, 1.0f0, 0.0f0), # sphere1 - metallic
+        Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0, 1.0f0, 0.0f0),  # sphere2 - semi-metallic
     ]
 
     return RenderContext(lights, materials, 0.1f0)
@@ -171,7 +186,7 @@ function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color, shadow_sam
     return to_rgb(direct_color)
 end
 
-function example_scene()
+function example_scene(; glass_cat=false)
     cat_mesh = Makie.loadasset("cat.obj")
     angle = deg2rad(150f0)
     rotation = Makie.Quaternionf(0, sin(angle/2), 0, cos(angle/2))
@@ -198,8 +213,11 @@ function example_scene()
 
     # Build our BVH acceleration structure
     scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-    bvh = Raycore.BVH(scene_geometry)
-    return bvh, render_context()
+    return scene_geometry, render_context(glass_cat=glass_cat)
+end
+
+function example_scene_glass_cat()
+    example_scene(glass_cat=true)
 end
 
 function sample_light(bvh, ctx, width, height, camera_pos, focal_length, aspect, x, y, sky_color)
