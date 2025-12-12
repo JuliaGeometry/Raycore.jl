@@ -84,14 +84,12 @@ Fields:
 - edge1: v1 - v0 edge vector
 - edge2: v2 - v0 edge vector
 - normal: Face normal (4th component for alignment)
-- indices: [material_idx, primitive_idx] for shading
 """
 struct CompactTriangle
     v0::SVector{4, Float32}
     edge1::SVector{4, Float32}
     edge2::SVector{4, Float32}
     normal::SVector{4, Float32}
-    indices::SVector{2, UInt32}
 end
 
 """
@@ -113,7 +111,6 @@ Convert a Triangle to CompactTriangle format with pre-computed edge vectors.
         SVector{4, Float32}(edge1[1], edge1[2], edge1[3], 0f0),
         SVector{4, Float32}(edge2[1], edge2[2], edge2[3], 0f0),
         SVector{4, Float32}(face_normal[1], face_normal[2], face_normal[3], 0f0),
-        SVector{2, UInt32}(tri.material_idx, tri.primitive_idx)
     )
 end
 
@@ -292,9 +289,8 @@ function _init(
     )
     dim = maximum_extent(centroid_bounds)
     ( # Create leaf node.
-        !is_valid(centroid_bounds)
-        ||
-        centroid_bounds.p_min[dim] == centroid_bounds.p_max[dim]
+        !is_valid(centroid_bounds) ||
+            centroid_bounds.p_min[dim] == centroid_bounds.p_max[dim]
     ) && return _create_leaf()
     # Partition primitives into sets and build children.
     if n_primitives <= 2 # Equally-sized subsets.

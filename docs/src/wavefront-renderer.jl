@@ -199,11 +199,17 @@ end
 # Stage 3: Generate Shadow Rays (for all hits × all lights)
 # ============================================================================
 
+@generated function for_unrolled(f::F, ::Val{N}) where {F, N}
+    # marked inline since this benefits from constant propagation of `n`
+    return Expr(:block, [:(f($(Raycore.gpu_int(i)))) for i in 1:N]...)
+end
+
+
 @kernel function generate_shadow_rays!(
     @Const(hit_queue),
     @Const(ctx),
     shadow_ray_queue,
-    ::Val{NLights}
+    nlights::Val{NLights}
 ) where {NLights}
     i = @index(Global, Linear)
     idx = gpu_int(i)
@@ -218,9 +224,8 @@ end
             v0, v1, v2 = Raycore.normals(tri)
             u, v, w = bary[1], bary[2], bary[3]
             normal = Vec3f(normalize(v0 * u + v1 * v + v2 * w))
-
             # Generate shadow ray for each light (unrolled)
-            ntuple(Val(NLights)) do light_idx
+            for_unrolled(nlights) do light_idx
                 light_idx_gpu = gpu_int(light_idx)
                 shadow_ray_idx = (idx - gpu_int(1)) * gpu_int(NLights) + light_idx_gpu
                 light = ctx.lights[light_idx_gpu]
@@ -232,19 +237,17 @@ end
                 shadow_dir = normalize(light_vec)
                 light_dist = norm(light_vec)
                 shadow_ray = Raycore.Ray(o=shadow_origin, d=shadow_dir, t_max=light_dist)
-
                 # Write to SoA using @set
                 @set shadow_ray_queue[shadow_ray_idx] = (ray=shadow_ray, hit_idx=idx, light_idx=light_idx_gpu)
             end
         else
             # Sky hit - no shadow rays needed, but we need to fill the queue
             dummy_ray = Raycore.Ray(o=Point3f(0,0,0), d=Vec3f(0,0,1), t_max=0.0f0)
-            ntuple(Val(NLights)) do light_idx
+            for_unrolled(nlights) do light_idx
                 light_idx_gpu = gpu_int(light_idx)
                 shadow_ray_idx = (idx - gpu_int(1)) * gpu_int(NLights) + light_idx_gpu
                 # Write dummy to SoA using @set
-                @set shadow_ray_queue[shadow_ray_idx] = (ray=dummy_ray, hit_idx=idx, light_idx=light_idx_gpu)
-                nothing
+                shadow_ray_queue.ray[shadow_ray_idx] = dummy_ray
             end
         end
     end
@@ -264,7 +267,6 @@ end
     @inbounds if idx <= length(shadow_ray_queue.ray)
         # Read from SoA
         @get ray, hit_idx, light_idx = shadow_ray_queue[idx]
-
         # Test for occlusion
         # any_hit respects ray.t_max and only returns hits before the light
         # So if we get a hit, something is blocking the light
@@ -289,7 +291,7 @@ end
     @Const(shadow_results),
     @Const(sky_color),
     shading_queue,
-    ::Val{NLights}
+    nlights::Val{NLights}
 ) where {NLights}
     i = @index(Global, Linear)
     idx = gpu_int(i)
@@ -311,11 +313,10 @@ end
             # Start with ambient
             total_color = base_color * ctx.ambient
             # Add contribution from each light using shadow test results (unrolled)
-            light_contributions = ntuple(Val(NLights)) do light_idx
+            light_samples = ntuple(nlights) do light_idx
                 light_idx_gpu = gpu_int(light_idx)
                 shadow_idx = (idx - gpu_int(1)) * gpu_int(NLights) + light_idx_gpu
                 visible = shadow_results.visible[shadow_idx]
-
                 if visible
                     light = ctx.lights[light_idx_gpu]
                     light_vec = light.position - hit_point
@@ -324,18 +325,16 @@ end
 
                     diffuse = max(0.0f0, dot(normal, light_dir))
                     attenuation = light.intensity / (light_dist * light_dist)
-
                     light_color = Vec3f(light.color.r, light.color.g, light.color.b)
-                    base_color .* (light_color * (diffuse * attenuation))
+                    difa = (diffuse * attenuation)
+                    Vec3f(base_color * (light_color * difa))
                 else
-                    Vec3f(0, 0, 0)
+                    Vec3f(0)
                 end
             end
-
-            # Sum all light contributions
-            total_color += sum(light_contributions)
             # Write to SoA using @set
-            @set shading_queue[idx] = (color=total_color, pixel_x=pixel_x, pixel_y=pixel_y, sample_idx=sample_idx)
+            final_color = total_color + sum(light_samples)
+            @set shading_queue[idx] = (color=final_color, pixel_x=pixel_x, pixel_y=pixel_y, sample_idx=sample_idx)
         else
             # Sky color
             sky_vec = Vec3f(sky_color.r, sky_color.g, sky_color.b)
@@ -361,6 +360,7 @@ end
     @inbounds if idx <= length(hit_queue.hit_found)
         # Read from SoA
         @get hit_found, tri, dist, bary, ray = hit_queue[idx]
+        dummy_ray = Raycore.Ray(o=Point3f(0, 0, 0), d=Vec3f(0, 0, 1), t_max=0.0f0)
 
         if hit_found
             mat = ctx.materials[tri.material_idx]
@@ -386,13 +386,11 @@ end
                 @set reflection_ray_soa[idx] = (ray=reflect_ray, hit_idx=idx)
             else
                 # No reflection - dummy ray
-                dummy_ray = Raycore.Ray(o=Point3f(0,0,0), d=Vec3f(0,0,1), t_max=0.0f0)
-                @set reflection_ray_soa[idx] = (ray=dummy_ray, hit_idx=idx)
+                reflection_ray_soa.ray[idx] = dummy_ray
             end
         else
             # Sky hit - no reflection
-            dummy_ray = Raycore.Ray(o=Point3f(0,0,0), d=Vec3f(0,0,1), t_max=0.0f0)
-            @set reflection_ray_soa[idx] = (ray=dummy_ray, hit_idx=idx)
+            reflection_ray_soa.ray[idx] = dummy_ray
         end
     end
 end
@@ -450,20 +448,14 @@ end
 
             if mat.metallic > 0.0f0
                 # Access from SoA directly (using different variable names for clarity)
-                refl_hit_found = reflection_hit_soa.hit_found[idx]
-                refl_tri_idx = reflection_hit_soa.tri_idx[idx]
-                refl_dist = reflection_hit_soa.dist[idx]
-                refl_bary = reflection_hit_soa.bary[idx]
-                refl_ray = reflection_hit_soa.ray[idx]
-
+                @get hit_found, tri_idx, dist, bary, ray = reflection_hit_soa[idx]
                 # Compute reflection color (simplified - no recursive shadows for performance)
-                reflection_color = if refl_hit_found
-                    refl_point = refl_ray.o + refl_ray.d * refl_dist
-
+                reflection_color = if hit_found
+                    refl_point = ray.o + ray.d * dist
                     # Get triangle from BVH using stored index
-                    refl_tri = bvh_triangles[refl_tri_idx]
+                    refl_tri = bvh_triangles[tri_idx]
                     v0, v1, v2 = Raycore.normals(refl_tri)
-                    u, v, w = refl_bary[1], refl_bary[2], refl_bary[3]
+                    u, v, w = bary
                     refl_normal = Vec3f(normalize(v0 * u + v1 * v + v2 * w))
 
                     refl_mat = ctx.materials[refl_tri.material_idx]
@@ -486,7 +478,6 @@ end
                 else
                     Vec3f(sky_color.r, sky_color.g, sky_color.b)
                 end
-
                 # Blend with primary color
                 primary_color = shading_queue.color[idx]
                 blended_color = primary_color * (1.0f0 - mat.metallic) + reflection_color * mat.metallic
@@ -520,8 +511,9 @@ end
 @kernel function finalize_image!(
     @Const(sample_accumulator),
     img,
-    ::Val{NSamples}
+    nsamples::Val{NSamples}
 ) where {NSamples}
+
     i = @index(Global, Cartesian)
     y = gpu_int(i[1])
     x = gpu_int(i[2])
@@ -531,14 +523,13 @@ end
         # Convert to linear index
         pixel_idx = (y - gpu_int(1)) * width + x
         # Unroll sample accumulation loop
-        colors = ntuple(Val(NSamples)) do s
-            s_idx = gpu_int(s)
+        samples = ntuple(nsamples) do idx
+            s_idx = gpu_int(idx)
             sample_idx = (pixel_idx - gpu_int(1)) * gpu_int(NSamples) + s_idx
             sample_accumulator[sample_idx]
         end
-
         # Sum all colors
-        img[y, x] = RGB{Float32}(mean(colors)...)
+        img[y, x] = RGB{Float32}(mean(samples)...)
     end
 end
 
@@ -784,78 +775,4 @@ function render!(renderer::WavefrontRenderer)
     KA.synchronize(backend)
 
     return renderer.framebuffer
-end
-
-function trace_wavefront_full(
-        img, bvh, ctx;
-        camera_pos=Point3f(0, -0.9, -2.5), fov=45.0f0,
-        sky_color=RGB{Float32}(0.5f0,0.7f0,1.0f0),
-        samples_per_pixel=4
-    )
-    height, width = size(img)
-    aspect = Float32(width / height)
-    focal_length = 1.0f0 / tan(deg2rad(fov / 2))
-
-    backend = KA.get_backend(img)
-
-    num_pixels = width * height
-    num_rays = num_pixels * samples_per_pixel
-    num_lights = Int(length(ctx.lights))
-    num_shadow_rays = num_rays * num_lights
-
-    # Allocate work queues as SoA
-    primary_ray_queue = similar_soa(img, PrimaryRayWork, num_rays)
-    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh.primitives)}, num_rays)
-    shadow_ray_queue = similar_soa(img, ShadowRayWork, num_shadow_rays)
-    shadow_result_queue = similar_soa(img, ShadowResult, num_shadow_rays)
-    reflection_ray_soa = similar_soa(img, ReflectionRayWork, num_rays)
-    reflection_hit_soa = similar_soa(img, ReflectionHitWork{Int32}, num_rays)
-    shading_queue = similar_soa(img, ShadedResult, num_rays)
-    sample_accumulator = similar(img, Vec3f, num_rays)
-
-    # Stage 1: Generate primary rays
-    gen_kernel! = generate_primary_rays!(backend)
-    gen_kernel!(Int32(width), Int32(height), camera_pos, focal_length, aspect, primary_ray_queue, Val(samples_per_pixel), ndrange=(height, width))
-    KA.synchronize(backend)
-
-    # Stage 2: Intersect primary rays
-    intersect_kernel! = intersect_primary_rays!(backend)
-    intersect_kernel!(bvh, primary_ray_queue, primary_hit_queue, ndrange=num_rays)
-    KA.synchronize(backend)
-
-    # Stage 3: Generate shadow rays
-    shadow_gen_kernel! = generate_shadow_rays!(backend)
-    shadow_gen_kernel!(primary_hit_queue, ctx, shadow_ray_queue, Val(num_lights), ndrange=num_rays)
-
-    # Stage 4: Test shadow rays
-    shadow_test_kernel! = test_shadow_rays!(backend)
-    shadow_test_kernel!(bvh, shadow_ray_queue, shadow_result_queue, ndrange=num_shadow_rays)
-
-    # Stage 5: Shade primary hits with shadows
-    shade_kernel! = shade_primary_hits!(backend)
-    shade_kernel!(primary_hit_queue, ctx, shadow_result_queue, sky_color, shading_queue, Val(num_lights), ndrange=num_rays)
-
-    # Stage 6: Generate reflection rays (SoA)
-    refl_gen_kernel! = generate_reflection_rays!(backend)
-    active_count = similar(img, Int32, 1)
-    refl_gen_kernel!(primary_hit_queue, ctx, reflection_ray_soa, active_count, ndrange=num_rays)
-    KA.synchronize(backend)
-
-    # Stage 7: Intersect reflection rays (SoA)
-    refl_intersect_kernel! = intersect_reflection_rays!(backend)
-    refl_intersect_kernel!(bvh, reflection_ray_soa, reflection_hit_soa, ndrange=num_rays)
-    KA.synchronize(backend)
-
-    # Stage 8: Shade reflections and blend (using SoA)
-    refl_shade_kernel! = shade_reflections_and_blend!(backend)
-    refl_shade_kernel!(primary_hit_queue, reflection_hit_soa, bvh.primitives, ctx, sky_color, shading_queue, ndrange=num_rays)
-
-    # Stage 9: Accumulate final image
-    accum_kernel! = accumulate_final!(backend)
-    accum_kernel!(shading_queue, img, sample_accumulator, ndrange=num_rays)
-
-    final_kernel! = finalize_image!(backend)
-    final_kernel!(sample_accumulator, img, Val(samples_per_pixel), ndrange=(height, width))
-    KA.synchronize(backend)
-    return img
 end
