@@ -91,8 +91,14 @@ struct CompactTriangle
     edge1::SVector{4, Float32}
     edge2::SVector{4, Float32}
     normal::SVector{4, Float32}
+    # indices: (material_type | material_idx << 8, primitive_idx)
+    # material_type is in the low 8 bits of indices[1]
     indices::SVector{2, UInt32}
 end
+
+@inline material_type(ct::CompactTriangle) = UInt8(ct.indices[1] & 0xFF)
+@inline material_idx(ct::CompactTriangle) = ct.indices[1] >> 8
+@inline primitive_idx(ct::CompactTriangle) = ct.indices[2]
 
 """
     to_compact_triangle(tri::Triangle) -> CompactTriangle
@@ -108,12 +114,14 @@ Convert a Triangle to CompactTriangle format with pre-computed edge vectors.
     # Compute face normal
     face_normal = normalize(cross(Vec3f(edge1), Vec3f(edge2)))
 
+    # Pack material_type (low 8 bits) and material_idx (upper 24 bits) into one UInt32
+    packed_material = UInt32(tri.material_type) | (tri.material_idx << 8)
     return CompactTriangle(
         SVector{4, Float32}(v0[1], v0[2], v0[3], 0f0),
         SVector{4, Float32}(edge1[1], edge1[2], edge1[3], 0f0),
         SVector{4, Float32}(edge2[1], edge2[2], edge2[3], 0f0),
         SVector{4, Float32}(face_normal[1], face_normal[2], face_normal[3], 0f0),
-        SVector{2, UInt32}(tri.material_idx, tri.primitive_idx)
+        SVector{2, UInt32}(packed_material, tri.primitive_idx)
     )
 end
 
@@ -219,25 +227,31 @@ function to_triangle_mesh(x::GeometryBasics.AbstractGeometry)
 end
 
 """
-    BVH(primitives::AbstractVector, max_node_primitives::Integer=1)
+    BVH(primitives::AbstractVector, material_types, material_indices, max_node_primitives::Integer=1)
 
 Construct a BVH acceleration structure from a list of primitives (meshes or geometries).
 
 Arguments:
 - `primitives`: Vector of triangle meshes or GeometryBasics geometries
+- `material_types`: Vector of UInt8 material type indices (which tuple slot), or single value for all
+- `material_indices`: Vector of UInt32 material indices (index within that type's array), or single value for all
 - `max_node_primitives`: Maximum number of primitives per leaf node (default: 1)
 
 Returns a GPU-optimized BVH with pre-transformed triangles for efficient ray tracing.
 """
 function BVH(
-        primitives::AbstractVector{P}, max_node_primitives::Integer=1,
+        primitives::AbstractVector{P},
+        material_types::Union{AbstractVector{UInt8}, UInt8},
+        material_indices::Union{AbstractVector{UInt32}, AbstractVector{<:Integer}, Integer},
+        max_node_primitives::Integer=1,
     ) where {P}
     triangles = Triangle[]
     for (mi, prim) in enumerate(primitives)
+        mat_type = material_types isa AbstractVector ? material_types[mi] : material_types
+        mat_idx = material_indices isa AbstractVector ? UInt32(material_indices[mi]) : UInt32(material_indices)
         triangle_mesh = to_triangle_mesh(prim)
-        vertices = triangle_mesh.vertices
         for i in 1:div(length(triangle_mesh.indices), 3)
-            push!(triangles, Triangle(triangle_mesh, i, mi, length(triangles) + 1))
+            push!(triangles, Triangle(triangle_mesh, i, mat_type, mat_idx, UInt32(length(triangles) + 1)))
         end
     end
     ordered_primitives, max_prim, nodes = primitives_to_bvh(triangles, max_node_primitives)
@@ -254,6 +268,13 @@ function BVH(
         ordered_primitives,
         UInt8(max_prim)
     )
+end
+
+# Convenience constructor: all primitives use material_type=1, material_idx=enumerate index
+function BVH(primitives::AbstractVector{P}, max_node_primitives::Integer=1) where {P}
+    material_types = fill(UInt8(1), length(primitives))
+    material_indices = UInt32.(1:length(primitives))
+    return BVH(primitives, material_types, material_indices, max_node_primitives)
 end
 
 mutable struct BucketInfo

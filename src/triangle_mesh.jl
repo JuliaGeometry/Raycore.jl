@@ -31,14 +31,15 @@ struct Triangle <: AbstractShape
     normals::SVector{3,Normal3f}
     tangents::SVector{3,Vec3f}
     uv::SVector{3,Point2f}
-    material_idx::UInt32
+    material_type::UInt8    # Index into tuple of material arrays (1-based)
+    material_idx::UInt32    # Index within that material array
     primitive_idx::UInt32
 end
 
-Triangle(tri::Triangle; material_idx=tri.material_idx, primitive_idx=tri.primitive_idx) =
-    Triangle(tri.vertices, tri.normals, tri.tangents, tri.uv, material_idx, primitive_idx)
+Triangle(tri::Triangle; material_type=tri.material_type, material_idx=tri.material_idx, primitive_idx=tri.primitive_idx) =
+    Triangle(tri.vertices, tri.normals, tri.tangents, tri.uv, material_type, material_idx, primitive_idx)
 
-function Triangle(m::TriangleMesh, face_indx, material_idx=0, primidx=0)
+function Triangle(m::TriangleMesh, face_indx, material_type=UInt8(1), material_idx=UInt32(0), primidx=UInt32(0))
     f_idx = 1 + (3 * (face_indx - 1))
     vs = @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
     ns = @SVector [m.normals[m.indices[f_idx + i]] for i in 0:2] # Every mesh should have normals!?
@@ -52,7 +53,7 @@ function Triangle(m::TriangleMesh, face_indx, material_idx=0, primidx=0)
     else
         uv = SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
     end
-    return Triangle(vs, ns, ts, uv, material_idx, primidx)
+    return Triangle(vs, ns, ts, uv, material_type, material_idx, primidx)
 end
 
 function TriangleMesh(mesh::GeometryBasics.Mesh)
