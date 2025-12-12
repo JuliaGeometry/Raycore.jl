@@ -16,9 +16,9 @@ include("wavefront-renderer.jl")
 
 geom, ctx = example_scene()
 bvh = BVH(geom)
-ibvh = Raycore.InstancedBVH(geom)
+# ibvh = Raycore.InstancedBVH(geom)
 begin
-    img = fill(RGBf(0, 0, 0), 1024, 2048)
+    img = fill(RGBf(0, 0, 0), 400, 720)
     renderer = WavefrontRenderer(img, bvh, ctx)
     @btime render!(renderer)
     nothing
@@ -26,7 +26,7 @@ end
 renderer.framebuffer
 renderer_instanced.framebuffer
 begin
-    img = fill(RGBf(0, 0, 0), 1024, 2048)
+    img = fill(RGBf(0, 0, 0), 400, 720)
     renderer_instanced = WavefrontRenderer(
         img, ibvh, ctx;
         camera_pos=Point3f(0, -0.9, -2.5),
@@ -43,7 +43,7 @@ using FileIO
 save("wavefront.png", map(col -> mapc(c -> clamp(c, 0f0, 1f0), col), renderer.framebuffer))
 
 using AMDGPU
-amd_renderer = to_gpu(ROCArray, renderer_instanced);
+amd_renderer = to_gpu(ROCArray, renderer);
 Array(@btime render!(amd_renderer))
 
 using pocl_jll, OpenCL
