@@ -47,33 +47,12 @@ function Raycore.to_gpu(Arr, ctx::RenderContext)
     return RenderContext(to_gpu(Arr, ctx.lights), to_gpu(Arr, ctx.materials), ctx.ambient)
 end
 
-function render_context(; glass_cat=false)
-    # Create lights and materials
-    lights = [
+function default_lights()
+    return [
         PointLight(Point3f(3, 4, -2), 50.0f0, RGB(1.0f0, 0.9f0, 0.8f0)),
         PointLight(Point3f(-3, 2, 0), 20.0f0, RGB(0.7f0, 0.8f0, 1.0f0)),
         PointLight(Point3f(0, 5, 5), 15.0f0, RGB(1.0f0, 1.0f0, 1.0f0))
     ]
-
-    # Material: base_color, metallic, roughness, ior, transmission
-    cat_material = if glass_cat
-        # Glass cat: clear glass with slight green tint, ior=1.5
-        Material(RGB(0.95f0, 1.0f0, 0.95f0), 0.0f0, 0.0f0, 1.5f0, 1.0f0)
-    else
-        # Original diffuse cat
-        Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0)
-    end
-
-    materials = [
-        cat_material,                                                    # cat (index 1)
-        Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0, 1.0f0, 0.0f0),  # floor - diffuse
-        Material(RGB(0.8f0, 0.6f0, 0.5f0), 0.8f0, 0.05f0, 1.0f0, 0.0f0), # back wall - metallic
-        Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0),  # left wall - diffuse
-        Material(RGB(0.9f0, 0.9f0, 0.9f0), 0.8f0, 0.02f0, 1.0f0, 0.0f0), # sphere1 - metallic
-        Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0, 1.0f0, 0.0f0),  # sphere2 - semi-metallic
-    ]
-
-    return RenderContext(lights, materials, 0.1f0)
 end
 
 function compute_light(
@@ -211,9 +190,27 @@ function example_scene(; glass_cat=false)
     sphere1 = Tesselation(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0), 64)
     sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
-    # Build our BVH acceleration structure
-    scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-    return scene_geometry, render_context(glass_cat=glass_cat)
+    # Material: base_color, metallic, roughness, ior, transmission
+    cat_material = if glass_cat
+        Material(RGB(0.95f0, 1.0f0, 0.95f0), 0.0f0, 0.0f0, 1.5f0, 1.0f0)
+    else
+        Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0)
+    end
+
+    # (geometry, material) pairs
+    scene = [
+        (cat_mesh,   cat_material),
+        (floor,      Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0, 1.0f0, 0.0f0)),
+        (back_wall,  Material(RGB(0.8f0, 0.6f0, 0.5f0), 0.8f0, 0.05f0, 1.0f0, 0.0f0)),
+        (left_wall,  Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0)),
+        (sphere1,    Material(RGB(0.9f0, 0.9f0, 0.9f0), 0.8f0, 0.02f0, 1.0f0, 0.0f0)),
+        (sphere2,    Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0, 1.0f0, 0.0f0)),
+    ]
+
+    bvh, materials = MaterialScene(scene)
+    lights = default_lights()
+    ctx = RenderContext(lights, materials, 0.1f0)
+    return bvh, ctx
 end
 
 function example_scene_glass_cat()

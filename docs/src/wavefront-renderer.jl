@@ -5,6 +5,44 @@ using KernelAbstractions
 using KernelAbstractions: @kernel, @index, @Const
 import KernelAbstractions as KA
 using Statistics
+
+# ============================================================================
+# MaterialScene Helper
+# ============================================================================
+
+"""
+    MaterialScene(geometry_material_pairs) -> (bvh, materials)
+
+Create a BVH and materials array from a vector of (geometry, material) tuples.
+
+# Arguments
+- `geometry_material_pairs`: Vector of `(mesh, material)` tuples
+
+# Returns
+- `bvh`: BVH with material indices as triangle metadata
+- `materials`: Vector of materials
+
+# Example
+```julia
+scene = [
+    (sphere_mesh, Material(...)),
+    (floor_mesh, Material(...)),
+]
+bvh, materials = MaterialScene(scene)
+```
+"""
+function MaterialScene(geometry_material_pairs::Vector{<:Tuple{<:Any, M}}) where {M}
+    meshes = [p[1] for p in geometry_material_pairs]
+    materials = M[p[2] for p in geometry_material_pairs]
+
+    # Create BVH with material index as metadata
+    function metadata_fn(mesh_idx, _tri_idx)
+        return Int32(mesh_idx)
+    end
+    bvh = Raycore.BVH(meshes, metadata_fn)
+    return bvh, materials
+end
+
 # ============================================================================
 # SoA Access Macros
 # ============================================================================
@@ -123,11 +161,12 @@ struct ReflectionRayWork
     hit_idx::Int32  # Index back to primary hit
 end
 
-struct ReflectionHitWork{T}
+struct ReflectionHitWork
     hit_found::Bool
-    tri_idx::T  # Store triangle index instead of full triangle
+    material_idx::Int32  # Store material index (triangle metadata)
     dist::Float32
     bary::Vec3f
+    normal::Vec3f  # Store interpolated normal
     ray::Raycore.Ray
     primary_hit_idx::Int32
 end
@@ -308,7 +347,7 @@ end
             normal = Vec3f(normalize(v0 * u + v1 * v + v2 * w))
 
             # Get material
-            mat = ctx.materials[tri.material_idx]
+            mat = ctx.materials[tri.metadata]
             base_color = Vec3f(mat.base_color.r, mat.base_color.g, mat.base_color.b)
             # Start with ambient
             total_color = base_color * ctx.ambient
@@ -363,7 +402,7 @@ end
         dummy_ray = Raycore.Ray(o=Point3f(0, 0, 0), d=Vec3f(0, 0, 1), t_max=0.0f0)
 
         if hit_found
-            mat = ctx.materials[tri.material_idx]
+            mat = ctx.materials[tri.metadata]
             if mat.metallic > 0.0f0
                 # Compute reflection
                 hit_point = ray.o + ray.d * dist
@@ -413,10 +452,18 @@ end
 
         if ray.t_max > 0.0f0
             hit_found, tri, dist, bary = Raycore.closest_hit(bvh, ray)
-            # Write to SoA using @set
-            @set reflection_hit_soa[idx] = (hit_found=hit_found, tri_idx=tri.primitive_idx,
-                dist=dist, bary=Vec3f(bary),
-                ray=ray, primary_hit_idx=hit_idx)
+            if hit_found
+                # Compute normal here so we don't need to store the triangle
+                v0, v1, v2 = Raycore.normals(tri)
+                u, v, w = bary[1], bary[2], bary[3]
+                normal = Vec3f(normalize(v0 * u + v1 * v + v2 * w))
+                # Write to SoA using @set
+                @set reflection_hit_soa[idx] = (hit_found=true, material_idx=tri.metadata,
+                    dist=dist, bary=Vec3f(bary), normal=normal,
+                    ray=ray, primary_hit_idx=hit_idx)
+            else
+                reflection_hit_soa.hit_found[idx] = false
+            end
         else
             # Write only hit_found as false for dummy rays
             reflection_hit_soa.hit_found[idx] = false
@@ -431,7 +478,6 @@ end
 @kernel function shade_reflections_and_blend!(
     @Const(hit_queue),
     @Const(reflection_hit_soa),  # SoA version: NamedTuple of arrays
-    @Const(bvh_triangles),        # Need original triangles for material lookup
     @Const(ctx),
     @Const(sky_color),
     shading_queue  # In/out: update with reflection contribution
@@ -444,21 +490,17 @@ end
         @get hit_found, tri, pixel_x, pixel_y, sample_idx = hit_queue[idx]
 
         if hit_found
-            mat = ctx.materials[tri.material_idx]
+            mat = ctx.materials[tri.metadata]
 
             if mat.metallic > 0.0f0
-                # Access from SoA directly (using different variable names for clarity)
-                @get hit_found, tri_idx, dist, bary, ray = reflection_hit_soa[idx]
+                # Access from SoA directly
+                @get hit_found, material_idx, dist, bary, normal, ray = reflection_hit_soa[idx]
                 # Compute reflection color (simplified - no recursive shadows for performance)
                 reflection_color = if hit_found
                     refl_point = ray.o + ray.d * dist
-                    # Get triangle from BVH using stored index
-                    refl_tri = bvh_triangles[tri_idx]
-                    v0, v1, v2 = Raycore.normals(refl_tri)
-                    u, v, w = bary
-                    refl_normal = Vec3f(normalize(v0 * u + v1 * v + v2 * w))
+                    refl_normal = normal
 
-                    refl_mat = ctx.materials[refl_tri.material_idx]
+                    refl_mat = ctx.materials[material_idx]
                     refl_base_color = Vec3f(refl_mat.base_color.r, refl_mat.base_color.g, refl_mat.base_color.b)
 
                     # Simplified lighting (ambient + first light only, no shadows)
@@ -614,7 +656,7 @@ function WavefrontRenderer(
     shadow_ray_queue = similar_soa(img, ShadowRayWork, num_shadow_rays)
     shadow_result_queue = similar_soa(img, ShadowResult, num_shadow_rays)
     reflection_ray_soa = similar_soa(img, ReflectionRayWork, num_rays)
-    reflection_hit_soa = similar_soa(img, ReflectionHitWork{Int32}, num_rays)
+    reflection_hit_soa = similar_soa(img, ReflectionHitWork, num_rays)
     shading_queue = similar_soa(img, ShadedResult, num_rays)
     sample_accumulator = similar(img, Vec3f, num_rays)
     active_count = similar(img, Int32, 1)
@@ -749,7 +791,6 @@ function render!(renderer::WavefrontRenderer)
     refl_shade_kernel!(
         renderer.primary_hit_queue,
         renderer.reflection_hit_soa,
-        renderer.bvh.primitives,
         renderer.ctx,
         renderer.sky_color,
         renderer.shading_queue,

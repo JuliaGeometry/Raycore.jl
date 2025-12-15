@@ -84,21 +84,13 @@ Fields:
 - edge1: v1 - v0 edge vector
 - edge2: v2 - v0 edge vector
 - normal: Face normal (4th component for alignment)
-- indices: [material_idx, primitive_idx] for shading
 """
 struct CompactTriangle
     v0::SVector{4, Float32}
     edge1::SVector{4, Float32}
     edge2::SVector{4, Float32}
     normal::SVector{4, Float32}
-    # indices: (material_type | material_idx << 8, primitive_idx)
-    # material_type is in the low 8 bits of indices[1]
-    indices::SVector{2, UInt32}
 end
-
-@inline material_type(ct::CompactTriangle) = UInt8(ct.indices[1] & 0xFF)
-@inline material_idx(ct::CompactTriangle) = ct.indices[1] >> 8
-@inline primitive_idx(ct::CompactTriangle) = ct.indices[2]
 
 """
     to_compact_triangle(tri::Triangle) -> CompactTriangle
@@ -114,14 +106,11 @@ Convert a Triangle to CompactTriangle format with pre-computed edge vectors.
     # Compute face normal
     face_normal = normalize(cross(Vec3f(edge1), Vec3f(edge2)))
 
-    # Pack material_type (low 8 bits) and material_idx (upper 24 bits) into one UInt32
-    packed_material = UInt32(tri.material_type) | (tri.material_idx << 8)
     return CompactTriangle(
         SVector{4, Float32}(v0[1], v0[2], v0[3], 0f0),
         SVector{4, Float32}(edge1[1], edge1[2], edge1[3], 0f0),
         SVector{4, Float32}(edge2[1], edge2[2], edge2[3], 0f0),
         SVector{4, Float32}(face_normal[1], face_normal[2], face_normal[3], 0f0),
-        SVector{2, UInt32}(packed_material, tri.primitive_idx)
     )
 end
 
@@ -157,6 +146,7 @@ Returns: (hit, t, u, v) where u,v are barycentric coordinates
 
     f = 1f0 / a
 
+    # s = ray_o - v0
     # s = ray_o - v0
     s_x = ray_o[1] - tri.v0[1]
     s_y = ray_o[2] - tri.v0[2]
@@ -204,13 +194,13 @@ Key optimizations:
 Fields:
 - nodes: LinearBVH nodes (flat array, depth-first layout)
 - triangles: Pre-transformed compact triangles
-- primitives: Original triangles (for normals, UVs, materials)
+- primitives: Original triangles (for normals, UVs, metadata)
 - max_node_primitives: Maximum primitives per leaf node
 """
 struct BVH{
     NodeVec <: AbstractVector{LinearBVH},
     TriVec <: AbstractVector{CompactTriangle},
-    OrigTriVec <: AbstractVector{Triangle}
+    OrigTriVec <: AbstractVector{<:Triangle}
 } <: AccelPrimitive
     nodes::NodeVec
     triangles::TriVec
@@ -227,40 +217,48 @@ function to_triangle_mesh(x::GeometryBasics.AbstractGeometry)
 end
 
 """
-    BVH(primitives::AbstractVector, material_types, material_indices, max_node_primitives::Integer=1)
+    BVH(primitives, metadata_fn, max_node_primitives=1)
 
 Construct a BVH acceleration structure from a list of primitives (meshes or geometries).
 
 Arguments:
 - `primitives`: Vector of triangle meshes or GeometryBasics geometries
-- `material_types`: Vector of UInt8 material type indices (which tuple slot), or single value for all
-- `material_indices`: Vector of UInt32 material indices (index within that type's array), or single value for all
+- `metadata_fn`: Function `(mesh_index, triangle_index) -> metadata` to generate metadata for each triangle
 - `max_node_primitives`: Maximum number of primitives per leaf node (default: 1)
 
 Returns a GPU-optimized BVH with pre-transformed triangles for efficient ray tracing.
+
+# Example
+```julia
+# Simple case: no metadata
+bvh = BVH(meshes)
+
+# With metadata function
+bvh = BVH(meshes, (mesh_idx, tri_idx) -> MaterialIndex(UInt8(1), UInt32(mesh_idx)))
+```
 """
 function BVH(
         primitives::AbstractVector{P},
-        material_types::Union{AbstractVector{UInt8}, UInt8},
-        material_indices::Union{AbstractVector{UInt32}, AbstractVector{<:Integer}, Integer},
+        metadata_fn::Function,
         max_node_primitives::Integer=1,
     ) where {P}
-    triangles = Triangle[]
+    # First pass: collect all triangles to determine the metadata type
+    first_mesh = to_triangle_mesh(first(primitives))
+    first_metadata = metadata_fn(1, 1)
+    TMetadata = typeof(first_metadata)
+
+    triangles = Triangle{TMetadata}[]
     for (mi, prim) in enumerate(primitives)
-        mat_type = material_types isa AbstractVector ? material_types[mi] : material_types
-        mat_idx = material_indices isa AbstractVector ? UInt32(material_indices[mi]) : UInt32(material_indices)
         triangle_mesh = to_triangle_mesh(prim)
         for i in 1:div(length(triangle_mesh.indices), 3)
-            push!(triangles, Triangle(triangle_mesh, i, mat_type, mat_idx, UInt32(length(triangles) + 1)))
+            metadata = metadata_fn(mi, length(triangles) + 1)
+            push!(triangles, Triangle(triangle_mesh, i, metadata))
         end
     end
     ordered_primitives, max_prim, nodes = primitives_to_bvh(triangles, max_node_primitives)
-    ordered_primitives = map(enumerate(ordered_primitives)) do (i, tri)
-        Triangle(tri, primitive_idx=UInt32(i))
-    end
 
     # Convert triangles to compact format with pre-computed edges
-    compact_tris = [to_compact_triangle(tri) for tri in ordered_primitives]
+    compact_tris = map(to_compact_triangle, ordered_primitives)
 
     return BVH(
         nodes,
@@ -270,11 +268,9 @@ function BVH(
     )
 end
 
-# Convenience constructor: all primitives use material_type=1, material_idx=enumerate index
+# Convenience constructor: metadata defaults to primitive index
 function BVH(primitives::AbstractVector{P}, max_node_primitives::Integer=1) where {P}
-    material_types = fill(UInt8(1), length(primitives))
-    material_indices = UInt32.(1:length(primitives))
-    return BVH(primitives, material_types, material_indices, max_node_primitives)
+    return BVH(primitives, (_, tri_idx) -> tri_idx, max_node_primitives)
 end
 
 mutable struct BucketInfo
@@ -313,9 +309,8 @@ function _init(
     )
     dim = maximum_extent(centroid_bounds)
     ( # Create leaf node.
-        !is_valid(centroid_bounds)
-        ||
-        centroid_bounds.p_min[dim] == centroid_bounds.p_max[dim]
+        !is_valid(centroid_bounds) ||
+            centroid_bounds.p_min[dim] == centroid_bounds.p_max[dim]
     ) && return _create_leaf()
     # Partition primitives into sets and build children.
     if n_primitives <= 2 # Equally-sized subsets.
@@ -517,7 +512,6 @@ Returns:
     if hit_found
         orig_tri = original_tris[hit_tri_idx]
         w = 1f0 - hit_u - hit_v
-        # Use SVector for GPU compatibility - Point3f is just an alias for SVector
         bary_point = SVector{3, Float32}(w, hit_u, hit_v)
         return (true, orig_tri, closest_t, bary_point)
     else

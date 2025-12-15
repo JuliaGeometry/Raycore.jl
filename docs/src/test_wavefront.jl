@@ -14,11 +14,10 @@ using BenchmarkTools
 include("raytracing-core.jl")
 include("wavefront-renderer.jl")
 
-geom, ctx = example_scene()
-bvh = BVH(geom)
-ibvh = Raycore.InstancedBVH(geom)
+bvh, ctx = example_scene()
+# ibvh = Raycore.InstancedBVH(geom)
 begin
-    img = fill(RGBf(0, 0, 0), 1024, 2048)
+    img = fill(RGBf(0, 0, 0), 400, 720)
     renderer = WavefrontRenderer(img, bvh, ctx)
     @btime render!(renderer)
     nothing
@@ -26,15 +25,18 @@ end
 renderer.framebuffer
 renderer_instanced.framebuffer
 begin
-    img = fill(RGBf(0, 0, 0), 1024, 2048)
+    img = fill(RGBf(0, 0, 0), 400, 720)
     renderer_instanced = WavefrontRenderer(
-        img, ibvh, ctx;
+        img, bvh, ctx;
         camera_pos=Point3f(0, -0.9, -2.5),
         fov=45.0f0,
         sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0),
         samples_per_pixel=4
     )
     @btime render!(renderer_instanced)
+    # on windows + ryzen 395 max
+    # 381.034 ms (1200456 allocations: 90.13 MiB)
+
     nothing
 end
 using ImageShow
@@ -43,8 +45,9 @@ using FileIO
 save("wavefront.png", map(col -> mapc(c -> clamp(c, 0f0, 1f0), col), renderer.framebuffer))
 
 using AMDGPU
-amd_renderer = to_gpu(ROCArray, renderer_instanced);
+amd_renderer = to_gpu(ROCArray, renderer);
 Array(@btime render!(amd_renderer))
+# 36ms on windows + amd 8060s
 
 using pocl_jll, OpenCL
 amd_renderer = to_gpu(CLArray, renderer);
