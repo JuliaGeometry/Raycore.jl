@@ -62,12 +62,14 @@ end
 function get_illumination(bvh, viewdir; grid_size=1000)
     # Calculate grid bounds
     hits = hits_from_grid(bvh, viewdir; grid_size=grid_size)
-    result = Dict{UInt32, Float32}()
+    # Use primitive metadata as keys - requires metadata to be the primitive index
+    result = Dict{Int, Float32}()
     for hit in hits
         if hit.hit
-            count = get!(result, hit.prim_idx, 0f0)
-            result[hit.prim_idx] = count + 1f0
+            idx = Int(hit.metadata)
+            count = get!(result, idx, 0f0)
+            result[idx] = count + 1f0
         end
     end
-    return [get(result, UInt32(idx), 0.0f0) for idx in 1:length(bvh.primitives)]
+    return [get(result, idx, 0.0f0) for idx in 1:length(bvh.primitives)]
 end

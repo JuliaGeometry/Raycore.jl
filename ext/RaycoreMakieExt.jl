@@ -184,12 +184,12 @@ end
 Helper function to draw BVH geometry
 """
 function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
-    # Group primitives by their material_idx
-    primitive_groups = Dict{UInt32, Vector{Raycore.Triangle}}()
+    # Group primitives by their metadata
+    primitive_groups = Dict{Any, Vector{eltype(bvh.primitives)}}()
     for prim in bvh.primitives
-        mat_idx = prim.material_idx
+        mat_idx = prim.metadata
         if !haskey(primitive_groups, mat_idx)
-            primitive_groups[mat_idx] = Raycore.Triangle[]
+            primitive_groups[mat_idx] = eltype(bvh.primitives)[]
         end
         push!(primitive_groups[mat_idx], prim)
     end
@@ -240,7 +240,7 @@ function Makie.convert_arguments(::Type{Makie.Mesh}, bvh::Raycore.BVH)
         start_idx = length(vertices)
         for (v, n) in zip(prim.vertices, prim.normals)
             push!(vertices, v)
-            push!(colors, prim.material_idx)
+            push!(colors, Float32(prim.metadata))
             push!(normals, Vec3f(n))
         end
         push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))

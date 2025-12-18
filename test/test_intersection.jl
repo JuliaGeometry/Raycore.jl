@@ -109,5 +109,5 @@ end
     intersects, triangle = Raycore.closest_hit(bvh, ray)
     @test intersects
     # BVH closest_hit returns Triangle object, not SurfaceInteraction
-    @test typeof(triangle) == Raycore.Triangle
+    @test triangle isa Raycore.Triangle
 end

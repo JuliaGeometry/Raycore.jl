@@ -277,4 +277,3 @@ DOM.img(src=Asset(data"gpu-benchmarks.png"), width="700px")
   * Add **adaptive sampling** (more samples only where needed)
   * Explore **shared memory** optimizations for BVH traversal
   * Implement **streaming multisampling** across frames
-

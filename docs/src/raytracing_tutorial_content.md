@@ -47,9 +47,9 @@ left_wall = normal_mesh(Rect3f(Vec3f(-5, -1.5, -2), Vec3f(0.01, 5, 10)))
 sphere1 = Tesselation(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0), 64)
 sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
-# Build our BVH acceleration structure
+# Build our BVH acceleration structure with material indices
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-bvh = Raycore.BVH(scene_geometry)
+bvh = Raycore.BVH(scene_geometry, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
 f, ax, pl = plot(bvh; axis=(; show_axis=false))
 ```
 Set the camera to something better:
@@ -269,7 +269,7 @@ end
 function material_kernel(bvh, ctx, tri, dist, bary, ray)
     hit_point = ray.o + ray.d * dist
     normal = compute_normal(tri, bary)
-    mat = ctx.materials[tri.material_idx]
+    mat = ctx.materials[tri.metadata]
 
     color = compute_multi_light(bvh, ctx, hit_point, normal, mat, shadow_samples=2)
     return to_rgb(color)
@@ -287,7 +287,7 @@ Add simple reflections for metallic surfaces:
 function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color)
     hit_point = ray.o + ray.d * dist
     normal = compute_normal(tri, bary)
-    mat = ctx.materials[tri.material_idx]
+    mat = ctx.materials[tri.metadata]
 
     # Direct lighting with soft shadows
     direct_color = compute_multi_light(bvh, ctx, hit_point, normal, mat, shadow_samples=8)
@@ -310,7 +310,7 @@ function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color)
         reflection_color = if refl_hit
             refl_point = reflect_ray.o + reflect_ray.d * refl_dist
             refl_normal = compute_normal(refl_tri, refl_bary)
-            refl_mat = ctx.materials[refl_tri.material_idx]
+            refl_mat = ctx.materials[refl_tri.metadata]
             compute_multi_light(bvh, ctx, refl_point, refl_normal, refl_mat, shadow_samples=1)
         else
             to_vec3f(sky_color)

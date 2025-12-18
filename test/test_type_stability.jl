@@ -36,8 +36,7 @@ function gen_triangle()
         SVector(n1, n1, n1),
         SVector(Vec3f(NaN), Vec3f(NaN), Vec3f(NaN)),
         SVector(uv1, uv2, uv3),
-        UInt32(1),
-        UInt32(1)
+        UInt32(1)  # metadata (single field replaces mesh_idx and material_idx)
     )
 end
 

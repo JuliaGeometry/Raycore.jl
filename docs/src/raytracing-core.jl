@@ -130,7 +130,7 @@ end
 function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color, shadow_samples=8)
     hit_point = ray.o + ray.d * dist
     normal = compute_normal(tri, bary)
-    mat = ctx.materials[tri.material_idx]
+    mat = ctx.materials[tri.metadata]
 
     # Direct lighting with soft shadows
     direct_color = compute_multi_light(bvh, ctx, hit_point, normal, mat, shadow_samples=shadow_samples)
@@ -153,7 +153,7 @@ function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color, shadow_sam
         reflection_color = if refl_hit
             refl_point = reflect_ray.o + reflect_ray.d * refl_dist
             refl_normal = compute_normal(refl_tri, refl_bary)
-            refl_mat = ctx.materials[refl_tri.material_idx]
+            refl_mat = ctx.materials[refl_tri.metadata]
             compute_multi_light(bvh, ctx, refl_point, refl_normal, refl_mat, shadow_samples=shadow_samples)
         else
             to_vec3f(sky_color)
@@ -207,7 +207,9 @@ function example_scene(; glass_cat=false)
         (sphere2,    Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0, 1.0f0, 0.0f0)),
     ]
 
-    bvh, materials = MaterialScene(scene)
+    geometries = [g for (g, _) in scene]
+    materials = [m for (_, m) in scene]
+    bvh = Raycore.BVH(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
     lights = default_lights()
     ctx = RenderContext(lights, materials, 0.1f0)
     return bvh, ctx
