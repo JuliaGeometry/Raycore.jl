@@ -251,9 +251,11 @@ ctx = RenderContext(lights, materials, 0.1f0)
 nothing
 ```
 Now when a ray hits a triangle, we can look up its material using `triangle.metadata`:
+
 ```julia
 mat = ctx.materials[triangle.metadata]  # Get material for hit triangle
 ```
+
 ```julia (editor=true, logging=false, output=true)
 # Compute lighting from all lights - reusing our compute_light function!
 function compute_multi_light(bvh, ctx, point, normal, mat; shadow_samples=1)
@@ -401,6 +403,7 @@ We built a complete ray tracer with:
 **Key Patterns:**
 
 1. **Material Scene Pattern** - Associate materials with geometry using metadata:
+
 ```julia
 # Build BVH with mesh index as metadata
 bvh = Raycore.BVH(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
@@ -410,6 +413,7 @@ mat = materials[triangle.metadata]
 ```
 
 2. **Reusable Lighting** - The `compute_light` function handles both hard and soft shadows:
+
   * `shadow_samples=1` → hard shadows
   * `shadow_samples>1` → soft shadows
 

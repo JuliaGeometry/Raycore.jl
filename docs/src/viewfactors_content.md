@@ -6,22 +6,22 @@ This example demonstrates Raycore's analysis capabilities for radiosity and illu
 
 ```julia (editor=true, logging=false, output=true)
 using Raycore, GeometryBasics, LinearAlgebra
-using WGLMakie, FileIO
+using WGLMakie
 
 function LowSphere(radius, contact=Point3f(0); ntriangles=10)
     return Tesselation(Sphere(contact .+ Point3f(0, 0, radius), radius), ntriangles)
 end
 
-# Create scene with multiple objects
-ntriangles = 10
+# Create scene with multiple objects (using low triangle counts to keep docs small)
+ntriangles = 6
 s1 = LowSphere(0.5f0, Point3f(-0.5, 0.0, 0); ntriangles)
 s2 = LowSphere(0.3f0, Point3f(1, 0.5, 0); ntriangles)
 s3 = LowSphere(0.3f0, Point3f(-0.5, 1, 0); ntriangles)
 s4 = LowSphere(0.4f0, Point3f(0, 1.0, 0); ntriangles)
-cat = load(Makie.assetpath("cat.obj"))
+s5 = LowSphere(0.35f0, Point3f(0.5, 0.0, 0); ntriangles)
 
 # Build BVH acceleration structure
-bvh = BVH([s1, s2, s3, s4, cat])
+bvh = BVH([s1, s2, s3, s4, s5])
 world_mesh = GeometryBasics.Mesh(bvh)
 
 # Visualize the scene
@@ -35,7 +35,7 @@ View factors quantify how much each surface "sees" every other surface - essenti
 
 ```julia (editor=true, logging=false, output=true)
 # Calculate view factors between all faces
-viewf_matrix = view_factors(bvh, rays_per_triangle=1000)
+viewf_matrix = view_factors(bvh, rays_per_triangle=500)
 
 # Sum up total view factor per face
 viewfacts = map(i -> Float32(sum(view(viewf_matrix, :, i))), 1:length(bvh.primitives))
