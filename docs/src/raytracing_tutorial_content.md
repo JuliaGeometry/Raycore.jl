@@ -47,21 +47,10 @@ left_wall = normal_mesh(Rect3f(Vec3f(-5, -1.5, -2), Vec3f(0.01, 5, 10)))
 sphere1 = Tesselation(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0), 64)
 sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
-# Build our BVH acceleration structure with material indices
+# Build our BVH acceleration structure
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-bvh = Raycore.BVH(scene_geometry, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
-f, ax, pl = plot(bvh; axis=(; show_axis=false))
-```
-Set the camera to something better:
-
-```julia (editor=true, logging=false, output=true)
-cam = cameracontrols(ax.scene)
-cam.eyeposition[] = [0, 1.0, -4]
-cam.lookat[] = [0, 0, 2]
-cam.upvector[] = [0.0, 1, 0.0]
-cam.fov[] = 45.0
-update_cam!(ax.scene, cam)
-nothing
+bvh = Raycore.BVH(scene_geometry)
+md"**BVH built with $(length(bvh.primitives)) triangles**"
 ```
 ## Part 2: Helper Functions - Building Blocks
 
@@ -212,7 +201,11 @@ trace((args...)-> shadow_kernel(args...; shadow_samples=8), bvh, samples=8)
 
 ## Part 7: Materials and Multiple Lights
 
-Time to add color and multiple lights:
+Time to add color and multiple lights! To associate materials with geometry, we need to rebuild the BVH with **metadata** that links each triangle to its material.
+
+### Triangle Metadata
+
+When building a BVH, you can pass a `metadata_fn(mesh_idx, tri_idx)` that assigns custom data to each triangle. This metadata is stored in `triangle.metadata` and returned with every ray hit. For materials, we use the mesh index as metadata:
 
 ```julia (editor=true, logging=false, output=true)
 struct PointLight
@@ -233,24 +226,33 @@ struct RenderContext
     ambient::Float32
 end
 
-# Create lights and materials
+# Define materials for each mesh (order matches scene_geometry)
+materials = [
+    Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0),  # 1: cat
+    Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0),  # 2: floor
+    Material(RGB(0.8f0, 0.6f0, 0.5f0), 0.8f0, 0.05f0), # 3: back wall
+    Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0),  # 4: left wall
+    Material(RGB(0.9f0, 0.9f0, 0.9f0), 0.8f0, 0.02f0), # 5: sphere1 - metallic
+    Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0),  # 6: sphere2 - semi-metallic
+]
+
+# Rebuild BVH with material indices as metadata
+# The metadata_fn receives (mesh_idx, tri_idx) and returns data stored per-triangle
+bvh = Raycore.BVH(scene_geometry, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+
+# Create lights
 lights = [
     PointLight(Point3f(3, 4, -2), 50.0f0, RGB(1.0f0, 0.9f0, 0.8f0)),
     PointLight(Point3f(-3, 2, 0), 20.0f0, RGB(0.7f0, 0.8f0, 1.0f0)),
     PointLight(Point3f(0, 5, 5), 15.0f0, RGB(1.0f0, 1.0f0, 1.0f0))
 ]
 
-materials = [
-    Material(RGB(0.8f0, 0.6f0, 0.4f0), 0.0f0, 0.8f0),  # cat
-    Material(RGB(0.3f0, 0.5f0, 0.3f0), 0.0f0, 0.9f0),  # floor
-    Material(RGB(0.8f0, 0.6f0, 0.5f0), 0.8f0, 0.05f0),  # back wall
-    Material(RGB(0.7f0, 0.7f0, 0.8f0), 0.0f0, 0.8f0),  # left wall
-    Material(RGB(0.9f0, 0.9f0, 0.9f0), 0.8f0, 0.02f0),  # sphere1 - metallic
-    Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0),  # sphere2 - semi-metallic
-]
-
 ctx = RenderContext(lights, materials, 0.1f0)
 nothing
+```
+Now when a ray hits a triangle, we can look up its material using `triangle.metadata`:
+```julia
+mat = ctx.materials[triangle.metadata]  # Get material for hit triangle
 ```
 ```julia (editor=true, logging=false, output=true)
 # Compute lighting from all lights - reusing our compute_light function!
@@ -269,6 +271,7 @@ end
 function material_kernel(bvh, ctx, tri, dist, bary, ray)
     hit_point = ray.o + ray.d * dist
     normal = compute_normal(tri, bary)
+    # Look up material using triangle's metadata (mesh index we stored during BVH construction)
     mat = ctx.materials[tri.metadata]
 
     color = compute_multi_light(bvh, ctx, hit_point, normal, mat, shadow_samples=2)
@@ -387,16 +390,28 @@ We built a complete ray tracer with:
 
 **Key Raycore Functions:**
 
-  * `Raycore.BVH(meshes)` - Build acceleration structure
+  * `Raycore.BVH(meshes)` - Build acceleration structure (default metadata = primitive index)
+  * `Raycore.BVH(meshes, metadata_fn)` - Build with custom per-triangle metadata
   * `Raycore.Ray(o=origin, d=direction)` - Create ray
-  * `Raycore.closest_hit(bvh, ray)` - Find nearest intersection
-  * `Raycore.any_hit(bvh, ray)` - Test for any intersection
+  * `Raycore.closest_hit(bvh, ray)` - Find nearest intersection, returns `(hit, triangle, distance, bary_coords)`
+  * `Raycore.any_hit(bvh, ray)` - Test for any intersection (fast shadow test)
   * `Raycore.reflect(wo, normal)` - Compute reflection direction
+  * `triangle.metadata` - Access custom data stored per-triangle
 
-**Key Pattern:** The `compute_light` function is reusable across the entire tutorial:
+**Key Patterns:**
 
+1. **Material Scene Pattern** - Associate materials with geometry using metadata:
+```julia
+# Build BVH with mesh index as metadata
+bvh = Raycore.BVH(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+
+# In your shader, look up material from hit triangle
+mat = materials[triangle.metadata]
+```
+
+2. **Reusable Lighting** - The `compute_light` function handles both hard and soft shadows:
   * `shadow_samples=1` → hard shadows
-  * `shadow_samples=4` → soft shadows
+  * `shadow_samples>1` → soft shadows
 
-This shows how a well-designed function can handle multiple use cases cleanly!
+This shows how well-designed functions can handle multiple use cases cleanly!
 

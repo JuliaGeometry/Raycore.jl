@@ -38,16 +38,7 @@ Let's use the exact same scene as the CPU tutorial - the Makie cat with room geo
 # Load and prepare the cat model
 include("raytracing-core.jl")
 bvh, ctx = example_scene()
-# We have a Makie extension for plotting the scene graph
-f, ax, pl = plot(bvh; axis=(; show_axis=false))
-f
-```
-```julia (editor=true, logging=false, output=true)
-cam = cameracontrols(ax.scene)
-cam.eyeposition[] = [0, 1.0, -4]
-cam.lookat[] = [0, 0, 2]
-cam.upvector[] = [0.0, 1, 0.0]
-cam.fov[] = 45.0
+md"**Scene loaded: $(length(bvh.primitives)) triangles, $(length(ctx.materials)) materials**"
 ```
 ## Part 2: GPU Kernel Version 1 - Basic Naive Approach
 
@@ -277,3 +268,4 @@ DOM.img(src=Asset(data"gpu-benchmarks.png"), width="700px")
   * Add **adaptive sampling** (more samples only where needed)
   * Explore **shared memory** optimizations for BVH traversal
   * Implement **streaming multisampling** across frames
+
