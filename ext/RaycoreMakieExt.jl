@@ -185,47 +185,7 @@ Helper function to draw BVH geometry
 """
 function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
     # Group primitives by their metadata
-    primitive_groups = Dict{Any, Vector{eltype(bvh.primitives)}}()
-    for prim in bvh.primitives
-        mat_idx = prim.metadata
-        if !haskey(primitive_groups, mat_idx)
-            primitive_groups[mat_idx] = eltype(bvh.primitives)[]
-        end
-        push!(primitive_groups[mat_idx], prim)
-    end
-
-    # Draw each group with a different color
-    color_idx = 1
-    for (mat_idx, prims) in primitive_groups
-        # Get all triangles for this mesh
-        vertices = Point3f[]
-        faces = GeometryBasics.TriangleFace{Int}[]
-
-        for (i, prim) in enumerate(prims)
-            # Add vertices
-            start_idx = length(vertices)
-            for v in prim.vertices
-                push!(vertices, v)
-            end
-            # Add face (using 1-based indexing)
-            push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
-        end
-
-        # Create mesh from vertices and faces
-        mesh_obj = GeometryBasics.normal_mesh(vertices, faces)
-
-        # Pick color
-        color = colors[mod1(color_idx, length(colors))]
-        color_idx += 1
-
-        # Draw mesh
-        mesh!(
-            plot,
-            mesh_obj,
-            color = (color, alpha),
-            transparency=alpha < 1.0
-        )
-    end
+    mesh!(plot, convert_arguments(Makie.Mesh, bvh)[1])
 end
 
 Makie.plottype(::Raycore.BVH) = Makie.Mesh
