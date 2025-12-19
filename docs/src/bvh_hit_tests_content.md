@@ -91,7 +91,7 @@ end
 
 complex_bvh = Raycore.BVH(complex_spheres)
 # Test rays to find cases where any_hit differs from closest_hit
-test_rays = map(rand(Point2f, 200)) do p  
+test_rays = map(rand(Point2f, 20)) do p
     p = (p .* 14f0) .- 8f0
     Raycore.Ray(o=Point3f(p..., -5), d=Vec3f(0, 0, 1))
 end
@@ -175,4 +175,3 @@ This document demonstrated:
 6. `any_hit` is typically faster than `closest_hit` due to early termination
 
 All tests passed! ✓
-

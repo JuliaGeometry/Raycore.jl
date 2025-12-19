@@ -8,7 +8,7 @@ This example demonstrates Raycore's analysis capabilities for radiosity and illu
 using Raycore, GeometryBasics, LinearAlgebra
 using WGLMakie
 
-function LowSphere(radius, contact=Point3f(0); ntriangles=10)
+function LowSphere(radius, contact=Point3f(0); ntriangles=6)
     return Tesselation(Sphere(contact .+ Point3f(0, 0, radius), radius), ntriangles)
 end
 
@@ -35,7 +35,7 @@ View factors quantify how much each surface "sees" every other surface - essenti
 
 ```julia (editor=true, logging=false, output=true)
 # Calculate view factors between all faces
-viewf_matrix = view_factors(bvh, rays_per_triangle=500)
+viewf_matrix = view_factors(bvh, rays_per_triangle=20)
 
 # Sum up total view factor per face
 viewfacts = map(i -> Float32(sum(view(viewf_matrix, :, i))), 1:length(bvh.primitives))
@@ -59,7 +59,7 @@ Calculate how much each face is exposed to rays from a specific viewing directio
 viewdir = normalize(ax.scene.camera.view_direction[])
 
 # Compute illumination
-illum = get_illumination(bvh, viewdir)
+illum = get_illumination(bvh, viewdir; grid_size=10)
 
 # Visualize
 pf = FaceView(illum, [GLTriangleFace(i) for i in 1:N])
@@ -75,7 +75,7 @@ Find the average position of visible surface points from a given direction.
 
 ```julia (editor=true, logging=false, output=true)
 # Calculate centroid
-hitpoints, centroid = get_centroid(bvh, viewdir)
+hitpoints, centroid = get_centroid(bvh, viewdir; grid_size=10)
 
 # Visualize
 f, ax, pl = mesh(world_mesh, color=(:blue, 0.5), transparency=true, axis=(show_axis=false,))
@@ -86,4 +86,3 @@ meshscatter!(ax, [centroid], color=:red, markersize=0.05)
 f
 ```
 The red sphere marks the centroid - useful for camera placement and focus calculations.
-
