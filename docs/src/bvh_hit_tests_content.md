@@ -1,6 +1,6 @@
 # BVH Hit Testing: `closest_hit` vs `any_hit`
 
-This document tests and visualizes the difference between `closest_hit` and `any_hit` functions in the BVH implementation using the new `RayIntersectionSession` API.
+This Document tests and visualizes the difference between `closest_hit` and `any_hit` functions in the BVH implementation using the new `RayIntersectionSession` API.
 
 ## Test Setup
 
