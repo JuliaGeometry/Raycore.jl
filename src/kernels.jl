@@ -1,20 +1,21 @@
-struct RayHit
+struct RayHit{TMetadata}
     hit::Bool
     point::Point3f
-    prim_idx::UInt32
+    metadata::TMetadata
 end
 
 function hits_from_grid(bvh, viewdir; grid_size=32)
     # Calculate grid bounds
     ray_direction = normalize(viewdir)
     ray_origins = Raycore.generate_ray_grid(bvh, ray_direction, grid_size)
-    result = similar(ray_origins, RayHit)
+    TMetadata = eltype(bvh.primitives).parameters[1]  # Get metadata type from Triangle{TMetadata}
+    result = similar(ray_origins, RayHit{TMetadata})
     Threads.@threads for idx in CartesianIndices(ray_origins)
         o = ray_origins[idx]
         ray = Raycore.Ray(; o=o, d=ray_direction)
         hit, prim, dist, bary = Raycore.closest_hit(bvh, ray)
         hitpoint = sum_mul(bary, prim.vertices)
-        @inbounds result[idx] = RayHit(hit, hitpoint, prim.primitive_idx)
+        @inbounds result[idx] = RayHit{TMetadata}(hit, hitpoint, prim.metadata)
     end
     return result
 end
@@ -24,10 +25,13 @@ function view_factors(bvh; rays_per_triangle=10000)
     return view_factors!(result, bvh, rays_per_triangle)
 end
 
+# Note: view_factors requires metadata to be the primitive index (Int)
+# This is the default when constructing BVH without a custom metadata_fn
 function view_factors!(result, bvh, rays_per_triangle=10000)
     Threads.@threads for idx in eachindex(bvh.primitives)
         @inbounds begin
             triangle = bvh.primitives[idx]
+            tri_idx = triangle.metadata  # metadata is the primitive index
             n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
             normal = normalize(n)
             u, v = get_orthogonal_basis(normal)
@@ -35,9 +39,12 @@ function view_factors!(result, bvh, rays_per_triangle=10000)
                 point_on_triangle = random_triangle_point(triangle)
                 o = point_on_triangle .+ (normal .* 0.01f0) # Offset so it doesn't self intersect
                 ray = Ray(; o=o, d=random_hemisphere_uniform(normal, u, v))
-                hit, prim, dist, _ = closest_hit(bvh, ray)
-                if hit && prim.primitive_idx != triangle.primitive_idx
-                    result[triangle.primitive_idx, prim.primitive_idx] += UInt32(1)
+                hit, hit_prim, dist, _ = closest_hit(bvh, ray)
+                if hit
+                    hit_idx = hit_prim.metadata  # metadata is the primitive index
+                    if hit_idx != tri_idx
+                        result[tri_idx, hit_idx] += UInt32(1)
+                    end
                 end
             end
         end
@@ -55,12 +62,14 @@ end
 function get_illumination(bvh, viewdir; grid_size=1000)
     # Calculate grid bounds
     hits = hits_from_grid(bvh, viewdir; grid_size=grid_size)
-    result = Dict{UInt32, Float32}()
+    # Use primitive metadata as keys - requires metadata to be the primitive index
+    result = Dict{Int, Float32}()
     for hit in hits
         if hit.hit
-            count = get!(result, hit.prim_idx, 0f0)
-            result[hit.prim_idx] = count + 1f0
+            idx = Int(hit.metadata)
+            count = get!(result, idx, 0f0)
+            result[idx] = count + 1f0
         end
     end
-    return [get(result, UInt32(idx), 0.0f0) for idx in 1:length(bvh.primitives)]
+    return [get(result, idx, 0.0f0) for idx in 1:length(bvh.primitives)]
 end

@@ -26,19 +26,16 @@ struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<
     end
 end
 
-struct Triangle <: AbstractShape
+struct Triangle{TMetadata} <: AbstractShape
     vertices::SVector{3,Point3f}
     normals::SVector{3,Normal3f}
     tangents::SVector{3,Vec3f}
     uv::SVector{3,Point2f}
-    material_idx::UInt32
-    primitive_idx::UInt32
+    metadata::TMetadata
 end
 
-Triangle(tri::Triangle; material_idx=tri.material_idx, primitive_idx=tri.primitive_idx) =
-    Triangle(tri.vertices, tri.normals, tri.tangents, tri.uv, material_idx, primitive_idx)
-
-function Triangle(m::TriangleMesh, face_indx, material_idx=0, primidx=0)
+# Constructor with metadata
+function Triangle(m::TriangleMesh, face_indx, metadata)
     f_idx = 1 + (3 * (face_indx - 1))
     vs = @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
     ns = @SVector [m.normals[m.indices[f_idx + i]] for i in 0:2] # Every mesh should have normals!?
@@ -52,7 +49,12 @@ function Triangle(m::TriangleMesh, face_indx, material_idx=0, primidx=0)
     else
         uv = SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
     end
-    return Triangle(vs, ns, ts, uv, material_idx, primidx)
+    return Triangle(vs, ns, ts, uv, metadata)
+end
+
+# Convenience constructor without metadata (uses Nothing)
+function Triangle(m::TriangleMesh, face_indx)
+    return Triangle(m, face_indx, nothing)
 end
 
 function TriangleMesh(mesh::GeometryBasics.Mesh)

@@ -147,6 +147,7 @@ Returns: (hit, t, u, v) where u,v are barycentric coordinates
     f = 1f0 / a
 
     # s = ray_o - v0
+    # s = ray_o - v0
     s_x = ray_o[1] - tri.v0[1]
     s_y = ray_o[2] - tri.v0[2]
     s_z = ray_o[3] - tri.v0[3]
@@ -193,13 +194,13 @@ Key optimizations:
 Fields:
 - nodes: LinearBVH nodes (flat array, depth-first layout)
 - triangles: Pre-transformed compact triangles
-- primitives: Original triangles (for normals, UVs, materials)
+- primitives: Original triangles (for normals, UVs, metadata)
 - max_node_primitives: Maximum primitives per leaf node
 """
 struct BVH{
     NodeVec <: AbstractVector{LinearBVH},
     TriVec <: AbstractVector{CompactTriangle},
-    OrigTriVec <: AbstractVector{Triangle}
+    OrigTriVec <: AbstractVector{<:Triangle}
 } <: AccelPrimitive
     nodes::NodeVec
     triangles::TriVec
@@ -216,34 +217,48 @@ function to_triangle_mesh(x::GeometryBasics.AbstractGeometry)
 end
 
 """
-    BVH(primitives::AbstractVector, max_node_primitives::Integer=1)
+    BVH(primitives, metadata_fn, max_node_primitives=1)
 
 Construct a BVH acceleration structure from a list of primitives (meshes or geometries).
 
 Arguments:
 - `primitives`: Vector of triangle meshes or GeometryBasics geometries
+- `metadata_fn`: Function `(mesh_index, triangle_index) -> metadata` to generate metadata for each triangle
 - `max_node_primitives`: Maximum number of primitives per leaf node (default: 1)
 
 Returns a GPU-optimized BVH with pre-transformed triangles for efficient ray tracing.
+
+# Example
+```julia
+# Simple case: no metadata
+bvh = BVH(meshes)
+
+# With metadata function
+bvh = BVH(meshes, (mesh_idx, tri_idx) -> MaterialIndex(UInt8(1), UInt32(mesh_idx)))
+```
 """
 function BVH(
-        primitives::AbstractVector{P}, max_node_primitives::Integer=1,
+        primitives::AbstractVector{P},
+        metadata_fn::Function,
+        max_node_primitives::Integer=1,
     ) where {P}
-    triangles = Triangle[]
+    # First pass: collect all triangles to determine the metadata type
+    first_mesh = to_triangle_mesh(first(primitives))
+    first_metadata = metadata_fn(1, 1)
+    TMetadata = typeof(first_metadata)
+
+    triangles = Triangle{TMetadata}[]
     for (mi, prim) in enumerate(primitives)
         triangle_mesh = to_triangle_mesh(prim)
-        vertices = triangle_mesh.vertices
         for i in 1:div(length(triangle_mesh.indices), 3)
-            push!(triangles, Triangle(triangle_mesh, i, mi, length(triangles) + 1))
+            metadata = metadata_fn(mi, length(triangles) + 1)
+            push!(triangles, Triangle(triangle_mesh, i, metadata))
         end
     end
     ordered_primitives, max_prim, nodes = primitives_to_bvh(triangles, max_node_primitives)
-    ordered_primitives = map(enumerate(ordered_primitives)) do (i, tri)
-        Triangle(tri, primitive_idx=UInt32(i))
-    end
 
     # Convert triangles to compact format with pre-computed edges
-    compact_tris = [to_compact_triangle(tri) for tri in ordered_primitives]
+    compact_tris = map(to_compact_triangle, ordered_primitives)
 
     return BVH(
         nodes,
@@ -251,6 +266,11 @@ function BVH(
         ordered_primitives,
         UInt8(max_prim)
     )
+end
+
+# Convenience constructor: metadata defaults to primitive index
+function BVH(primitives::AbstractVector{P}, max_node_primitives::Integer=1) where {P}
+    return BVH(primitives, (_, tri_idx) -> tri_idx, max_node_primitives)
 end
 
 mutable struct BucketInfo
@@ -492,7 +512,6 @@ Returns:
     if hit_found
         orig_tri = original_tris[hit_tri_idx]
         w = 1f0 - hit_u - hit_v
-        # Use SVector for GPU compatibility - Point3f is just an alias for SVector
         bary_point = SVector{3, Float32}(w, hit_u, hit_v)
         return (true, orig_tri, closest_t, bary_point)
     else
