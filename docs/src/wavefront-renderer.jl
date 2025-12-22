@@ -212,6 +212,47 @@ end
     end
 end
 
+"""
+Generate primary rays with look-at camera.
+camera_right, camera_up, camera_forward define the camera basis vectors.
+"""
+@kernel function generate_primary_rays_lookat!(
+    @Const(width), @Const(height),
+    @Const(camera_pos),
+    @Const(camera_right), @Const(camera_up), @Const(camera_forward),
+    @Const(half_width), @Const(half_height),
+    ray_queue,
+    ::Val{NSamples}
+) where {NSamples}
+    i = @index(Global, Cartesian)
+    y = gpu_int(i[1])
+    x = gpu_int(i[2])
+
+    @inbounds if y <= height && x <= width
+        pixel_idx = (y - gpu_int(1)) * width + x
+        ntuple(Val(NSamples)) do s
+            s_idx = gpu_int(s)
+            ray_idx = (pixel_idx - gpu_int(1)) * gpu_int(NSamples) + s_idx
+            jitter = rand(Vec2f)
+
+            # Normalized device coordinates [-1, 1]
+            u = (2.0f0 * (Float32(x) - 0.5f0 + jitter[1]) / Float32(width) - 1.0f0)
+            v = (1.0f0 - 2.0f0 * (Float32(y) - 0.5f0 + jitter[2]) / Float32(height))
+
+            # Ray direction in world space
+            direction = normalize(
+                camera_forward +
+                camera_right * (u * half_width) +
+                camera_up * (v * half_height)
+            )
+            ray = Raycore.Ray(o=camera_pos, d=direction)
+
+            @set ray_queue[ray_idx] = (ray=ray, pixel_x=x, pixel_y=y, sample_idx=s_idx)
+            nothing
+        end
+    end
+end
+
 # ============================================================================
 # Stage 2: Intersect Primary Rays
 # ============================================================================
@@ -615,6 +656,8 @@ struct WavefrontRenderer{ImgArr <: AbstractMatrix, BVH, Ctx}
 
     # Camera parameters
     camera_pos::Point3f
+    camera_lookat::Point3f  # Look-at target
+    camera_up::Vec3f        # Up vector
     fov::Float32
     sky_color::RGB{Float32}
     samples_per_pixel::Int32
@@ -632,13 +675,20 @@ struct WavefrontRenderer{ImgArr <: AbstractMatrix, BVH, Ctx}
 end
 
 """
-    WavefrontRenderer(img, bvh, ctx; camera_pos, fov, sky_color, samples_per_pixel)
+    WavefrontRenderer(img, bvh, ctx; camera_pos, camera_lookat, camera_up, fov, sky_color, samples_per_pixel)
 
 Create a WavefrontRenderer with all necessary buffers allocated for the given image size and scene.
+
+# Arguments
+- `camera_pos`: Camera position in world space
+- `camera_lookat`: Point the camera is looking at (default: origin)
+- `camera_up`: Up vector for camera orientation (default: +Z)
 """
 function WavefrontRenderer(
         img, bvh, ctx;
         camera_pos=Point3f(0, -0.9, -2.5),
+        camera_lookat=Point3f(0, 0, 0),
+        camera_up=Vec3f(0, 0, 1),
         fov=45.0f0,
         sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0),
         samples_per_pixel=4
@@ -652,7 +702,7 @@ function WavefrontRenderer(
 
     # Allocate work queues as SoA
     primary_ray_queue = similar_soa(img, PrimaryRayWork, num_rays)
-    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh.primitives)}, num_rays)
+    primary_hit_queue = similar_soa(img, PrimaryHitWork{eltype(bvh)}, num_rays)
     shadow_ray_queue = similar_soa(img, ShadowRayWork, num_shadow_rays)
     shadow_result_queue = similar_soa(img, ShadowResult, num_shadow_rays)
     reflection_ray_soa = similar_soa(img, ReflectionRayWork, num_rays)
@@ -664,7 +714,8 @@ function WavefrontRenderer(
     return WavefrontRenderer(
         Int32(width), Int32(height),
         img, bvh, ctx,
-        camera_pos, fov, sky_color, Int32(samples_per_pixel),
+        camera_pos, camera_lookat, camera_up,
+        fov, sky_color, Int32(samples_per_pixel),
         primary_ray_queue, primary_hit_queue,
         shadow_ray_queue, shadow_result_queue,
         reflection_ray_soa, reflection_hit_soa,
@@ -690,6 +741,8 @@ function Raycore.to_gpu(Arr, renderer::WavefrontRenderer)
     return WavefrontRenderer(
         img, bvh_gpu, ctx_gpu;
         camera_pos=renderer.camera_pos,
+        camera_lookat=renderer.camera_lookat,
+        camera_up=renderer.camera_up,
         fov=renderer.fov,
         sky_color=renderer.sky_color,
         samples_per_pixel=Int(renderer.samples_per_pixel)
@@ -708,7 +761,6 @@ function render!(renderer::WavefrontRenderer)
     samples_per_pixel = Int(renderer.samples_per_pixel)
 
     aspect = Float32(width / height)
-    focal_length = 1.0f0 / tan(deg2rad(renderer.fov / 2))
 
     backend = KA.get_backend(renderer.framebuffer)
 
@@ -717,11 +769,23 @@ function render!(renderer::WavefrontRenderer)
     num_lights = Int(length(renderer.ctx.lights))
     num_shadow_rays = num_rays * num_lights
 
-    # Stage 1: Generate primary rays
-    gen_kernel! = generate_primary_rays!(backend)
+    # Compute look-at camera basis vectors
+    # Standard right-handed: right = up × forward (gives +X when up=+Y, forward=+Z)
+    camera_forward = Vec3f(normalize(renderer.camera_lookat - renderer.camera_pos))
+    camera_right = Vec3f(normalize(cross(renderer.camera_up, camera_forward)))
+    camera_up_ortho = Vec3f(cross(camera_forward, camera_right))
+
+    # Compute half-width and half-height based on FOV
+    half_height = tan(deg2rad(renderer.fov / 2))
+    half_width = half_height * aspect
+
+    # Stage 1: Generate primary rays with look-at camera
+    gen_kernel! = generate_primary_rays_lookat!(backend)
     gen_kernel!(
         renderer.width, renderer.height,
-        renderer.camera_pos, focal_length, aspect,
+        renderer.camera_pos,
+        camera_right, camera_up_ortho, camera_forward,
+        half_width, half_height,
         renderer.primary_ray_queue,
         Val(samples_per_pixel),
         ndrange=(height, width)
