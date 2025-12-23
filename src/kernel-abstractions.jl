@@ -25,4 +25,23 @@ function to_gpu(ArrayType, bvh::Raycore.BVH)
     return Raycore.BVH(nodes, triangles, primitives, bvh.max_node_primitives)
 end
 
+# GPU conversion for BLAS (instanced BVH bottom-level)
+function to_gpu(ArrayType, blas::Raycore.BLAS)
+    nodes = to_gpu(ArrayType, blas.nodes)
+    primitives = to_gpu(ArrayType, blas.primitives)
+    return Raycore.BLAS(nodes, primitives, blas.root_aabb)
+end
+
+# GPU conversion for TLAS (instanced BVH top-level)
+function to_gpu(ArrayType, tlas::Raycore.TLAS)
+    nodes = to_gpu(ArrayType, tlas.nodes)
+    instances = to_gpu(ArrayType, tlas.instances)
+    # Convert each BLAS in the array
+    blas_gpu = [to_gpu(ArrayType, b) for b in tlas.blas_array]
+    # We need a concrete array type for the BLAS array on GPU
+    # Since BLAS contains GPU arrays, we keep it as a regular Vector
+    # but the inner arrays are on GPU
+    return Raycore.TLAS(nodes, instances, blas_gpu, tlas.root_aabb)
+end
+
 gpu_int(x) = Base.unsafe_trunc(Int32, x)

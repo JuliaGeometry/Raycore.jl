@@ -442,6 +442,88 @@ end
     end
 end
 
+# ==================== TLAS Tests ====================
+
+# TLAS test data generators
+function gen_blas()
+    t = gen_triangle()
+    Raycore.build_blas([t])
+end
+
+function gen_tlas()
+    blas = gen_blas()
+    identity = Raycore.Mat4f(LinearAlgebra.I)
+    inst = Raycore.InstanceDescriptor(
+        UInt32(1), UInt32(1),
+        identity, identity, UInt32(0)
+    )
+    Raycore.build_tlas([blas], [inst])
+end
+
+@testset "Type Stability: instanced-bvh.jl" begin
+    @testset "BVHNode2 construction" begin
+        p = gen_point3f()
+        @test_opt_alloc Raycore.BVHNode2(p, p, p, p, UInt32(0), UInt32(1), UInt32(0))
+    end
+
+    @testset "InstanceDescriptor construction" begin
+        identity = Raycore.Mat4f(LinearAlgebra.I)
+        @test_opt_alloc Raycore.InstanceDescriptor(
+            UInt32(1), UInt32(1), identity, identity, UInt32(0)
+        )
+    end
+
+    @testset "TLAS traversal" begin
+        tlas = gen_tlas()
+        r = gen_ray()
+
+        @test_opt Raycore.world_bound(tlas)
+        @test_opt Raycore.closest_hit(tlas, r)
+        @test_opt Raycore.any_hit(tlas, r)
+    end
+
+    @testset "TLAS helper functions" begin
+        node = Raycore.BVHNode2(
+            gen_point3f(), gen_point3f(), gen_point3f(), gen_point3f(),
+            UInt32(0), UInt32(1), UInt32(0)
+        )
+
+        @test_opt_alloc Raycore.is_leaf(node)
+        @test_opt_alloc Raycore.is_interior(node)
+        @test_opt_alloc Raycore.get_node_aabb(node, true)
+        @test_opt_alloc Raycore.get_node_aabb(node, false)
+        @test_opt_alloc Raycore.get_tlas_node_aabb(node, true)
+        @test_opt_alloc Raycore.get_tlas_node_aabb(node, false)
+    end
+
+    @testset "Transform utilities" begin
+        identity = Raycore.Mat4f(LinearAlgebra.I)
+        p = gen_point3f()
+        v = gen_vec3f()
+
+        @test_opt_alloc Raycore.transform_point(identity, p)
+        @test_opt_alloc Raycore.transform_direction(identity, v)
+        @test_opt_alloc Raycore.safe_invdir(v)
+    end
+
+    @testset "Ray-AABB intersection" begin
+        node = Raycore.BVHNode2(
+            Point3f(0), Point3f(1), Point3f(0), Point3f(1),
+            UInt32(2), UInt32(3), UInt32(0)
+        )
+        ray_inv_d = Vec3f(1, 1, 1)
+        ray_o = Point3f(0.5f0, 0.5f0, -1.0f0)
+
+        @test_opt_alloc Raycore.intersect_internal_node(node, ray_inv_d, ray_o, 0.0f0, 100.0f0)
+    end
+
+    @testset "Morton code" begin
+        p = Point3f(0.5f0, 0.5f0, 0.5f0)
+        @test_opt_alloc Raycore.morton_code_30bit(p)
+        @test_opt_alloc Raycore.expand_bits(UInt32(123))
+    end
+end
+
 # ==================== Kernels Tests ====================
 
 @testset "Type Stability: kernels.jl" begin

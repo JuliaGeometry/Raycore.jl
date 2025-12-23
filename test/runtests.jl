@@ -18,4 +18,7 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
     @testset "Bounds" begin
         include("bounds.jl")
     end
+    @testset "Instanced BVH" begin
+        include("test_instanced_bvh.jl")
+    end
 end

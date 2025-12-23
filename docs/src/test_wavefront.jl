@@ -22,8 +22,7 @@ begin
     @btime render!(renderer)
     nothing
 end
-renderer.framebuffer
-renderer_instanced.framebuffer
+
 begin
     img = fill(RGBf(0, 0, 0), 400, 720)
     renderer_instanced = WavefrontRenderer(
@@ -36,7 +35,6 @@ begin
     @btime render!(renderer_instanced)
     # on windows + ryzen 395 max
     # 381.034 ms (1200456 allocations: 90.13 MiB)
-
     nothing
 end
 using ImageShow
@@ -59,5 +57,3 @@ r = Raycore.Ray(o=Point3f(0, 0, 0), d=Vec3f(0, 0, 1), t_max=0.0f0)
 function test(bvh)
     meshes = getfield(bvh, :meshes)
 end
-
-typeof(test(ibvh))
