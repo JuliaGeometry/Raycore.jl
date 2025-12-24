@@ -33,14 +33,12 @@ function to_gpu(ArrayType, blas::Raycore.BLAS)
 end
 
 # GPU conversion for TLAS (instanced BVH top-level)
+# Convert each BLAS first, then wrap the array of GPU-BLAS in a GPU array
 function to_gpu(ArrayType, tlas::Raycore.TLAS)
     nodes = to_gpu(ArrayType, tlas.nodes)
     instances = to_gpu(ArrayType, tlas.instances)
-    # Convert each BLAS in the array
-    blas_gpu = [to_gpu(ArrayType, b) for b in tlas.blas_array]
-    # We need a concrete array type for the BLAS array on GPU
-    # Since BLAS contains GPU arrays, we keep it as a regular Vector
-    # but the inner arrays are on GPU
+    # Convert each BLAS individually, then convert the array of GPU-BLAS
+    blas_gpu = to_gpu(ArrayType, to_gpu.((ArrayType,), tlas.blas_array))
     return Raycore.TLAS(nodes, instances, blas_gpu, tlas.root_aabb)
 end
 

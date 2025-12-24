@@ -65,12 +65,6 @@ function example_scene_tlas(; glass_cat=false)
     # Use TLAS instead of BVH - drop-in replacement!
     tlas = Raycore.TLAS(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
 
-    println("✓ TLAS built:")
-    println("    Instances: $(length(tlas.instances))")
-    println("    BLAS array: $(length(tlas.blas_array))")
-    println("    TLAS nodes: $(length(tlas.nodes))")
-    println("    Root AABB: $(tlas.root_aabb)")
-
     lights = default_lights()
     ctx = RenderContext(lights, materials, 0.1f0)
     return tlas, ctx
@@ -96,10 +90,27 @@ begin
         camera_up=Vec3f(0, 1, 0),            # Y up
         fov=45.0f0,
         sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0),
-        samples_per_pixel=4
+        samples_per_pixel=4``
     )
     @btime render!(renderer)
 end
+img
 using FileIO, ImageCore
 
 save("wavefront_instanced.png", map(clamp01nan, img))
+using AMDGPU
+begin
+    img = fill(RGBf(0, 0, 0), 400, 720)
+    # Use original camera parameters to match pre-look-at benchmark image
+    renderer = WavefrontRenderer(img, tlas, ctx;
+        camera_pos=Point3f(0, -0.9, -2.5),
+        camera_lookat=Point3f(0, -0.9, 10),  # Look in +Z direction
+        camera_up=Vec3f(0, 1, 0),            # Y up
+        fov=45.0f0,
+        sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0),
+        samples_per_pixel=4
+    )
+    gpu_renderer = to_gpu(ROCArray, renderer)
+    @btime render!(gpu_renderer)
+    Array(gpu_renderer.framebuffer)
+end

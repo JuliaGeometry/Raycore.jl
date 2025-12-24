@@ -35,8 +35,13 @@ struct Particle
     radius::Float32
 end
 
-mutable struct ParticleSystem
-    particles::Vector{Particle}
+"""
+Particle system - works on CPU (Vector) or GPU (ROCArray, CuArray).
+The transforms field is used for TLAS updates.
+"""
+struct ParticleSystem{ArrParticle, ArrMat4}
+    particles::ArrParticle
+    transforms::ArrMat4
     bounds_min::Point3f
     bounds_max::Point3f
     gravity::Vec3f
@@ -52,58 +57,204 @@ function ParticleSystem(n_particles::Int;
     particles = Particle[]
 
     for _ in 1:n_particles
-        # Random position within bounds
         pos = Point3f(
             bounds_min[1] + rand(Float32) * (bounds_max[1] - bounds_min[1]),
             bounds_min[2] + rand(Float32) * (bounds_max[2] - bounds_min[2]),
             bounds_min[3] + rand(Float32) * (bounds_max[3] - bounds_min[3])
         )
-
-        # Random initial velocity (mostly upward with some spread)
         vel = Vec3f(
             (rand(Float32) - 0.5f0) * 20,
             (rand(Float32) - 0.5f0) * 20,
             rand(Float32) * 30 + 10
         )
-
-        # Random radius
         r = radius_range[1] + rand(Float32) * (radius_range[2] - radius_range[1])
-
         push!(particles, Particle(pos, vel, r))
     end
 
-    ParticleSystem(particles, bounds_min, bounds_max, Vec3f(0, 0, -30), 0.98f0)
+    # Build initial transforms
+    transforms = [translation(Vec3f(p.position)) * scale(p.radius) for p in particles]
+
+    ParticleSystem(particles, transforms, bounds_min, bounds_max, Vec3f(0, 0, -30), 0.98f0)
 end
 
-"""Update particle positions with simple physics."""
-function step!(ps::ParticleSystem, dt::Float32)
-    for i in eachindex(ps.particles)
-        p = ps.particles[i]
+"""Convert particle system to GPU."""
+function Raycore.to_gpu(ArrayType, ps::ParticleSystem)
+    ParticleSystem(
+        ArrayType(ps.particles),
+        ArrayType(ps.transforms),
+        ps.bounds_min,
+        ps.bounds_max,
+        ps.gravity,
+        ps.damping
+    )
+end
 
-        # Apply gravity and update velocity
-        new_vel = (p.velocity + ps.gravity * dt) * ps.damping
+# CPU step! removed - we use GPU kernels for everything now
+
+# ==============================================================================
+# GPU Kernels for ParticleSystem
+# ==============================================================================
+
+"""GPU kernel: Physics step - update particles with gravity and boundary bouncing."""
+KA.@kernel function particle_physics_kernel!(
+    particles,
+    bounds_min::Point3f,
+    bounds_max::Point3f,
+    gravity::Vec3f,
+    damping::Float32,
+    dt::Float32
+)
+    i = @index(Global, Linear)
+    @inbounds begin
+        p = particles[i]
+        pos = Vec3f(p.position...)
+        vel = p.velocity
+        r = p.radius
+
+        # Apply gravity and damping
+        new_vel = (vel + gravity * dt) * damping
 
         # Update position
-        new_pos = p.position + new_vel * dt
+        new_pos = pos + new_vel * dt
 
-        # Bounce off boundaries
-        for dim in 1:3
-            if new_pos[dim] - p.radius < ps.bounds_min[dim]
-                new_pos = set_comp(new_pos, ps.bounds_min[dim] + p.radius, dim)
-                new_vel = set_comp(new_vel, -new_vel[dim] * 0.8f0, dim)
-            elseif new_pos[dim] + p.radius > ps.bounds_max[dim]
-                new_pos = set_comp(new_pos, ps.bounds_max[dim] - p.radius, dim)
-                new_vel = set_comp(new_vel, -new_vel[dim] * 0.8f0, dim)
-            end
+        # Bounce off boundaries (unrolled for GPU efficiency)
+        # X axis
+        if new_pos[1] - r < bounds_min[1]
+            new_pos = Vec3f(bounds_min[1] + r, new_pos[2], new_pos[3])
+            new_vel = Vec3f(-new_vel[1] * 0.8f0, new_vel[2], new_vel[3])
+        elseif new_pos[1] + r > bounds_max[1]
+            new_pos = Vec3f(bounds_max[1] - r, new_pos[2], new_pos[3])
+            new_vel = Vec3f(-new_vel[1] * 0.8f0, new_vel[2], new_vel[3])
         end
 
-        ps.particles[i] = Particle(new_pos, new_vel, p.radius)
+        # Y axis
+        if new_pos[2] - r < bounds_min[2]
+            new_pos = Vec3f(new_pos[1], bounds_min[2] + r, new_pos[3])
+            new_vel = Vec3f(new_vel[1], -new_vel[2] * 0.8f0, new_vel[3])
+        elseif new_pos[2] + r > bounds_max[2]
+            new_pos = Vec3f(new_pos[1], bounds_max[2] - r, new_pos[3])
+            new_vel = Vec3f(new_vel[1], -new_vel[2] * 0.8f0, new_vel[3])
+        end
+
+        # Z axis
+        if new_pos[3] - r < bounds_min[3]
+            new_pos = Vec3f(new_pos[1], new_pos[2], bounds_min[3] + r)
+            new_vel = Vec3f(new_vel[1], new_vel[2], -new_vel[3] * 0.8f0)
+        elseif new_pos[3] + r > bounds_max[3]
+            new_pos = Vec3f(new_pos[1], new_pos[2], bounds_max[3] - r)
+            new_vel = Vec3f(new_vel[1], new_vel[2], -new_vel[3] * 0.8f0)
+        end
+
+        particles[i] = Particle(Point3f(new_pos...), new_vel, r)
     end
 end
 
-# Helper to set a single component of a Point3f/Vec3f (non-mutating)
-set_comp(p::Point3f, val, idx) = idx == 1 ? Point3f(val, p[2], p[3]) : idx == 2 ? Point3f(p[1], val, p[3]) : Point3f(p[1], p[2], val)
-set_comp(v::Vec3f, val, idx) = idx == 1 ? Vec3f(val, v[2], v[3]) : idx == 2 ? Vec3f(v[1], val, v[3]) : Vec3f(v[1], v[2], val)
+"""GPU kernel: Build transform matrices from particles."""
+KA.@kernel function build_transforms_kernel!(
+    transforms,
+    @Const(particles)
+)
+    i = @index(Global, Linear)
+    @inbounds begin
+        p = particles[i]
+        pos = p.position
+        r = p.radius
+        # Translation * Scale matrix (column-major)
+        transforms[i] = Mat4f(
+            r,      0,      0,      0,
+            0,      r,      0,      0,
+            0,      0,      r,      0,
+            pos[1], pos[2], pos[3], 1
+        )
+    end
+end
+
+"""GPU kernel: Update materials based on particle velocities."""
+KA.@kernel function update_materials_kernel!(
+    materials,
+    @Const(particles),
+    max_speed::Float32
+)
+    i = @index(Global, Linear)
+    @inbounds begin
+        vel = particles[i].velocity
+        speed = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
+
+        # Velocity to heat color
+        t = clamp(speed / max_speed, 0.0f0, 1.0f0)
+        color = if t < 0.25f0
+            s = t / 0.25f0
+            RGB{Float32}(0.1f0, 0.2f0 + 0.5f0 * s, 0.8f0)
+        elseif t < 0.5f0
+            s = (t - 0.25f0) / 0.25f0
+            RGB{Float32}(0.1f0 + 0.6f0 * s, 0.7f0, 0.8f0 - 0.6f0 * s)
+        elseif t < 0.75f0
+            s = (t - 0.5f0) / 0.25f0
+            RGB{Float32}(0.7f0 + 0.3f0 * s, 0.7f0 - 0.4f0 * s, 0.2f0 - 0.1f0 * s)
+        else
+            s = (t - 0.75f0) / 0.25f0
+            RGB{Float32}(1.0f0, 0.3f0 + 0.7f0 * s, 0.1f0 + 0.9f0 * s)
+        end
+
+        # Noise for metallic/roughness variety
+        noise = sin(Float32(i) * 0.1f0) * 0.5f0 + 0.5f0
+        metallic = 0.3f0 + noise * 0.6f0
+        roughness = 0.2f0 + (1.0f0 - noise) * 0.4f0
+
+        materials[i] = Material(color, metallic, roughness, 1.0f0, 0.0f0)
+    end
+end
+
+"""Step particle physics (works on CPU or GPU via KernelAbstractions)."""
+function step!(ps::ParticleSystem, dt::Float32)
+    n = length(ps.particles)
+    backend = KA.get_backend(ps.particles)
+    kernel! = particle_physics_kernel!(backend)
+    kernel!(ps.particles, ps.bounds_min, ps.bounds_max, ps.gravity, ps.damping, dt, ndrange=n)
+    return nothing
+end
+
+"""Build transforms from current particle state."""
+function build_transforms!(ps::ParticleSystem)
+    n = length(ps.particles)
+    backend = KA.get_backend(ps.particles)
+    kernel! = build_transforms_kernel!(backend)
+    kernel!(ps.transforms, ps.particles, ndrange=n)
+    return nothing
+end
+
+"""Update materials based on particle velocities."""
+function update_materials!(materials, ps::ParticleSystem; max_speed::Float32=50.0f0)
+    n = length(ps.particles)
+    backend = KA.get_backend(ps.particles)
+    kernel! = update_materials_kernel!(backend)
+    kernel!(materials, ps.particles, max_speed, ndrange=n)
+    return nothing
+end
+
+"""
+Full GPU update: physics -> transforms -> TLAS update -> materials.
+All operations stay on GPU with no CPU roundtrips.
+"""
+function update_gpu!(renderer_gpu, ps::ParticleSystem, dt::Float32; backend, max_speed::Float32=50.0f0)
+    n = length(ps.particles)
+    # 1. Physics step
+    step!(ps, dt)
+
+    # 2. Build transforms from new positions
+    build_transforms!(ps)
+
+    # 3. Update TLAS instance transforms
+    Raycore.update_instance_transforms!(renderer_gpu.bvh, ps.transforms, n)
+
+    # 4. Refit TLAS AABBs
+    Raycore.refit_tlas!(renderer_gpu.bvh; backend=backend)
+
+    # 5. Update materials based on velocities
+    update_materials!(renderer_gpu.ctx.materials, ps; max_speed=max_speed)
+
+    return nothing
+end
 
 # ==============================================================================
 # Scene Creation with Instanced Spheres
@@ -296,25 +447,6 @@ function create_particle_scene(ps::ParticleSystem)
     return tlas, ctx, materials
 end
 
-"""Update TLAS transforms and materials based on current particle state."""
-function update_particle_scene!(tlas, materials::Vector{Material}, ps::ParticleSystem)
-    for (i, p) in enumerate(ps.particles)
-        # Update transform
-        transform = translation(Vec3f(p.position)) * scale(p.radius)
-        update_instance_transform!(tlas, i, transform)
-
-        # Update material color based on velocity, keep noise-based metallic
-        speed = norm(p.velocity)
-        color = velocity_to_color(speed)
-        noise = sin(Float32(i) * 0.1f0) * 0.5f0 + 0.5f0
-        metallic = 0.3f0 + noise * 0.6f0
-        roughness = 0.2f0 + (1.0f0 - noise) * 0.4f0
-        materials[i] = Material(color, metallic, roughness, 1.0f0, 0.0f0)
-    end
-
-    refit_tlas!(tlas)
-end
-
 # ==============================================================================
 # Main Animation
 # ==============================================================================
@@ -324,7 +456,7 @@ println("Particle Simulation - 10k Instanced Spheres Demo")
 println("="^70)
 
 # Create particle system
-n_particles = 1_0000
+n_particles = 10_000
 println("\nInitializing $n_particles particles...")
 ps = ParticleSystem(n_particles;
     bounds_min=Point3f(-40, -40, 0),
@@ -362,33 +494,37 @@ renderer = WavefrontRenderer(img, tlas, ctx;
     fov=50.0f0,
     sky_color=RGB{Float32}(0.05f0, 0.05f0, 0.1f0),  # Dark sky
     samples_per_pixel=8
-)
-
+);
+renderer_gpu = to_gpu(ROCArray, renderer);
 # Warmup
 println("\nWarmup render...")
-render!(renderer)
+Array(render!(renderer_gpu))
+# CPU  6.464 s (17243741 allocations: 2.01 GiB)
+# GPU 590.115 ms (1310 allocations: 52.91 KiB)
 
-# Animation loop
+# Create GPU particle system
+using AMDGPU: ROCBackend
+ps_gpu = to_gpu(ROCArray, ps)
+println("GPU particle system created")
+
+# Animation loop (fully GPU-accelerated)
 println("\nRendering animation...")
 total_time = @elapsed begin
     for frame in 1:num_frames
-        # Step physics
-        step!(ps, dt)
+        # Full GPU update: physics -> transforms -> TLAS -> materials
+        update_gpu!(renderer_gpu, ps_gpu, dt; backend=ROCBackend())
 
-        # Update scene (transforms + materials) - materials array is mutated in-place
-        update_particle_scene!(tlas, materials, ps)
+        # Render
+        fill!(renderer_gpu.framebuffer, RGBf(0, 0, 0))
+        render!(renderer_gpu)
 
-        # Render (renderer holds references to tlas and ctx, so updates are visible)
-        fill!(img, RGBf(0, 0, 0))
-        render!(renderer)
-
-        # Save frame
+        # Save frame (only GPU->CPU transfer is the framebuffer)
         filename = joinpath(frames_dir, "frame_$(lpad(frame, 4, '0')).png")
-        save(filename, map(clamp01nan, img))
+        save(filename, Array(map(clamp01nan, renderer_gpu.framebuffer)))
 
         if frame % 20 == 0 || frame == 1
-            avg_speed = sum(norm(p.velocity) for p in ps.particles) / n_particles
-            println("  Frame $frame/$num_frames (avg speed: $(round(avg_speed, digits=1)))")
+            # For progress reporting, we can skip velocity stats or do a quick GPU reduction
+            println("  Frame $frame/$num_frames")
         end
     end
 end
@@ -408,25 +544,34 @@ println("Video saved: $video_output")
 
 # Performance stats
 println("\n" * "="^70)
-println("Performance Statistics")
+println("Performance Statistics (GPU)")
 println("="^70)
 
 using BenchmarkTools
 
-# Benchmark physics step
-physics_time = @belapsed step!($ps, $dt)
-println("  Physics step: $(round(physics_time * 1000, digits=3)) ms")
+# Benchmark GPU physics step
+gpu_physics_time = @belapsed step!($ps_gpu, $dt)
+println("  GPU Physics step: $(round(gpu_physics_time * 1000, digits=3)) ms")
 
-# Benchmark TLAS update
-update_time = @belapsed update_particle_scene!($tlas, $materials, $ps)
-println("  TLAS update (transforms + refit): $(round(update_time * 1000, digits=3)) ms")
+# Benchmark GPU transform building
+gpu_transform_time = @belapsed build_transforms!($ps_gpu)
+println("  GPU Transform build: $(round(gpu_transform_time * 1000, digits=3)) ms")
 
-# Benchmark render
-render_time = @belapsed begin
-    fill!($img, RGBf(0, 0, 0))
-    render!($renderer)
+# Benchmark full GPU update (physics + transforms + TLAS + materials)
+gpu_update_time = @belapsed update_gpu!($renderer_gpu, $ps_gpu, $dt; backend=ROCBackend())
+println("  GPU Full update: $(round(gpu_update_time * 1000, digits=3)) ms")
+
+# Benchmark GPU render
+gpu_render_time = @belapsed begin
+    fill!($renderer_gpu.framebuffer, RGBf(0, 0, 0))
+    render!($renderer_gpu)
 end
-println("  Render: $(round(render_time * 1000, digits=1)) ms")
+println("  GPU Render: $(round(gpu_render_time * 1000, digits=1)) ms")
+
+# Total frame time
+total_frame_time = gpu_update_time + gpu_render_time
+println("\n  Total frame time: $(round(total_frame_time * 1000, digits=1)) ms")
+println("  Theoretical max FPS: $(round(1.0 / total_frame_time, digits=1))")
 
 println("\n  Total triangles: $(n_particles * length(tlas.blas_array[1].primitives) + length(tlas.blas_array[2].primitives))")
 println("  Unique BLAS geometries: $(length(tlas.blas_array))")

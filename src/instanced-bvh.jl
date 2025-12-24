@@ -1024,48 +1024,34 @@ function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform
 end
 
 """
-    refit_tlas!(tlas::TLAS)
+    refit_tlas!(tlas::TLAS; backend=nothing)
 
 Refit the TLAS after instance transforms have been updated.
 Updates leaf AABBs from instance transforms and propagates changes up the tree.
 
 This is much faster than rebuilding the TLAS from scratch when only transforms change.
+Works on both CPU and GPU TLAS.
+
+For GPU TLAS (created via `to_gpu`), you must provide the backend explicitly:
+    refit_tlas!(tlas_gpu; backend=ROCBackend())
 """
-function refit_tlas!(tlas::TLAS)
+function refit_tlas!(tlas::TLAS; backend=nothing)
     n = length(tlas.instances)
     n == 0 && return tlas
 
-    backend = KA.get_backend(tlas.nodes)
+    # Auto-detect backend for CPU arrays, require explicit for GPU device vectors
+    if backend === nothing
+        backend = KA.get_backend(tlas.nodes)
+    end
+
     nodes = tlas.nodes
     instances = tlas.instances
     blas_array = tlas.blas_array
 
-    # Update leaf node AABBs from new transforms
-    # NOTE: Leaf nodes are Morton-sorted, so we must use the stored instance index (child1)
-    # to look up the correct instance, not assume leaf i corresponds to instance i.
-    for i in 1:n
-        leaf_node_idx = n - 1 + i
-        old_node = nodes[leaf_node_idx]
-
-        # Get the actual instance index from the leaf node (stored as 0-indexed in child1)
-        inst_idx = Int(old_node.child1) + 1
-        inst = instances[inst_idx]
-        blas = blas_array[inst.blas_index]
-        local_aabb = blas.root_aabb
-
-        # Transform AABB to world space (8 corners)
-        world_aabb = Bounds3()
-        for c in 1:8
-            world_corner = transform_point(inst.transform, corner(local_aabb, c))
-            world_aabb = world_aabb ∪ Bounds3(world_corner)
-        end
-
-        # Update leaf node with new AABB (preserve topology)
-        nodes[leaf_node_idx] = BVHNode2(
-            world_aabb.p_min, world_aabb.p_max, Point3f(0), Point3f(0),
-            old_node.child0, old_node.child1, old_node.parent
-        )
-    end
+    # Update leaf node AABBs from new transforms (GPU kernel)
+    leaf_kernel! = update_tlas_leaf_aabbs_kernel!(backend)
+    leaf_kernel!(nodes, instances, blas_array, Int32(n), ndrange=n)
+    KA.synchronize(backend)
 
     # Refit internal nodes bottom-up using atomic counters
     if n > 1
@@ -1080,6 +1066,28 @@ function refit_tlas!(tlas::TLAS)
     # The root_aabb in the struct may be stale, but traversal uses node AABBs
 
     return tlas
+end
+
+"""
+    update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer)
+
+Batch update instance transforms. Updates the first `n_to_update` instances
+with the provided transforms array.
+
+This is more efficient than calling `update_instance_transform!` in a loop,
+especially on GPU where we can parallelize the updates.
+
+The backend is inferred from the `transforms` array type, so for GPU updates
+pass a GPU array (e.g., `ROCArray{Mat4f}`).
+
+Call `refit_tlas!(tlas)` after this to update the BVH AABBs.
+"""
+function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer)
+    backend = KA.get_backend(transforms)
+    kernel! = update_instance_transforms_kernel!(backend)
+    kernel!(tlas.instances, transforms, Int32(n_to_update), ndrange=n_to_update)
+    KA.synchronize(backend)
+    return nothing
 end
 
 
@@ -1163,14 +1171,9 @@ function TLAS(
     return build_tlas(blas_array, instances)
 end
 
-"""
-    TLAS(primitives::AbstractVector)
-
-Simplified constructor with default metadata (mesh index).
-"""
-function TLAS(primitives::AbstractVector{P}) where {P}
-    return TLAS(primitives, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
-end
+# Note: TLAS(items::AbstractVector) is defined in the High-Level Instance API section below.
+# Use TLAS(meshes, metadata_fn) for per-triangle metadata, or
+# TLAS([Instance(mesh1), Instance(mesh2), ...]) for the new Instance API.
 
 # Make closest_hit and any_hit work with both argument orders for compatibility
 """
@@ -1201,327 +1204,385 @@ end
 Get the element type of primitives stored in the TLAS.
 Returns the element type of the first BLAS's primitives.
 This is needed for compatibility with code that expects `eltype(bvh.primitives)`.
+
+Uses type parameters to avoid indexing into GPU arrays from CPU.
 """
-Base.eltype(tlas::TLAS) = eltype(tlas.blas_array[1].primitives)
+function Base.eltype(::TLAS{NA, IA, BA}) where {NA, IA, BA}
+    # Extract BLAS type from the BLASArray type parameter
+    # BA <: AbstractVector{<:BLAS{NodeArray, TriArray}}
+    BLASType = eltype(BA)
+    # BLAS{NodeArray, TriArray} -> TriArray -> eltype(TriArray)
+    return eltype(fieldtype(BLASType, :primitives))
+end
 
 # ==============================================================================
-# GPU-Compatible Flattened TLAS
+# High-Level Instance API
 # ==============================================================================
 
 """
-    BLASDescriptor
+    Instance{G, T, M}
 
-Describes the location of a BLAS's data within the flattened arrays.
-Used by FlatTLAS for GPU-compatible instanced ray tracing.
+User-friendly wrapper for instanced geometry.
+
+Each Instance represents one or more copies of a geometry with different transforms.
+Multiple transforms = multiple instances sharing the same BLAS.
+
+# Fields
+- `geometry::G`: The source geometry (mesh, etc.)
+- `transforms::T`: Per-instance local-to-world transforms (Vector or GPU array)
+- `metadata::M`: Per-instance metadata (Vector or GPU array, e.g., material indices)
+
+# Examples
+```julia
+# Single instance at identity
+inst = Instance(mesh)
+
+# Single instance with transform and metadata
+inst = Instance(mesh, my_transform, UInt32(1))
+
+# Multiple instances (10k particles sharing one sphere mesh)
+transforms = [translation(pos) * scale(r) for (pos, r) in particles]
+metadata = fill(UInt32(1), length(transforms))  # All use material 1
+inst = Instance(sphere_mesh, transforms, metadata)
+
+# GPU arrays work too
+transforms_gpu = ROCArray(transforms)
+metadata_gpu = ROCArray(metadata)
+inst_gpu = Instance(sphere_mesh, transforms_gpu, metadata_gpu)
+```
 """
-struct BLASDescriptor
-    nodes_offset::UInt32      # Offset into flattened nodes array
-    nodes_count::UInt32       # Number of nodes in this BLAS
-    prims_offset::UInt32      # Offset into flattened primitives array
-    prims_count::UInt32       # Number of primitives in this BLAS
-    root_aabb::Bounds3        # Root AABB of this BLAS
+struct Instance{G, T<:AbstractVector{Mat4f}, M<:AbstractVector}
+    geometry::G
+    transforms::T
+    metadata::M
+end
+
+# Convenience constructors
+"""Single instance with transform and metadata."""
+Instance(geom, transform::Mat4f, metadata) =
+    Instance(geom, [transform], [metadata])
+
+"""Single instance at identity transform."""
+Instance(geom; metadata=UInt32(1)) =
+    Instance(geom, [Mat4f(LinearAlgebra.I)], [metadata])
+
+"""Multiple instances with same metadata."""
+function Instance(geom, transforms::AbstractVector{Mat4f}; metadata=UInt32(1))
+    Instance(geom, transforms, fill(metadata, length(transforms)))
 end
 
 """
-    FlatTLAS{NodeArray, InstArray, TriArray, DescArray}
+    InstanceHandle
 
-GPU-compatible flattened Top-Level Acceleration Structure.
+Stable handle for referencing instances in a TLAS.
 
-All BLAS nodes and primitives are flattened into single arrays,
-with BLASDescriptor providing offsets for each BLAS.
+The handle stores the BLAS index which is stable across add/remove operations.
+Use `find_instances(tlas, handle)` to get the current instance range.
 
-This structure is fully isbits-compatible when using GPU arrays,
-allowing it to be passed directly to GPU kernels.
+# Fields
+- `blas_index`: Which BLAS geometry this instance uses (stable identifier)
 """
-struct FlatTLAS{
-    NodeArray <: AbstractVector{BVHNode2},
-    InstArray <: AbstractVector{InstanceDescriptor},
-    TriArray <: AbstractVector{<:Triangle},
-    DescArray <: AbstractVector{BLASDescriptor}
-}
-    # TLAS structure
-    tlas_nodes::NodeArray
-    instances::InstArray
-    root_aabb::Bounds3
-
-    # Flattened BLAS data
-    blas_nodes::NodeArray        # All BLAS nodes concatenated
-    blas_primitives::TriArray    # All BLAS primitives concatenated
-    blas_descriptors::DescArray  # Descriptor for each BLAS
+struct InstanceHandle
+    blas_index::UInt32
 end
 
 """
-    flatten_tlas(tlas::TLAS) -> FlatTLAS
+    find_instances(tlas::TLAS, handle::InstanceHandle) -> UnitRange{Int}
 
-Convert a TLAS with nested BLAS structures to a flattened GPU-compatible format.
+Find the current instance range for a handle by searching for matching blas_index.
+Returns the range of indices in `tlas.instances` that use this BLAS.
+
+This is O(n) but handles are stable across add/remove operations.
 """
-function flatten_tlas(tlas::TLAS{NA, IA, BA}) where {NA, IA, BA}
-    n_blas = length(tlas.blas_array)
+function find_instances(tlas::TLAS, handle::InstanceHandle)::UnitRange{Int}
+    start_idx = 0
+    end_idx = 0
+    for (i, inst) in enumerate(tlas.instances)
+        if inst.blas_index == handle.blas_index
+            if start_idx == 0
+                start_idx = i
+            end
+            end_idx = i
+        end
+    end
+    start_idx == 0 && error("Handle not found in TLAS (blas_index=$(handle.blas_index))")
+    return start_idx:end_idx
+end
 
-    # Calculate total sizes
-    total_nodes = sum(length(b.nodes) for b in tlas.blas_array)
-    total_prims = sum(length(b.primitives) for b in tlas.blas_array)
+Base.length(tlas::TLAS, h::InstanceHandle) = length(find_instances(tlas, h))
 
-    # Get element types from first BLAS
-    TriType = eltype(tlas.blas_array[1].primitives)
+"""
+    TLAS(items::AbstractVector) -> TLAS
 
-    # Allocate flattened arrays
-    blas_nodes = Vector{BVHNode2}(undef, total_nodes)
-    blas_primitives = Vector{TriType}(undef, total_prims)
-    blas_descriptors = Vector{BLASDescriptor}(undef, n_blas)
+Create a TLAS from a vector of geometries or Instance objects.
 
-    # Flatten each BLAS
-    nodes_offset = UInt32(0)
-    prims_offset = UInt32(0)
+Plain geometries are automatically wrapped as single instances at identity transform.
+Returns the TLAS and a vector of InstanceHandles for later reference.
 
-    for (i, blas) in enumerate(tlas.blas_array)
-        n_nodes = length(blas.nodes)
-        n_prims = length(blas.primitives)
+# Examples
+```julia
+# Mix of plain geometry and instances
+tlas, handles = TLAS([
+    floor_mesh,                              # Auto-wrapped as Instance
+    Instance(sphere, particle_transforms),   # 10k instances sharing sphere BLAS
+    Instance(wall, wall_transform, UInt32(2))
+])
 
-        # Copy nodes and primitives
-        copyto!(blas_nodes, Int(nodes_offset) + 1, blas.nodes, 1, n_nodes)
-        copyto!(blas_primitives, Int(prims_offset) + 1, blas.primitives, 1, n_prims)
+# Later: update transforms (fast, uses GPU kernel)
+update_transforms!(tlas, handles[2], new_particle_transforms)
+refit_tlas!(tlas)
 
-        # Create descriptor
-        blas_descriptors[i] = BLASDescriptor(
-            nodes_offset,
-            UInt32(n_nodes),
-            prims_offset,
-            UInt32(n_prims),
-            blas.root_aabb
+# Add/remove instances (requires rebuild)
+new_handle = add_instance!(tlas, Instance(new_mesh, transforms))
+remove_instance!(tlas, handles[1])
+rebuild_tlas!(tlas)
+```
+"""
+function TLAS(items::AbstractVector)
+    # Convert items to Instances
+    instances = Instance[]
+    for item in items
+        if item isa Instance
+            push!(instances, item)
+        else
+            # Wrap plain geometry as single instance at identity
+            push!(instances, Instance(item))
+        end
+    end
+
+    return _build_tlas_from_instances(instances)
+end
+
+"""
+    _build_tlas_from_instances(instances::Vector{<:Instance}) -> (TLAS, Vector{InstanceHandle})
+
+Internal: Build TLAS from Instance objects.
+"""
+function _build_tlas_from_instances(instances::Vector{<:Instance})
+    isempty(instances) && error("Cannot create TLAS from empty instance list")
+
+    # Build first BLAS to get concrete type for the array
+    first_inst = instances[1]
+    first_mesh = to_triangle_mesh(first_inst.geometry)
+    first_triangles = [Triangle(first_mesh, i, first_inst.metadata[1]) for i in 1:div(length(first_mesh.indices), 3)]
+    first_blas = build_blas(first_triangles)
+
+    # Create concretely-typed arrays
+    blas_array = typeof(first_blas)[first_blas]
+    instance_descriptors = InstanceDescriptor[]
+    handles = InstanceHandle[]
+
+    # Add first instance's descriptors
+    blas_idx = UInt32(1)
+    for (i, transform) in enumerate(first_inst.transforms)
+        inv_transform = Mat4f(inv(transform))
+        instance_id = UInt32(length(instance_descriptors) + 1)
+        desc = InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))
+        push!(instance_descriptors, desc)
+    end
+    push!(handles, InstanceHandle(blas_idx))
+
+    # Process remaining instances
+    for inst in instances[2:end]
+        mesh = to_triangle_mesh(inst.geometry)
+        triangles = [Triangle(mesh, i, inst.metadata[1]) for i in 1:div(length(mesh.indices), 3)]
+        blas = build_blas(triangles)
+        push!(blas_array, blas)
+        blas_idx = UInt32(length(blas_array))
+
+        # Create InstanceDescriptors for each transform
+        for (i, transform) in enumerate(inst.transforms)
+            inv_transform = Mat4f(inv(transform))
+            instance_id = UInt32(length(instance_descriptors) + 1)
+            desc = InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))
+            push!(instance_descriptors, desc)
+        end
+
+        push!(handles, InstanceHandle(blas_idx))
+    end
+
+    # Build TLAS
+    tlas = build_tlas(blas_array, instance_descriptors)
+
+    return tlas, handles
+end
+
+"""
+    add_instance!(tlas::TLAS, inst::Instance) -> InstanceHandle
+
+Add a new instance to the TLAS. Returns a stable handle for later reference.
+
+**Note:** Call `rebuild_tlas!(tlas)` after adding instances to update the BVH structure.
+Uses `append!` internally which works on both CPU and GPU arrays.
+"""
+function add_instance!(tlas::TLAS, inst::Instance)
+    # Build BLAS from geometry
+    mesh = to_triangle_mesh(inst.geometry)
+    triangles = [Triangle(mesh, i, inst.metadata[1]) for i in 1:div(length(mesh.indices), 3)]
+    blas = build_blas(triangles)
+
+    # Append to blas_array
+    push!(tlas.blas_array, blas)
+    blas_idx = UInt32(length(tlas.blas_array))
+
+    # Create InstanceDescriptors and append
+    # Note: instance_id is sequential; material info is stored in Triangle metadata
+    new_descriptors = InstanceDescriptor[]
+    base_id = UInt32(length(tlas.instances))
+    for (i, transform) in enumerate(inst.transforms)
+        inv_transform = Mat4f(inv(transform))
+        instance_id = base_id + UInt32(i)
+        desc = InstanceDescriptor(
+            blas_idx,
+            instance_id,
+            transform,
+            inv_transform,
+            UInt32(0)
         )
+        push!(new_descriptors, desc)
+    end
+    append!(tlas.instances, new_descriptors)
 
-        nodes_offset += UInt32(n_nodes)
-        prims_offset += UInt32(n_prims)
+    return InstanceHandle(blas_idx)
+end
+
+"""
+    remove_instance!(tlas::TLAS, handle::InstanceHandle)
+
+Mark an instance as inactive (sets flags to indicate removal).
+
+**Note:** Call `rebuild_tlas!(tlas)` after removing instances to actually compact
+the arrays and update the BVH structure.
+
+For performance, consider batching removals before calling rebuild.
+"""
+function remove_instance!(tlas::TLAS, handle::InstanceHandle)
+    # Find current instance range and mark as inactive
+    instance_range = find_instances(tlas, handle)
+    for idx in instance_range
+        old_inst = tlas.instances[idx]
+        # Use flags field to mark as removed (0xFFFFFFFF = removed)
+        tlas.instances[idx] = InstanceDescriptor(
+            old_inst.blas_index,
+            old_inst.instance_id,
+            old_inst.transform,
+            old_inst.inv_transform,
+            UInt32(0xFFFFFFFF)  # Mark as removed
+        )
+    end
+    return nothing
+end
+
+"""
+    rebuild_tlas!(tlas::TLAS)
+
+Rebuild the TLAS structure after add/remove operations.
+
+This compacts the instance array (removing marked-as-deleted instances)
+and rebuilds the BVH topology. Relatively expensive (~1ms for 10k instances).
+
+For transform-only updates, use `refit_tlas!` instead which is much faster.
+"""
+function rebuild_tlas!(tlas::TLAS)
+    # Filter out removed instances (flags == 0xFFFFFFFF)
+    active_instances = filter(inst -> inst.flags != UInt32(0xFFFFFFFF), tlas.instances)
+
+    if isempty(active_instances)
+        # Empty TLAS - just clear
+        resize!(tlas.instances, 0)
+        resize!(tlas.nodes, 0)
+        return tlas
     end
 
-    return FlatTLAS(
-        tlas.nodes,
-        tlas.instances,
-        tlas.root_aabb,
-        blas_nodes,
-        blas_primitives,
-        blas_descriptors
+    # Rebuild from active instances
+    new_tlas = build_tlas(tlas.blas_array, active_instances)
+
+    # Update in place using resize! and copyto!
+    resize!(tlas.instances, length(new_tlas.instances))
+    copyto!(tlas.instances, new_tlas.instances)
+
+    resize!(tlas.nodes, length(new_tlas.nodes))
+    copyto!(tlas.nodes, new_tlas.nodes)
+
+    return tlas
+end
+
+"""
+    n_instances(tlas::TLAS)
+
+Return total number of instance descriptors in the TLAS.
+"""
+n_instances(tlas::TLAS) = length(tlas.instances)
+
+"""
+    n_geometries(tlas::TLAS)
+
+Return number of unique BLAS geometries in the TLAS.
+"""
+n_geometries(tlas::TLAS) = length(tlas.blas_array)
+
+"""
+    update_transform!(tlas::TLAS, handle::InstanceHandle, transform::Mat4f)
+
+Update the transform for a single-instance handle (e.g., a Makie plot's model matrix).
+
+This is a convenience function for the common case where a handle has exactly one instance.
+For multi-instance handles (like MeshScatter), use `update_transforms!` instead.
+
+After updating, call `refit_tlas!(tlas)` to update the BVH AABBs.
+"""
+function update_transform!(tlas::TLAS, handle::InstanceHandle, transform::Mat4f)
+    instance_range = find_instances(tlas, handle)
+    @assert length(instance_range) == 1 "update_transform! is for single-instance handles; use update_transforms! for multi-instance"
+
+    idx = first(instance_range)
+    old_inst = tlas.instances[idx]
+    inv_transform = Mat4f(inv(transform))
+    tlas.instances[idx] = InstanceDescriptor(
+        old_inst.blas_index,
+        old_inst.instance_id,
+        transform,
+        inv_transform,
+        old_inst.flags
     )
+    return nothing
 end
 
-Base.eltype(tlas::FlatTLAS) = eltype(tlas.blas_primitives)
-
 """
-    closest_hit(flat_tlas::FlatTLAS, ray::AbstractRay)
+    update_transforms!(tlas::TLAS, handle::InstanceHandle, transforms::AbstractVector{Mat4f})
 
-Traverse flattened two-level BVH to find closest ray intersection.
-GPU-compatible version using flattened BLAS arrays.
+Update transforms for all instances in a handle (e.g., MeshScatter positions).
+
+The number of transforms must match the number of instances in the handle.
+After updating, call `refit_tlas!(tlas)` to update the BVH AABBs.
 """
-@inline function closest_hit(flat_tlas::FlatTLAS{NA, IA, TA, DA}, ray::R) where {NA, IA, TA, DA, R <: AbstractRay}
-    # Initialize traversal state
-    ray = check_direction(ray)
-    ray_o::Point3f = ray.o
-    ray_d::Vec3f = ray.d
-    ray_mint::Float32 = 0.0f0
-    ray_maxt::Float32 = ray.t_max
-    ray_inv_d::Vec3f = safe_invdir(ray_d)
+function update_transforms!(tlas::TLAS, handle::InstanceHandle, transforms::AbstractVector{Mat4f})
+    instance_range = find_instances(tlas, handle)
+    @assert length(transforms) == length(instance_range) "Transform count must match instance count"
 
-    # Stack for traversal
-    stack = MVector{64, UInt32}(undef)
-    stack_ptr::Int32 = Int32(1)
-    @inbounds stack[stack_ptr] = INVALID_NODE
-
-    # Traversal state
-    current_instance::Int32 = Int32(-1)
-    closest_instance::Int32 = Int32(-1)
-    closest_prim::UInt32 = INVALID_NODE
-    hit_u::Float32 = 0.0f0
-    hit_v::Float32 = 0.0f0
-
-    node_index::UInt32 = UInt32(1)
-
-    # References to arrays
-    tlas_nodes = flat_tlas.tlas_nodes
-    tlas_instances = flat_tlas.instances
-    blas_nodes = flat_tlas.blas_nodes
-    blas_descriptors = flat_tlas.blas_descriptors
-
-    @inbounds while node_index != INVALID_NODE
-        # Fetch node based on current level
-        node::BVHNode2 = if current_instance < Int32(0)
-            tlas_nodes[node_index]
-        else
-            inst = tlas_instances[current_instance + Int32(1)]
-            desc = blas_descriptors[inst.blas_index]
-            blas_nodes[desc.nodes_offset + node_index]
-        end
-
-        is_leaf_node::Bool = (node.child0 == INVALID_NODE)
-
-        if !is_leaf_node
-            near_child, far_child = intersect_internal_node(node, ray_inv_d, ray_o, ray_mint, ray_maxt)
-
-            if far_child != INVALID_NODE
-                stack_ptr += Int32(1)
-                stack[stack_ptr] = far_child
-            end
-
-            if near_child != INVALID_NODE
-                node_index = near_child
-                continue
-            end
-        elseif current_instance < Int32(0)
-            # Top-level leaf - transition to instance
-            current_instance = Int32(node.child1)
-
-            stack_ptr += Int32(1)
-            stack[stack_ptr] = TOP_LEVEL_SENTINEL
-
-            node_index = UInt32(1)
-            inst = tlas_instances[current_instance + Int32(1)]
-            ray_o = transform_point(inst.inv_transform, ray.o)
-            ray_d = transform_direction(inst.inv_transform, ray.d)
-            ray_inv_d = safe_invdir(ray_d)
-            continue
-        else
-            # Bottom-level leaf - test triangle
-            hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
-            if hit
-                ray_maxt = t
-                closest_instance = current_instance
-                closest_prim = node.child1
-                hit_u = u
-                hit_v = v
-            end
-        end
-
-        node_index = stack[stack_ptr]
-        stack_ptr -= Int32(1)
-
-        if node_index == TOP_LEVEL_SENTINEL
-            node_index = stack[stack_ptr]
-            stack_ptr -= Int32(1)
-            current_instance = Int32(-1)
-            ray_o = ray.o
-            ray_d = ray.d
-            ray_inv_d = safe_invdir(ray_d)
-        end
+    for (i, idx) in enumerate(instance_range)
+        old_inst = tlas.instances[idx]
+        transform = transforms[i]
+        inv_transform = Mat4f(inv(transform))
+        tlas.instances[idx] = InstanceDescriptor(
+            old_inst.blas_index,
+            old_inst.instance_id,
+            transform,
+            inv_transform,
+            old_inst.flags
+        )
     end
-
-    # Return result
-    @inbounds if closest_instance >= Int32(0)
-        inst = tlas_instances[closest_instance + Int32(1)]
-        desc = blas_descriptors[inst.blas_index]
-        tri = flat_tlas.blas_primitives[desc.prims_offset + closest_prim]
-        w = 1.0f0 - hit_u - hit_v
-        bary = SVector{3, Float32}(w, hit_u, hit_v)
-        return (true, tri, ray_maxt, bary, inst.instance_id)
-    else
-        dummy_tri = flat_tlas.blas_primitives[1]
-        bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-        return (false, dummy_tri, 0.0f0, bary, INVALID_NODE)
-    end
-end
-
-"""
-    any_hit(flat_tlas::FlatTLAS, ray::AbstractRay)
-
-Traverse flattened two-level BVH to find ANY ray intersection.
-GPU-compatible version using flattened BLAS arrays.
-"""
-@inline function any_hit(flat_tlas::FlatTLAS{NA, IA, TA, DA}, ray::R) where {NA, IA, TA, DA, R <: AbstractRay}
-    ray = check_direction(ray)
-    ray_o::Point3f = ray.o
-    ray_d::Vec3f = ray.d
-    ray_mint::Float32 = 0.0f0
-    ray_maxt::Float32 = ray.t_max
-    ray_inv_d::Vec3f = safe_invdir(ray_d)
-
-    stack = MVector{64, UInt32}(undef)
-    stack_ptr::Int32 = Int32(1)
-    @inbounds stack[stack_ptr] = INVALID_NODE
-
-    current_instance::Int32 = Int32(-1)
-    node_index::UInt32 = UInt32(1)
-
-    tlas_nodes = flat_tlas.tlas_nodes
-    tlas_instances = flat_tlas.instances
-    blas_nodes = flat_tlas.blas_nodes
-    blas_descriptors = flat_tlas.blas_descriptors
-
-    @inbounds while node_index != INVALID_NODE
-        node::BVHNode2 = if current_instance < Int32(0)
-            tlas_nodes[node_index]
-        else
-            inst = tlas_instances[current_instance + Int32(1)]
-            desc = blas_descriptors[inst.blas_index]
-            blas_nodes[desc.nodes_offset + node_index]
-        end
-
-        is_leaf_node::Bool = (node.child0 == INVALID_NODE)
-
-        if !is_leaf_node
-            near_child, far_child = intersect_internal_node(node, ray_inv_d, ray_o, ray_mint, ray_maxt)
-
-            if far_child != INVALID_NODE
-                stack_ptr += Int32(1)
-                stack[stack_ptr] = far_child
-            end
-
-            if near_child != INVALID_NODE
-                node_index = near_child
-                continue
-            end
-        elseif current_instance < Int32(0)
-            current_instance = Int32(node.child1)
-            stack_ptr += Int32(1)
-            stack[stack_ptr] = TOP_LEVEL_SENTINEL
-            node_index = UInt32(1)
-            inst = tlas_instances[current_instance + Int32(1)]
-            ray_o = transform_point(inst.inv_transform, ray.o)
-            ray_d = transform_direction(inst.inv_transform, ray.d)
-            ray_inv_d = safe_invdir(ray_d)
-            continue
-        else
-            hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
-            if hit
-                inst = tlas_instances[current_instance + Int32(1)]
-                desc = blas_descriptors[inst.blas_index]
-                tri = flat_tlas.blas_primitives[desc.prims_offset + node.child1]
-                w = 1.0f0 - u - v
-                bary = SVector{3, Float32}(w, u, v)
-                return (true, tri, t, bary, inst.instance_id)
-            end
-        end
-
-        node_index = stack[stack_ptr]
-        stack_ptr -= Int32(1)
-
-        if node_index == TOP_LEVEL_SENTINEL
-            node_index = stack[stack_ptr]
-            stack_ptr -= Int32(1)
-            current_instance = Int32(-1)
-            ray_o = ray.o
-            ray_d = ray.d
-            ray_inv_d = safe_invdir(ray_d)
-        end
-    end
-
-    @inbounds dummy_tri = flat_tlas.blas_primitives[1]
-    bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-    return (false, dummy_tri, 0.0f0, bary, INVALID_NODE)
-end
-
-# BVH-compatible wrappers for FlatTLAS (4-value return)
-function closest_hit(ray::AbstractRay, flat_tlas::FlatTLAS)
-    hit, tri, t, bary, inst_id = closest_hit(flat_tlas, ray)
-    return (hit, tri, t, bary)
-end
-
-function any_hit(ray::AbstractRay, flat_tlas::FlatTLAS)
-    hit, tri, t, bary, inst_id = any_hit(flat_tlas, ray)
-    return (hit, tri, t, bary)
+    return nothing
 end
 
 # Export public API
 export BLAS, TLAS, InstanceDescriptor, BVHNode2
-export FlatTLAS, BLASDescriptor, flatten_tlas
 export build_blas, build_tlas, closest_hit, any_hit, world_bound
-export update_instance_transform!, refit_tlas!
+export update_instance_transform!, update_instance_transforms!, refit_tlas!
 export INVALID_NODE
+
+# New Instance API
+export Instance, InstanceHandle
+export add_instance!, remove_instance!, rebuild_tlas!
+export update_transform!, update_transforms!, find_instances
+export n_instances, n_geometries

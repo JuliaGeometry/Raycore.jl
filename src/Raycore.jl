@@ -45,12 +45,15 @@ include("instanced-bvh-kernels.jl")
 include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
+include("soa.jl")
 
 # Core types
 export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bounds3, Normal3f
 
 # Instanced BVH types
 export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
+export Instance, InstanceHandle, find_instances, add_instance!, remove_instance!, rebuild_tlas!
+export update_transform!, update_transforms!, n_instances, n_geometries
 
 # Ray intersection functions
 export closest_hit, any_hit, world_bound
@@ -63,5 +66,8 @@ export get_centroid, get_illumination, view_factors
 
 # Ray intersection session
 export RayIntersectionSession, hit_points, hit_distances, hit_count, miss_count
+
+# SoA utilities
+export @get, @set, similar_soa
 
 end

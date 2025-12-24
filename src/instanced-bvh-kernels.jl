@@ -359,7 +359,133 @@ KA.@kernel function refit_tlas_aabbs_kernel!(
     end
 end
 
+# ==============================================================================
+# GPU Dynamic Update Kernels
+# ==============================================================================
+
+"""
+GPU kernel: Batch update instance transforms.
+
+Updates both transform and inv_transform for each instance from the provided
+transform array. The transforms array should contain the new local-to-world
+transforms for instances 1:n (in particle order, NOT Morton order).
+"""
+KA.@kernel function update_instance_transforms_kernel!(
+    instances,
+    @Const(transforms),
+    n_particles::Int32
+)
+    i = @index(Global, Linear)
+    if i <= n_particles
+        @inbounds begin
+            old_inst = instances[i]
+            transform = transforms[i]
+            # Compute inverse transform
+            inv_transform = Mat4f(inv(transform))
+            # Update instance (preserve blas_index, instance_id, flags)
+            instances[i] = InstanceDescriptor(
+                old_inst.blas_index,
+                old_inst.instance_id,
+                transform,
+                inv_transform,
+                old_inst.flags
+            )
+        end
+    end
+end
+
+"""
+GPU kernel: Update TLAS leaf node AABBs from instance transforms.
+
+After transforms are updated, this kernel recomputes world-space AABBs for
+all leaf nodes. Must be called before refit_tlas_aabbs_kernel!.
+
+NOTE: Leaf nodes are Morton-sorted, so we must use the stored instance index
+(child1) to look up the correct instance.
+"""
+KA.@kernel function update_tlas_leaf_aabbs_kernel!(
+    nodes,
+    @Const(instances),
+    @Const(blas_array),
+    n_instances::Int32
+)
+    i = @index(Global, Linear)
+    if i <= n_instances
+        @inbounds begin
+            leaf_node_idx = Int(n_instances) - 1 + i
+            old_node = nodes[leaf_node_idx]
+
+            # Get the actual instance index from the leaf node (stored as 0-indexed in child1)
+            inst_idx = Int(old_node.child1) + 1
+            inst = instances[inst_idx]
+            blas = blas_array[inst.blas_index]
+            local_aabb = blas.root_aabb
+
+            # Transform AABB to world space (8 corners)
+            world_aabb = Bounds3()
+            for c in 1:8
+                world_corner = transform_point(inst.transform, corner(local_aabb, c))
+                world_aabb = world_aabb ∪ Bounds3(world_corner)
+            end
+
+            # Update leaf node with new AABB (preserve topology)
+            nodes[leaf_node_idx] = BVHNode2(
+                world_aabb.p_min, world_aabb.p_max, Point3f(0), Point3f(0),
+                old_node.child0, old_node.child1, old_node.parent
+            )
+        end
+    end
+end
+
+"""
+GPU kernel: Batch update materials based on particle velocities.
+
+Updates material colors using a heat-map based on velocity magnitude.
+Also updates metallic/roughness with per-particle noise variation.
+"""
+KA.@kernel function update_particle_materials_kernel!(
+    materials,
+    @Const(positions),
+    @Const(velocities),
+    @Const(radii),
+    n_particles::Int32,
+    max_speed::Float32
+)
+    i = @index(Global, Linear)
+    if i <= n_particles
+        @inbounds begin
+            vel = velocities[i]
+            speed = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
+
+            # Velocity to heat color (same as CPU version)
+            t = clamp(speed / max_speed, 0.0f0, 1.0f0)
+            color = if t < 0.25f0
+                s = t / 0.25f0
+                RGB{Float32}(0.1f0, 0.2f0 + 0.5f0 * s, 0.8f0)
+            elseif t < 0.5f0
+                s = (t - 0.25f0) / 0.25f0
+                RGB{Float32}(0.1f0 + 0.6f0 * s, 0.7f0, 0.8f0 - 0.6f0 * s)
+            elseif t < 0.75f0
+                s = (t - 0.5f0) / 0.25f0
+                RGB{Float32}(0.7f0 + 0.3f0 * s, 0.7f0 - 0.4f0 * s, 0.2f0 - 0.1f0 * s)
+            else
+                s = (t - 0.75f0) / 0.25f0
+                RGB{Float32}(1.0f0, 0.3f0 + 0.7f0 * s, 0.1f0 + 0.9f0 * s)
+            end
+
+            # Noise for metallic/roughness variety
+            noise = sin(Float32(i) * 0.1f0) * 0.5f0 + 0.5f0
+            metallic = 0.3f0 + noise * 0.6f0
+            roughness = 0.2f0 + (1.0f0 - noise) * 0.4f0
+
+            materials[i] = Material(color, metallic, roughness, 1.0f0, 0.0f0)
+        end
+    end
+end
+
 # Export kernel helper functions for testing
 export calculate_morton_code_for_prim, build_topology_for_node
 export set_parents_for_node, create_leaf_for_prim, refit_node_aabb
 export calculate_tlas_morton_code, create_tlas_leaf_for_instance
+export update_instance_transforms_kernel!, update_tlas_leaf_aabbs_kernel!
+export update_particle_materials_kernel!
