@@ -42,6 +42,7 @@ include("triangle_mesh.jl")
 include("bvh.jl")
 include("instanced-bvh.jl")
 include("instanced-bvh-kernels.jl")
+include("bvh4.jl")
 include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
@@ -54,6 +55,9 @@ export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bound
 export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
 export Instance, InstanceHandle, find_instances, add_instance!, remove_instance!, rebuild_tlas!
 export update_transform!, update_transforms!, n_instances, n_geometries
+
+# BVH4 types (HIPRT-style 4-wide nodes)
+export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 
 # Ray intersection functions
 export closest_hit, any_hit, world_bound

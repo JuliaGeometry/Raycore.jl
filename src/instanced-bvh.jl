@@ -1121,10 +1121,13 @@ function TLAS(
     TMetadata = typeof(first_metadata)
 
     # Build first BLAS to get concrete type
+    # Filter out degenerate triangles (e.g., at poles of UV-sphere tessellations)
     first_triangles = Triangle{TMetadata}[]
     for i in 1:div(length(first_mesh.indices), 3)
-        metadata = metadata_fn(1, i)
-        push!(first_triangles, Triangle(first_mesh, i, metadata))
+        if !is_degenerate(get_vertices(first_mesh, i))
+            metadata = metadata_fn(1, i)
+            push!(first_triangles, Triangle(first_mesh, i, metadata))
+        end
     end
     first_blas = build_blas(first_triangles)
 
@@ -1149,9 +1152,12 @@ function TLAS(
         triangle_mesh = Raycore.to_triangle_mesh(prim)
         triangles = Triangle{TMetadata}[]
 
+        # Filter out degenerate triangles
         for i in 1:div(length(triangle_mesh.indices), 3)
-            metadata = metadata_fn(mi, i)
-            push!(triangles, Triangle(triangle_mesh, i, metadata))
+            if !is_degenerate(get_vertices(triangle_mesh, i))
+                metadata = metadata_fn(mi, i)
+                push!(triangles, Triangle(triangle_mesh, i, metadata))
+            end
         end
 
         # Build BLAS for this mesh
@@ -1364,7 +1370,10 @@ function _build_tlas_from_instances(instances::Vector{<:Instance})
     # Build first BLAS to get concrete type for the array
     first_inst = instances[1]
     first_mesh = to_triangle_mesh(first_inst.geometry)
-    first_triangles = [Triangle(first_mesh, i, first_inst.metadata[1]) for i in 1:div(length(first_mesh.indices), 3)]
+    # Filter out degenerate triangles (e.g., at poles of UV-sphere tessellations)
+    first_triangles = [Triangle(first_mesh, i, first_inst.metadata[1])
+                       for i in 1:div(length(first_mesh.indices), 3)
+                       if !is_degenerate(get_vertices(first_mesh, i))]
     first_blas = build_blas(first_triangles)
 
     # Create concretely-typed arrays
@@ -1385,7 +1394,10 @@ function _build_tlas_from_instances(instances::Vector{<:Instance})
     # Process remaining instances
     for inst in instances[2:end]
         mesh = to_triangle_mesh(inst.geometry)
-        triangles = [Triangle(mesh, i, inst.metadata[1]) for i in 1:div(length(mesh.indices), 3)]
+        # Filter out degenerate triangles
+        triangles = [Triangle(mesh, i, inst.metadata[1])
+                     for i in 1:div(length(mesh.indices), 3)
+                     if !is_degenerate(get_vertices(mesh, i))]
         blas = build_blas(triangles)
         push!(blas_array, blas)
         blas_idx = UInt32(length(blas_array))

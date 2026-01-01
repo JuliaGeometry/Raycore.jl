@@ -83,6 +83,17 @@ function is_degenerate(vs::AbstractVector{Point3f})::Bool
     (v ⋅ v) ≈ 0f0
 end
 
+"""
+    get_vertices(mesh::TriangleMesh, face_idx::Integer) -> SVector{3, Point3f}
+
+Get the 3 vertices of a triangle face from the mesh without constructing the full Triangle.
+Useful for checking if a triangle is degenerate before creating it.
+"""
+function get_vertices(m::TriangleMesh, face_idx::Integer)
+    f_idx = 1 + (3 * (face_idx - 1))
+    @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
+end
+
 vertices(t::Triangle) = t.vertices
 normals(t::Triangle) = t.normals
 tangents(t::Triangle) = t.tangents
