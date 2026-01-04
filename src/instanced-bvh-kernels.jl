@@ -395,6 +395,39 @@ KA.@kernel function update_instance_transforms_kernel!(
 end
 
 """
+GPU kernel: Update instance transforms with offset.
+
+Same as update_instance_transforms_kernel! but updates instances starting at
+`first_idx` instead of 1. This is needed for TLAS with multiple meshscatter
+plots where each plot's instances are at different offsets.
+"""
+KA.@kernel function update_instance_transforms_offset_kernel!(
+    instances,
+    @Const(transforms),
+    n_particles::Int32,
+    first_idx::Int32
+)
+    i = @index(Global, Linear)
+    if i <= n_particles
+        @inbounds begin
+            inst_idx = first_idx + i - Int32(1)
+            old_inst = instances[inst_idx]
+            transform = transforms[i]
+            # Compute inverse transform
+            inv_transform = Mat4f(inv(transform))
+            # Update instance (preserve blas_index, instance_id, flags)
+            instances[inst_idx] = InstanceDescriptor(
+                old_inst.blas_index,
+                old_inst.instance_id,
+                transform,
+                inv_transform,
+                old_inst.flags
+            )
+        end
+    end
+end
+
+"""
 GPU kernel: Update TLAS leaf node AABBs from instance transforms.
 
 After transforms are updated, this kernel recomputes world-space AABBs for
@@ -487,5 +520,5 @@ end
 export calculate_morton_code_for_prim, build_topology_for_node
 export set_parents_for_node, create_leaf_for_prim, refit_node_aabb
 export calculate_tlas_morton_code, create_tlas_leaf_for_instance
-export update_instance_transforms_kernel!, update_tlas_leaf_aabbs_kernel!
+export update_instance_transforms_kernel!, update_instance_transforms_offset_kernel!, update_tlas_leaf_aabbs_kernel!
 export update_particle_materials_kernel!

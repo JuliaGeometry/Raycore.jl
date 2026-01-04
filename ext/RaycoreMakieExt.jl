@@ -196,15 +196,64 @@ function Makie.convert_arguments(::Type{Makie.Mesh}, bvh::Raycore.BVH)
     faces = GeometryBasics.TriangleFace{Int}[]
     colors = Float32[]
     normals = Vec3f[]
+        # Map unique metadata values to color indices
+    metadata_to_color = Dict{Any, Float32}()
+    next_color_idx = Ref(0f0)
+
+    function get_color_for_metadata(meta)
+        get!(metadata_to_color, meta) do
+            next_color_idx[] += 1f0
+            next_color_idx[]
+        end
+    end
     for (i, prim) in enumerate(bvh.primitives)
         start_idx = length(vertices)
+        color_val = get_color_for_metadata(prim.metadata)
         for (v, n) in zip(prim.vertices, prim.normals)
             push!(vertices, v)
-            push!(colors, Float32(prim.metadata))
+            push!(colors, color_val)
             push!(normals, Vec3f(n))
         end
         push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
     end
+    return (GeometryBasics.Mesh(vertices, faces; normal=normals, color=colors), )
+end
+
+# TLAS support (two-level acceleration structure)
+Makie.plottype(::Raycore.TLAS) = Makie.Mesh
+Makie.plottype(::Raycore.TLAS4) = Makie.Mesh
+
+function Makie.convert_arguments(::Type{Makie.Mesh}, tlas::Union{Raycore.TLAS, Raycore.TLAS4})
+    # Convert TLAS to a Mesh by iterating through all BLAS primitives
+    vertices = Point3f[]
+    faces = GeometryBasics.TriangleFace{Int}[]
+    colors = Float32[]
+    normals = Vec3f[]
+
+    # Map unique metadata values to color indices
+    metadata_to_color = Dict{Any, Float32}()
+    next_color_idx = Ref(0f0)
+
+    function get_color_for_metadata(meta)
+        get!(metadata_to_color, meta) do
+            next_color_idx[] += 1f0
+            next_color_idx[]
+        end
+    end
+
+    for blas in tlas.blas_array
+        for prim in blas.primitives
+            start_idx = length(vertices)
+            color_val = get_color_for_metadata(prim.metadata)
+            for (v, n) in zip(prim.vertices, prim.normals)
+                push!(vertices, v)
+                push!(colors, color_val)
+                push!(normals, Vec3f(n))
+            end
+            push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
+        end
+    end
+    @show length(vertices) length(faces) length(normals) length(colors)
     return (GeometryBasics.Mesh(vertices, faces; normal=normals, color=colors), )
 end
 

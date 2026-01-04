@@ -1090,6 +1090,26 @@ function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4
     return nothing
 end
 
+"""
+    update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer, first_idx::Integer)
+
+Batch update instance transforms starting at a specific index.
+
+This variant updates instances starting at `first_idx` instead of 1, which is
+needed for scenes with multiple meshscatter plots where each plot's instances
+are at different offsets in the TLAS.
+
+The backend is inferred from the `transforms` array type.
+Call `refit_tlas!(tlas)` after this to update the BVH AABBs.
+"""
+function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer, first_idx::Integer)
+    backend = KA.get_backend(transforms)
+    kernel! = update_instance_transforms_offset_kernel!(backend)
+    kernel!(tlas.instances, transforms, Int32(n_to_update), Int32(first_idx), ndrange=n_to_update)
+    KA.synchronize(backend)
+    return nothing
+end
+
 
 # ==============================================================================
 # BVH-Compatible API
