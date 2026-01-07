@@ -47,6 +47,7 @@ include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
 include("soa.jl")
+include("unrolled.jl")
 
 # Core types
 export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bounds3, Normal3f
@@ -73,5 +74,8 @@ export RayIntersectionSession, hit_points, hit_distances, hit_count, miss_count
 
 # SoA utilities
 export @get, @set, similar_soa
+
+# GPU-safe unrolled iteration
+export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled
 
 end
