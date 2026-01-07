@@ -49,7 +49,7 @@ sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
 # Build our BVH acceleration structure
 scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-bvh = Raycore.BVH(scene_geometry)
+bvh = Raycore.TLAS(scene_geometry)[1]
 md"**BVH built with $(length(bvh.primitives)) triangles**"
 ```
 ## Part 2: Helper Functions - Building Blocks

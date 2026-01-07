@@ -44,24 +44,29 @@ end
     check_no_capture(::Type{F}) where F
 
 Compile-time check that function type `F` has no captured variables.
-Captured variables appear as `Core.Box` fields in the closure struct.
+Any closure field indicates a captured variable which should be passed as an argument instead.
+`Core.Box` fields are especially problematic (heap-allocated, type-unstable).
 """
 @generated function check_no_capture(::Type{F}) where F
-    # Regular functions have no fields
+    # Regular functions have no fields - OK
     if fieldcount(F) == 0
         return :nothing
     end
 
-    # Check each field for Core.Box (indicates captured variable)
-    for i in 1:fieldcount(F)
-        ft = fieldtype(F, i)
-        if ft === Core.Box
-            fname = fieldname(F, i)
-            return :(error("FastClosure: function captures variable '$($(QuoteNode(fname)))' which would be boxed. Pass it as an argument instead."))
-        end
-    end
+    # Any field on a closure = captured variable
+    # Collect all captured variable names
+    captured_names = [fieldname(F, i) for i in 1:fieldcount(F)]
+    boxed_names = [fieldname(F, i) for i in 1:fieldcount(F) if fieldtype(F, i) === Core.Box]
 
-    return :nothing
+    if !isempty(boxed_names)
+        # Boxed captures are the worst - definitely error
+        names_str = join(boxed_names, ", ")
+        return :(error("FastClosure: function captures boxed variable(s): " * $names_str * ". Pass as argument(s) instead."))
+    else
+        # Non-boxed captures: still problematic for GPU, error with helpful message
+        names_str = join(captured_names, ", ")
+        return :(error("FastClosure: function captures variable(s): " * $names_str * ". Pass as argument(s) instead to ensure GPU compatibility."))
+    end
 end
 
 """
@@ -169,8 +174,12 @@ contributions = map_unrolled(compute_light, lights, hit_point, normal)
 end
 
 @inline _map_unrolled(_fc, ::Tuple{}) = ()
-@inline function _map_unrolled(fc, tuple::Tuple)
-    return (fc(first(tuple)), _map_unrolled(fc, Base.tail(tuple))...)
+
+# Use @generated to avoid tuple splatting which causes allocations
+@generated function _map_unrolled(fc, tup::T) where T <: Tuple
+    N = length(T.parameters)
+    exprs = [:(fc(tup[$i])) for i in 1:N]
+    return :(($(exprs...),))
 end
 
 # ============================================================================

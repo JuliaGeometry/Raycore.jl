@@ -749,7 +749,7 @@ Algorithm:
 4. Transform back to world space
 5. Return closest hit across all instances
 """
-@inline function closest_hit(tlas::TLAS{NA, IA, BA}, ray::R) where {NA, IA, BA, R <: AbstractRay}
+@inline function closest_hit(tlas::TLAS, ray::R) where {R <: AbstractRay}
     # Initialize traversal state - matches HLSL TraceRays
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
