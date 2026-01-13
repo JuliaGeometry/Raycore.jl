@@ -237,3 +237,56 @@ end
 @inline function _sum_unrolled(fc, tuple::Tuple)
     return fc(first(tuple)) + _sum_unrolled(fc, Base.tail(tuple))
 end
+
+# ============================================================================
+# getindex_unrolled - Select element by runtime index, apply function
+# ============================================================================
+
+"""
+    getindex_unrolled(f, tuple, idx::Int32, args...) -> result
+
+Select element at runtime index `idx` from `tuple` and apply `f(element, args...)`.
+Uses unrolled if-branches for GPU compatibility - no dynamic dispatch.
+
+The index is 1-based. If idx is out of bounds, returns `f(tuple[1], args...)` as fallback.
+
+# Example
+```julia
+lights = (sun_light, point_light, env_light)
+light_idx = Int32(2)
+
+# Sample from the selected light
+sample = getindex_unrolled(sample_light, lights, light_idx, point, lambda, u)
+# Equivalent to: sample_light(point_light, point, lambda, u)
+```
+"""
+@inline function getindex_unrolled(f::F, tuple::Tuple, idx::Int32, args...) where F
+    fc = FastClosure(f, args)
+    return _getindex_unrolled(fc, tuple, idx)
+end
+
+# Generated function creates unrolled if-branches for type stability
+@generated function _getindex_unrolled(fc, tuple::T, idx::Int32) where T <: Tuple
+    N = length(T.parameters)
+
+    if N == 0
+        # Empty tuple - shouldn't happen, but return nothing
+        return :(error("getindex_unrolled: empty tuple"))
+    end
+
+    # Build unrolled if-else chain
+    # Start from the last index and work backwards to build nested if-else
+    expr = :(fc(tuple[$N]))  # Default/fallback case
+
+    for i in (N-1):-1:1
+        expr = quote
+            if idx == Int32($i)
+                fc(tuple[$i])
+            else
+                $expr
+            end
+        end
+    end
+
+    return expr
+end

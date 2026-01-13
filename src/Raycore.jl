@@ -49,6 +49,9 @@ include("ray_intersection_session.jl")
 include("soa.jl")
 include("unrolled.jl")
 
+# Macros
+export @_inbounds
+
 # Core types
 export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bounds3, Normal3f
 
@@ -76,6 +79,6 @@ export RayIntersectionSession, hit_points, hit_distances, hit_count, miss_count
 export @get, @set, similar_soa
 
 # GPU-safe unrolled iteration
-export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled
+export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, getindex_unrolled
 
 end
