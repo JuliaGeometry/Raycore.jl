@@ -1,0 +1,298 @@
+# ============================================================================
+# HeterogeneousVector - Type-stable heterogeneous collections for GPU
+# ============================================================================
+# Provides compile-time type-stable dispatch over collections of different types.
+# Used for materials, textures, media, lights, etc.
+
+using Adapt
+using Base: @propagate_inbounds
+import KernelAbstractions as KA
+
+# ============================================================================
+# HeteroVecIndex - Encodes type slot + vector index
+# ============================================================================
+
+"""
+    HeteroVecIndex
+
+Index into a heterogeneous vector, encoding both which type slot (1-based)
+and the index within that type's array.
+
+- `type_idx`: Which tuple slot (1-based), 0 = invalid/constant sentinel
+- `vec_idx`: 1-based index within the vector at that slot
+"""
+struct HeteroVecIndex
+    type_idx::UInt8
+    vec_idx::UInt32
+end
+
+# Default constructor for invalid/placeholder index
+HeteroVecIndex() = HeteroVecIndex(UInt8(0), UInt32(0))
+
+# Check for invalid sentinel
+is_invalid(idx::HeteroVecIndex) = idx.type_idx == UInt8(0) && idx.vec_idx == UInt32(0)
+is_valid(idx::HeteroVecIndex) = !is_invalid(idx)
+
+# ============================================================================
+# StaticMultiTypeVec - Immutable with separate texture storage for GPU
+# ============================================================================
+
+"""
+    StaticMultiTypeVec{Data, Textures}
+
+Immutable heterogeneous collection with separate texture storage.
+- `data`: Tuple of GPU vectors for materials/objects
+- `textures`: Tuple of GPU vectors containing isbits device pointers
+"""
+struct StaticMultiTypeVec{Data<:Tuple, Textures<:Tuple}
+    data::Data
+    textures::Textures
+end
+
+# Empty constructor
+StaticMultiTypeVec() = StaticMultiTypeVec((), ())
+
+Base.isempty(smv::StaticMultiTypeVec) = isempty(smv.data)
+Base.length(smv::StaticMultiTypeVec) = sum(length, smv.data; init=0)
+n_slots(smv::StaticMultiTypeVec) = length(smv.data)
+
+# ============================================================================
+# TextureRef - Typed reference to a texture
+# ============================================================================
+
+# TIdx is the 1-based type slot index, idx is the element index within that slot's vector
+struct TextureRef{ReferencedArrayType, T, N, TIdx} <: AbstractArray{T, N}
+    idx::Int
+end
+
+Base.size(::TextureRef{ReferencedArrayType, T, N}) where {ReferencedArrayType, T, N} = ntuple(_ -> 0, N)
+
+# Deref for StaticMultiTypeVec - textures stored as Tuple{GPUVector{IsbitsPtr1}, GPUVector{IsbitsPtr2}, ...}
+@inline function deref(smv::StaticMultiTypeVec{Data, Textures}, tref::TextureRef{ReferencedArrayType, T, N, TIdx}) where {Data, Textures, ReferencedArrayType, T, N, TIdx}
+    @inbounds smv.textures[TIdx][tref.idx]
+end
+
+# ============================================================================
+# Dummy kernel for argconvert (same pattern as kernel-abstractions.jl)
+# ============================================================================
+
+KA.@kernel _heterovec_dummy_kernel() = nothing
+
+function _get_isbits_ptr(backend, gpu_arr)
+    kernel = _heterovec_dummy_kernel(backend)
+    return KA.argconvert(kernel, gpu_arr)
+end
+
+# ============================================================================
+# MultiTypeVec - Mutable, builds GPU-ready structures on push!
+# ============================================================================
+
+"""
+    MultiTypeVec(backend)
+
+Mutable heterogeneous vector that builds GPU-ready structures on each push!.
+Takes a KernelAbstractions backend at construction.
+
+# Example
+```julia
+backend = OpenCL.OpenCLBackend()
+dhv = MultiTypeVec(backend)
+texture = rand(Float32, 20, 20)
+idx1 = push!(dhv, MatteMaterial(texture))
+idx2 = push!(dhv, GlassMaterial(1.5f0))
+
+# Access the GPU-ready StaticMultiTypeVec directly
+gpu_smv = dhv.static  # Always up-to-date, no adapt needed
+```
+
+Push converts arrays to TextureRefs and stores texture data as GPU arrays.
+The static field is rebuilt on each push to stay up-to-date.
+"""
+mutable struct MultiTypeVec{Backend}
+    backend::Backend
+    # Material storage - CPU vectors for accumulation
+    data_vectors::Dict{DataType, Any}  # Type -> Vector{Type}
+    data_order::Vector{DataType}
+    # Texture isbits pointers - CPU vectors for accumulation
+    texture_isbits::Dict{DataType, Any}  # OriginalArrayType -> Vector{IsbitsPtr}
+    texture_order::Vector{DataType}
+    # Keep GPU texture arrays alive (the actual texture data)
+    texture_gpu_arrays::Vector{Any}
+    # Cached static version - rebuilt on each push
+    static::StaticMultiTypeVec
+end
+
+function MultiTypeVec(backend)
+    return MultiTypeVec(
+        backend,
+        Dict{DataType, Any}(),
+        DataType[],
+        Dict{DataType, Any}(),
+        DataType[],
+        Any[],
+        StaticMultiTypeVec()
+    )
+end
+
+Base.isempty(dhv::MultiTypeVec) = isempty(dhv.data_order)
+Base.length(dhv::MultiTypeVec) = sum(length, values(dhv.data_vectors); init=0)
+n_slots(dhv::MultiTypeVec) = length(dhv.data_order)
+
+# ============================================================================
+# Internal: Rebuild the static tuple - converts CPU vectors to GPU
+# ============================================================================
+
+function _rebuild_static!(dhv::MultiTypeVec)
+    # Convert CPU data vectors to GPU
+    data_tuple = if isempty(dhv.data_order)
+        ()
+    else
+        Tuple(Adapt.adapt(dhv.backend, dhv.data_vectors[T]) for T in dhv.data_order)
+    end
+    # Convert CPU isbits pointer vectors to GPU
+    tex_tuple = if isempty(dhv.texture_order)
+        ()
+    else
+        Tuple(Adapt.adapt(dhv.backend, dhv.texture_isbits[T]) for T in dhv.texture_order)
+    end
+    dhv.static = StaticMultiTypeVec(data_tuple, tex_tuple)
+end
+
+# ============================================================================
+# Texture conversion and storage
+# ============================================================================
+
+# Convert arrays in a struct to TextureRefs, storing them as GPU arrays
+function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
+    if !isstructtype(T) || T <: AbstractArray
+        return item
+    end
+    fnames = fieldnames(T)
+    if isempty(fnames)
+        return item
+    end
+    new_fields = map(fnames) do fname
+        fval = getfield(item, fname)
+        if fval isa AbstractArray && !(fval isa TextureRef)
+            store_texture(dhv, fval)
+        else
+            fval
+        end
+    end
+    if all(getfield(item, fn) === nf for (fn, nf) in zip(fnames, new_fields))
+        return item
+    end
+    BaseT = Base.typename(T).wrapper
+    return BaseT(new_fields...)
+end
+
+# Store a texture as GPU array, return TextureRef pointing to isbits device pointer
+function store_texture(dhv::MultiTypeVec, arr::A) where A <: AbstractArray
+    # Convert to GPU array and keep alive
+    gpu_arr = Adapt.adapt(dhv.backend, arr)
+    push!(dhv.texture_gpu_arrays, gpu_arr)
+
+    # Get isbits device pointer
+    isbits_ptr = _get_isbits_ptr(dhv.backend, gpu_arr)
+
+    # Check if this texture type already has a slot
+    type_idx = findfirst(==(A), dhv.texture_order)
+
+    if type_idx === nothing
+        # New texture type - create CPU vector for it
+        dhv.texture_isbits[A] = [isbits_ptr]
+        push!(dhv.texture_order, A)
+        type_idx = length(dhv.texture_order)
+    else
+        # Existing type - push to CPU vector
+        push!(dhv.texture_isbits[A], isbits_ptr)
+    end
+
+    vec_idx = length(dhv.texture_isbits[A])
+    return TextureRef{A, eltype(A), ndims(A), type_idx}(vec_idx)
+end
+
+# ============================================================================
+# push! - Adds item to CPU vectors, rebuilds GPU static on each push
+# ============================================================================
+
+function Base.push!(dhv::MultiTypeVec, item::T)::HeteroVecIndex where T
+    # Convert any arrays in the item to TextureRefs (textures stored as GPU arrays)
+    converted_item = convert_to_texturerefs(dhv, item)
+    CT = typeof(converted_item)
+
+    # Check if this material type already has a slot
+    type_idx = findfirst(==(CT), dhv.data_order)
+
+    if type_idx === nothing
+        # New material type - create CPU vector for it
+        dhv.data_vectors[CT] = [converted_item]
+        push!(dhv.data_order, CT)
+        type_idx = length(dhv.data_order)
+    else
+        # Existing type - push to CPU vector
+        push!(dhv.data_vectors[CT], converted_item)
+    end
+
+    vec_idx = length(dhv.data_vectors[CT])
+
+    # Rebuild GPU static on every push
+    _rebuild_static!(dhv)
+
+    return HeteroVecIndex(UInt8(type_idx), UInt32(vec_idx))
+end
+
+# ============================================================================
+# with_index - Type-stable dispatch
+# ============================================================================
+
+"""
+    with_index(f, smv::StaticMultiTypeVec, idx::HeteroVecIndex, args...)
+
+Execute function `f` with the element at index `idx`, passing additional `args`.
+The function is called as `f(element, args...)` where `element` has a concrete type.
+
+Uses compile-time unrolled if-branches for GPU compatibility.
+The function `f` must not capture variables - pass all data as `args`.
+"""
+@inline @generated function with_index(
+    f::F, smv::StaticMultiTypeVec{Data, Textures}, idx::HeteroVecIndex, args...
+) where {F, Data<:Tuple, Textures}
+    N = length(Data.parameters)
+
+    if N == 0
+        return :(error("with_index: empty StaticMultiTypeVec"))
+    end
+
+    branches = [quote
+        if idx.type_idx === UInt8($i)
+            @inbounds return f(smv.data[$i][idx.vec_idx], args...)
+        end
+    end for i in 1:N]
+
+    quote
+        $(branches...)
+        @inbounds return f(smv.data[1][1], args...)
+    end
+end
+
+# ============================================================================
+# Adapt.jl integration for GPU array conversion
+# ============================================================================
+
+# Adapt StaticMultiTypeVec - adapts data and texture arrays
+# For MultiTypeVec.static, arrays are already GPU - this converts to isbits for kernel
+function Adapt.adapt_structure(to, smv::StaticMultiTypeVec)
+    adapted_data = map(smv.data) do arr
+        Adapt.adapt(to, arr)
+    end
+    adapted_textures = map(smv.textures) do tex
+        Adapt.adapt(to, tex)
+    end
+    return StaticMultiTypeVec(adapted_data, adapted_textures)
+end
+
+# Adapt MultiTypeVec - returns the already GPU-ready static field
+function Adapt.adapt_structure(to, dhv::MultiTypeVec)
+    return Adapt.adapt_structure(to, dhv.static)
+end

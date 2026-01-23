@@ -21,4 +21,7 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
     @testset "Instanced BVH" begin
         include("test_instanced_bvh.jl")
     end
+    @testset "HeteroVec" begin
+        include("test_heterovec.jl")
+    end
 end

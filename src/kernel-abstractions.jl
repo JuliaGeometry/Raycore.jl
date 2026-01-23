@@ -2,17 +2,16 @@ import KernelAbstractions as KA
 
 KA.@kernel some_kernel_f() = nothing
 
-global PRESERVE = []
-
 function some_kernel(arr)
     backend = KA.get_backend(arr)
     return some_kernel_f(backend)
 end
 
+# Convert array to GPU array
+# The caller is responsible for keeping the returned array alive.
+# Typically this is done by storing in a scene struct.
 function to_gpu(ArrayType, m::AbstractArray)
     arr = ArrayType(m)
-    push!(PRESERVE, arr)
-    finalizer((arr) -> filter!(x-> x === arr, PRESERVE), arr)
     kernel = some_kernel(arr)
     return KA.argconvert(kernel, arr)
 end

@@ -6,6 +6,7 @@ using StaticArrays
 using KernelAbstractions
 import GeometryBasics as GB
 using Statistics
+using Adapt
 
 abstract type AbstractRay end
 abstract type AbstractShape end
@@ -48,6 +49,7 @@ include("kernels.jl")
 include("ray_intersection_session.jl")
 include("soa.jl")
 include("unrolled.jl")
+include("heterovec.jl")
 
 # Macros
 export @_inbounds
@@ -80,5 +82,9 @@ export @get, @set, similar_soa
 
 # GPU-safe unrolled iteration
 export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, getindex_unrolled
+
+# HeterogeneousVector for type-stable heterogeneous collections
+export HeteroVecIndex, MultiTypeVec, StaticMultiTypeVec, TextureRef
+export is_invalid, is_valid, with_index, n_slots, deref
 
 end
