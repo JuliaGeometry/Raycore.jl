@@ -62,6 +62,10 @@ export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID
 export Instance, InstanceHandle, find_instances, add_instance!, remove_instance!, rebuild_tlas!
 export update_transform!, update_transforms!, n_instances, n_geometries
 
+# TLASBuilder (new MultiTypeVec-style API)
+export TLASBuilder, TLASHandle, StaticTLAS, INVALID_HANDLE
+export sync!, update_instance!, update!, n_total_instances
+
 # BVH4 types (HIPRT-style 4-wide nodes)
 export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 
@@ -86,5 +90,6 @@ export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, g
 # HeterogeneousVector for type-stable heterogeneous collections
 export HeteroVecIndex, MultiTypeVec, StaticMultiTypeVec, TextureRef
 export is_invalid, is_valid, with_index, n_slots, deref
+export maybe_convert_field, store_texture
 
 end

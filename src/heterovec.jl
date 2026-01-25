@@ -44,7 +44,7 @@ Immutable heterogeneous collection with separate texture storage.
 - `data`: Tuple of GPU vectors for materials/objects
 - `textures`: Tuple of GPU vectors containing isbits device pointers
 """
-struct StaticMultiTypeVec{Data<:Tuple, Textures<:Tuple}
+struct StaticMultiTypeVec{Data<:Tuple,Textures<:Tuple} <: AbstractVector{Any}
     data::Data
     textures::Textures
 end
@@ -108,7 +108,7 @@ gpu_smv = dhv.static  # Always up-to-date, no adapt needed
 Push converts arrays to TextureRefs and stores texture data as GPU arrays.
 The static field is rebuilt on each push to stay up-to-date.
 """
-mutable struct MultiTypeVec{Backend}
+mutable struct MultiTypeVec{Backend} <: AbstractVector{Any}
     backend::Backend
     # Material storage - CPU vectors for accumulation
     data_vectors::Dict{DataType, Any}  # Type -> Vector{Type}
@@ -162,6 +162,21 @@ end
 # Texture conversion and storage
 # ============================================================================
 
+"""
+    maybe_convert_field(dhv::MultiTypeVec, fval)
+
+Convert a struct field value for GPU storage. Override this for custom types.
+- AbstractArray → TextureRef (uploaded to GPU)
+- Everything else → unchanged (default)
+
+Materials should use loose type parameters so fields can be either raw values OR
+TextureRef. This way constant values don't need texture indirection at all.
+"""
+maybe_convert_field(::MultiTypeVec, fval) = fval
+maybe_convert_field(dhv::MultiTypeVec, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
+# Don't re-convert already converted refs
+maybe_convert_field(::MultiTypeVec, ref::TextureRef) = ref
+
 # Convert arrays in a struct to TextureRefs, storing them as GPU arrays
 function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
     if !isstructtype(T) || T <: AbstractArray
@@ -173,11 +188,7 @@ function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
     end
     new_fields = map(fnames) do fname
         fval = getfield(item, fname)
-        if fval isa AbstractArray && !(fval isa TextureRef)
-            store_texture(dhv, fval)
-        else
-            fval
-        end
+        maybe_convert_field(dhv, fval)
     end
     if all(getfield(item, fn) === nf for (fn, nf) in zip(fnames, new_fields))
         return item

@@ -97,6 +97,7 @@ end
     TLAS{NodeArray, InstArray, BLASArray}
 
 Top-Level Acceleration Structure - BVH over instances.
+This is the GPU-compatible immutable structure used for traversal.
 """
 struct TLAS{
     NodeArray <: AbstractVector{BVHNode2},
@@ -107,6 +108,390 @@ struct TLAS{
     instances::InstArray
     blas_array::BLASArray
     root_aabb::Bounds3
+end
+
+# Alias for clarity - TLAS is the static/GPU-ready form
+const StaticTLAS = TLAS
+
+# ==============================================================================
+# TLASBuilder - CPU-side mutable TLAS management (MultiTypeVec pattern)
+# ==============================================================================
+
+"""
+    TLASHandle
+
+Stable handle for referencing instances in a TLASBuilder.
+Uses generational indices for O(1) lookup and invalidation detection.
+
+# Fields
+- `index`: Slot index in the sparse instances array (1-based)
+- `generation`: Generation counter for validity checking
+"""
+struct TLASHandle
+    index::UInt32       # Slot in sparse array (1-based)
+    generation::UInt32  # Validity check - incremented on slot reuse
+end
+
+# Sentinel for invalid handle
+const INVALID_HANDLE = TLASHandle(UInt32(0), UInt32(0))
+
+"""
+    TLASBuilder{Backend}
+
+Mutable CPU-side TLAS management structure following the MultiTypeVec pattern.
+
+Maintains CPU-side data with Dict-based handle lookups, and caches a GPU-ready
+TLAS that is rebuilt lazily on `sync!()` or `adapt()`.
+
+# Usage
+```julia
+tlas = TLAS(CPU())
+h1 = push!(tlas, geometry)
+h2 = push!(tlas, Instance(geometry, transforms))
+update_instance!(tlas, h2, new_transforms)
+delete!(tlas, h1)
+sync!(tlas)  # Rebuild GPU structure
+static = adapt(backend, tlas)  # Get GPU-ready TLAS
+```
+"""
+mutable struct TLASBuilder{Backend}
+    backend::Backend
+
+    # BLAS storage - geometry BVHs
+    blas_array::Vector{BLAS{Vector{BVHNode2}, Vector{Triangle{UInt32}}}}
+
+    # Instance storage (sparse with holes for O(1) delete)
+    instances::Vector{Union{InstanceDescriptor, Nothing}}
+    generations::Vector{UInt32}
+    free_list::Vector{UInt32}
+
+    # Handle -> slot range mapping (for group handles)
+    # One handle can reference multiple consecutive slots (multi-transform instances)
+    handle_to_slots::Dict{TLASHandle, UnitRange{UInt32}}
+
+    # Cached GPU-ready TLAS (rebuilt on sync!)
+    static::Union{TLAS, Nothing}
+    dirty::Bool
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder Constructor and Core Operations
+# ------------------------------------------------------------------------------
+
+"""
+    TLAS(backend) -> TLASBuilder
+
+Create an empty TLASBuilder for the given backend.
+Use `push!` to add geometries/instances, then `sync!` or `adapt` to get GPU-ready TLAS.
+"""
+function TLAS(backend)
+    return TLASBuilder(
+        backend,
+        BLAS{Vector{BVHNode2}, Vector{Triangle{UInt32}}}[],  # blas_array
+        Union{InstanceDescriptor, Nothing}[],                 # instances (sparse)
+        UInt32[],                                             # generations
+        UInt32[],                                             # free_list
+        Dict{TLASHandle, UnitRange{UInt32}}(),               # handle_to_slots
+        nothing,                                              # static (not built yet)
+        true                                                  # dirty
+    )
+end
+
+"""
+    is_valid(tlas::TLASBuilder, handle::TLASHandle) -> Bool
+
+Check if a handle is still valid (not deleted, generation matches). O(1) operation.
+"""
+function is_valid(tlas::TLASBuilder, handle::TLASHandle)::Bool
+    haskey(tlas.handle_to_slots, handle) || return false
+    slots = tlas.handle_to_slots[handle]
+    isempty(slots) && return false
+    first_slot = first(slots)
+    first_slot > length(tlas.generations) && return false
+    return tlas.generations[first_slot] == handle.generation &&
+           tlas.instances[first_slot] !== nothing
+end
+
+"""
+    n_instances(tlas::TLASBuilder, handle::TLASHandle) -> Int
+
+Get the number of instances referenced by a handle.
+"""
+function n_instances(tlas::TLASBuilder, handle::TLASHandle)::Int
+    haskey(tlas.handle_to_slots, handle) || return 0
+    return length(tlas.handle_to_slots[handle])
+end
+
+"""
+    n_geometries(tlas::TLASBuilder) -> Int
+
+Get the total number of distinct geometries (BLASes) in the TLAS.
+"""
+n_geometries(tlas::TLASBuilder) = length(tlas.blas_array)
+
+"""
+    n_total_instances(tlas::TLASBuilder) -> Int
+
+Get the total number of active instances in the TLAS.
+"""
+function n_total_instances(tlas::TLASBuilder)::Int
+    count(x -> x !== nothing, tlas.instances)
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder: push! operations
+# ------------------------------------------------------------------------------
+
+"""
+    push!(tlas::TLASBuilder, geometry) -> TLASHandle
+
+Add geometry as a single instance at identity transform.
+Returns a stable handle for later reference.
+"""
+function Base.push!(tlas::TLASBuilder, geometry)
+    # Wrap as Instance at identity
+    inst = Instance(geometry)
+    return push!(tlas, inst)
+end
+
+"""
+    push!(tlas::TLASBuilder, inst::Instance) -> TLASHandle
+
+Add an Instance with transforms and metadata.
+Returns a single handle referencing all instances in the group.
+"""
+function Base.push!(tlas::TLASBuilder, inst::Instance)
+    # Build BLAS for geometry
+    mesh = to_triangle_mesh(inst.geometry)
+    triangles = [Triangle(mesh, i, inst.metadata[1])
+                 for i in 1:div(length(mesh.indices), 3)
+                 if !is_degenerate(get_vertices(mesh, i))]
+    isempty(triangles) && error("Geometry has no valid triangles")
+    blas = build_blas(triangles)
+    push!(tlas.blas_array, blas)
+    blas_idx = UInt32(length(tlas.blas_array))
+
+    # Allocate slots for all transforms
+    first_slot = UInt32(0)
+    last_slot = UInt32(0)
+
+    for (i, transform) in enumerate(inst.transforms)
+        inv_transform = Mat4f(inv(transform))
+        instance_id = inst.metadata[min(i, length(inst.metadata))]
+        desc = InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))
+
+        # Allocate slot
+        slot_idx = _allocate_slot!(tlas)
+        tlas.instances[slot_idx] = desc
+
+        if i == 1
+            first_slot = slot_idx
+        end
+        last_slot = slot_idx
+    end
+
+    # Create handle with first slot's generation
+    generation = tlas.generations[first_slot]
+    handle = TLASHandle(first_slot, generation)
+
+    # Register handle -> slot range
+    tlas.handle_to_slots[handle] = first_slot:last_slot
+
+    # Mark dirty
+    tlas.dirty = true
+
+    return handle
+end
+
+"""Allocate a slot, reusing from free_list or growing arrays."""
+function _allocate_slot!(tlas::TLASBuilder)::UInt32
+    if !isempty(tlas.free_list)
+        slot_idx = pop!(tlas.free_list)
+        # Increment generation for reused slot
+        tlas.generations[slot_idx] += UInt32(1)
+    else
+        # Grow arrays
+        push!(tlas.instances, nothing)
+        push!(tlas.generations, UInt32(1))
+        slot_idx = UInt32(length(tlas.instances))
+    end
+    return slot_idx
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder: delete! operation
+# ------------------------------------------------------------------------------
+
+"""
+    delete!(tlas::TLASBuilder, handle::TLASHandle) -> Bool
+
+Remove all instances referenced by the handle. Returns true if successful.
+The handle becomes invalid after deletion.
+"""
+function Base.delete!(tlas::TLASBuilder, handle::TLASHandle)::Bool
+    haskey(tlas.handle_to_slots, handle) || return false
+
+    slots = tlas.handle_to_slots[handle]
+
+    # Clear all slots and add to free list
+    for slot_idx in slots
+        tlas.instances[slot_idx] = nothing
+        push!(tlas.free_list, slot_idx)
+    end
+
+    # Remove from handle map
+    delete!(tlas.handle_to_slots, handle)
+
+    # Mark dirty
+    tlas.dirty = true
+
+    return true
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder: update_instance! operations
+# ------------------------------------------------------------------------------
+
+"""
+    update_instance!(tlas::TLASBuilder, handle::TLASHandle, instance_idx::Integer, transform::Mat4f)
+
+Update a single instance's transform within a group (by 1-based index).
+"""
+function update_instance!(tlas::TLASBuilder, handle::TLASHandle, instance_idx::Integer, transform::Mat4f)
+    haskey(tlas.handle_to_slots, handle) || error("Invalid handle")
+    slots = tlas.handle_to_slots[handle]
+    1 <= instance_idx <= length(slots) || error("Instance index out of range")
+
+    slot_idx = first(slots) + UInt32(instance_idx - 1)
+    old_desc = tlas.instances[slot_idx]
+    old_desc === nothing && error("Instance at slot $slot_idx is deleted")
+
+    inv_transform = Mat4f(inv(transform))
+    tlas.instances[slot_idx] = InstanceDescriptor(
+        old_desc.blas_index,
+        old_desc.instance_id,
+        transform,
+        inv_transform,
+        old_desc.flags
+    )
+
+    tlas.dirty = true
+    return nothing
+end
+
+"""
+    update_instance!(tlas::TLASBuilder, handle::TLASHandle, transforms::AbstractVector{Mat4f})
+
+Update all instances' transforms in a group. Length must match.
+"""
+function update_instance!(tlas::TLASBuilder, handle::TLASHandle, transforms::AbstractVector{Mat4f})
+    haskey(tlas.handle_to_slots, handle) || error("Invalid handle")
+    slots = tlas.handle_to_slots[handle]
+    length(transforms) == length(slots) || error("Transform count ($(length(transforms))) != instance count ($(length(slots)))")
+
+    for (i, slot_idx) in enumerate(slots)
+        old_desc = tlas.instances[slot_idx]
+        old_desc === nothing && error("Instance at slot $slot_idx is deleted")
+
+        transform = transforms[i]
+        inv_transform = Mat4f(inv(transform))
+        tlas.instances[slot_idx] = InstanceDescriptor(
+            old_desc.blas_index,
+            old_desc.instance_id,
+            transform,
+            inv_transform,
+            old_desc.flags
+        )
+    end
+
+    tlas.dirty = true
+    return nothing
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder: update! for geometry replacement
+# ------------------------------------------------------------------------------
+
+"""
+    update!(tlas::TLASBuilder, handle::TLASHandle, new_geometry)
+
+Replace the geometry (BLAS) for a handle. All instances sharing this BLAS get updated.
+"""
+function update!(tlas::TLASBuilder, handle::TLASHandle, new_geometry)
+    haskey(tlas.handle_to_slots, handle) || error("Invalid handle")
+    slots = tlas.handle_to_slots[handle]
+    isempty(slots) && error("Handle has no instances")
+
+    # Get blas_index from first instance
+    first_slot = first(slots)
+    first_desc = tlas.instances[first_slot]
+    first_desc === nothing && error("First instance is deleted")
+    blas_idx = first_desc.blas_index
+
+    # Rebuild BLAS
+    mesh = to_triangle_mesh(new_geometry)
+    triangles = [Triangle(mesh, i, first_desc.instance_id)
+                 for i in 1:div(length(mesh.indices), 3)
+                 if !is_degenerate(get_vertices(mesh, i))]
+    isempty(triangles) && error("New geometry has no valid triangles")
+    new_blas = build_blas(triangles)
+
+    # Replace in-place
+    tlas.blas_array[blas_idx] = new_blas
+
+    tlas.dirty = true
+    return nothing
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder: sync! and _rebuild_static!
+# ------------------------------------------------------------------------------
+
+"""
+    sync!(tlas::TLASBuilder) -> TLASBuilder
+
+Rebuild the GPU-ready TLAS if dirty. No-op if already up-to-date.
+"""
+function sync!(tlas::TLASBuilder)
+    tlas.dirty || return tlas
+    _rebuild_static!(tlas)
+    return tlas
+end
+
+"""Internal: Rebuild the static TLAS from current CPU state."""
+function _rebuild_static!(tlas::TLASBuilder)
+    # Compact instances (filter nothing entries)
+    active_instances = InstanceDescriptor[]
+    for inst in tlas.instances
+        inst === nothing && continue
+        push!(active_instances, inst)
+    end
+
+    if isempty(active_instances)
+        tlas.static = nothing
+        tlas.dirty = false
+        return
+    end
+
+    # Build TLAS using existing build_tlas function
+    static_tlas = build_tlas(tlas.blas_array, active_instances)
+    tlas.static = static_tlas
+    tlas.dirty = false
+    return
+end
+
+# ------------------------------------------------------------------------------
+# TLASBuilder: Adapt integration
+# ------------------------------------------------------------------------------
+
+"""
+Adapt TLASBuilder -> TLAS for GPU kernel usage.
+Syncs if dirty, then returns the cached static TLAS.
+"""
+function Adapt.adapt_structure(to, tlas::TLASBuilder)
+    sync!(tlas)
+    tlas.static === nothing && error("Cannot adapt empty TLASBuilder")
+    return Adapt.adapt_structure(to, tlas.static)
 end
 
 # ==============================================================================
@@ -369,7 +754,6 @@ function build_blas(
     # Launch kernel: Calculate Morton codes
     calc_kernel! = calculate_morton_codes_kernel!(backend)
     calc_kernel!(morton_codes, primitives, scene_min, scene_extent, ndrange=n)
-    KA.synchronize(backend)
 
     # Sort by Morton codes (works on GPU arrays directly)
     sorted_indices = sortperm(morton_codes)
@@ -389,23 +773,19 @@ function build_blas(
     # Launch kernel: Emit topology
     topo_kernel! = emit_topology_kernel!(backend)
     topo_kernel!(nodes, morton_codes, Int32(n), ndrange=n-1)
-    KA.synchronize(backend)
 
     # Launch kernel: Set parent pointers
     parent_kernel! = set_parent_pointers_kernel!(backend)
     parent_kernel!(nodes, Int32(n), ndrange=n-1)
-    KA.synchronize(backend)
 
     # Launch kernel: Create leaf nodes
     leaf_kernel! = create_leaf_nodes_kernel!(backend)
     leaf_kernel!(nodes, sorted_prims, Int32(n), ndrange=n)
-    KA.synchronize(backend)
 
     # Refit AABBs bottom-up (parallel using atomic counters)
     update_flags = KA.zeros(backend, UInt32, n - 1)  # One flag per internal node
     refit_kernel! = refit_aabbs_kernel!(backend)
     refit_kernel!(nodes, update_flags, Int32(n), ndrange=n)
-    KA.synchronize(backend)
 
     # Compute root AABB - check if root is interior or leaf
     root_is_interior = is_interior(nodes[1])
