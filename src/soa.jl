@@ -103,33 +103,6 @@ end
 
 Create a Structure of Arrays (SoA) layout for type `T` with `num_elements` entries.
 Uses `template_array` to determine the array type (Array, ROCArray, etc.).
-
-# Arguments
-- `template_array`: An existing array used to determine the array type for allocation
-- `T`: A struct type whose fields define the SoA structure
-- `num_elements`: Number of elements to allocate
-
-# Returns
-A NamedTuple where each field is an array of the corresponding field type from `T`.
-
-# Example
-```julia
-struct RayWork
-    ray::Ray
-    pixel_x::Int32
-    pixel_y::Int32
-end
-
-# Create SoA for 1000 RayWork items
-img = zeros(Float32, 100, 100)  # CPU array
-soa = similar_soa(img, RayWork, 1000)
-# Returns: (ray=Vector{Ray}(undef, 1000), pixel_x=Vector{Int32}(undef, 1000), ...)
-
-# For GPU:
-gpu_img = CUDA.zeros(Float32, 100, 100)
-gpu_soa = similar_soa(gpu_img, RayWork, 1000)
-# Returns SoA with CuArray fields
-```
 """
 function similar_soa(template, ::Type{T}, num_elements) where T
     fields = [f => similar(template, fieldtype(T, f), num_elements) for f in fieldnames(T)]

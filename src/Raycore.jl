@@ -7,6 +7,7 @@ using KernelAbstractions
 import GeometryBasics as GB
 using Statistics
 using Adapt
+using GPUArraysCore: @allowscalar
 
 abstract type AbstractRay end
 abstract type AbstractShape end
@@ -59,8 +60,7 @@ export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bound
 
 # Instanced BVH types
 export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
-export Instance, InstanceHandle, find_instances, add_instance!, remove_instance!, rebuild_tlas!
-export update_transform!, update_transforms!, n_instances, n_geometries
+export Instance, n_instances, n_geometries
 
 # TLASBuilder (new MultiTypeVec-style API)
 export TLASBuilder, TLASHandle, StaticTLAS, INVALID_HANDLE

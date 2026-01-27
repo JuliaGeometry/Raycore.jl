@@ -6,6 +6,7 @@ authors = ["Anton Smirnov <tonysmn97@gmail.com>", "Simon Danisch <sdanisch@proto
 [deps]
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
+GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -23,21 +24,26 @@ RaycoreMakieExt = "Makie"
 Adapt = "4.4.0"
 Aqua = "0.8"
 Atomix = "1.1.2"
+GPUArraysCore = "0.2.0"
 GeometryBasics = "0.5"
 JET = "0.11"
 KernelAbstractions = "0.9, 0.10"
 LinearAlgebra = "1"
 Makie = "0.24"
+OpenCL = "0.10.8"
 Random = "1"
 StaticArrays = "1.9.7"
 Statistics = "1"
 Test = "1"
 julia = "1.10"
+pocl_jll = "7.1.0"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+OpenCL = "08131aa3-fb12-5dee-8b74-c09406e224a2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+pocl_jll = "627d6b7a-bbe6-5189-83e7-98cc0a5aeadd"
 
 [targets]
-test = ["Test", "JET", "Aqua"]
+test = ["Test", "JET", "Aqua", "pocl_jll", "OpenCL"]

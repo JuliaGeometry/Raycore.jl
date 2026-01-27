@@ -8,7 +8,68 @@
 # - Minimal code inside @kernel functions
 
 import KernelAbstractions as KA
-using KernelAbstractions: @index, @atomicswap
+using KernelAbstractions: @index
+using Atomix: @atomicswap
+
+# ==============================================================================
+# GPU Kernel 0: Fill arrays (workaround for OpenCL fill! struct issue)
+# ==============================================================================
+
+"""GPU kernel: Fill array with a value (workaround for OpenCL's fill! not supporting structs)."""
+KA.@kernel function fill_bvhnode2_kernel!(arr, val)
+    i = @index(Global, Linear)
+    @inbounds arr[i] = val
+end
+
+# ==============================================================================
+# GPU Kernel 0b: Compute Instance World AABBs
+# ==============================================================================
+
+"""
+Compute world AABB for a single instance by transforming local AABB corners.
+Returns (min_point, max_point) as two Point3f values.
+"""
+@inline function compute_instance_world_aabb(
+    inst::InstanceDescriptor,
+    blas_array::AbstractVector{<:BLAS}
+)
+    blas = blas_array[inst.blas_index]
+    local_aabb = blas.root_aabb
+
+    # Initialize with first corner
+    corner1 = transform_point(inst.transform, corner(local_aabb, 1))
+    min_p = corner1
+    max_p = corner1
+
+    # Expand to include all 8 corners
+    for c in 2:8
+        world_corner = transform_point(inst.transform, corner(local_aabb, c))
+        min_p = Point3f(min(min_p[1], world_corner[1]),
+                        min(min_p[2], world_corner[2]),
+                        min(min_p[3], world_corner[3]))
+        max_p = Point3f(max(max_p[1], world_corner[1]),
+                        max(max_p[2], world_corner[2]),
+                        max(max_p[3], world_corner[3]))
+    end
+
+    return (min_p, max_p)
+end
+
+"""GPU kernel: Compute world AABBs for all instances, storing min/max points separately."""
+KA.@kernel function compute_instance_aabbs_kernel!(
+    aabb_mins::AbstractVector{Point3f},
+    aabb_maxs::AbstractVector{Point3f},
+    @Const(instances),
+    @Const(blas_array)
+)
+    i = @index(Global, Linear)
+    @inbounds begin
+        inst = instances[i]
+        min_p, max_p = compute_instance_world_aabb(inst, blas_array)
+        aabb_mins[i] = min_p
+        aabb_maxs[i] = max_p
+    end
+end
 
 # ==============================================================================
 # GPU Kernel 1: Calculate Morton Codes

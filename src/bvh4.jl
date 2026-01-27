@@ -15,8 +15,8 @@
 
 using StaticArrays
 import KernelAbstractions as KA
-using KernelAbstractions: @index, @atomicswap
-using Atomix
+using KernelAbstractions: @index
+using Atomix: @atomicswap, @atomic
 
 # ==============================================================================
 # BVH4 Node Structure
