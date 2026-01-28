@@ -56,6 +56,52 @@ Base.isempty(smv::StaticMultiTypeVec) = isempty(smv.data)
 Base.length(smv::StaticMultiTypeVec) = sum(length, smv.data; init=0)
 n_slots(smv::StaticMultiTypeVec) = length(smv.data)
 
+# Get the static version - identity for StaticMultiTypeVec, .static field for MultiTypeVec
+get_static(smv::StaticMultiTypeVec) = smv
+# Fallback for Tuple (used by legacy code paths)
+get_static(t::Tuple) = t
+
+# ============================================================================
+# foreach_element - Type-stable iteration over all elements
+# ============================================================================
+
+"""
+    foreach_element(f, smv::StaticMultiTypeVec, args...)
+
+Execute function `f` for each element in the StaticMultiTypeVec, passing additional `args`.
+The function is called as `f(element, linear_idx, args...)` where `element` has a concrete type
+and `linear_idx` is the 1-based linear index across all type slots.
+
+Uses compile-time unrolled loops for type stability.
+The function `f` must not capture variables - pass all data as `args`.
+"""
+@inline @generated function foreach_element(
+    f::F, smv::StaticMultiTypeVec{Data, Textures}, args...
+) where {F, Data<:Tuple, Textures}
+    N = length(Data.parameters)
+
+    if N == 0
+        return :(nothing)
+    end
+
+    # Generate unrolled loops over each type slot
+    loops = Expr[]
+    for i in 1:N
+        push!(loops, quote
+            for j in eachindex(smv.data[$i])
+                linear_idx += 1
+                @inbounds f(smv.data[$i][j], linear_idx, args...)
+            end
+        end)
+    end
+
+    quote
+        linear_idx = 0
+        $(loops...)
+        nothing
+    end
+end
+
 # ============================================================================
 # TextureRef - Typed reference to a texture
 # ============================================================================
@@ -138,6 +184,9 @@ Base.isempty(dhv::MultiTypeVec) = isempty(dhv.data_order)
 Base.length(dhv::MultiTypeVec) = sum(length, values(dhv.data_vectors); init=0)
 n_slots(dhv::MultiTypeVec) = length(dhv.data_order)
 
+# Get the static version - returns .static field for MultiTypeVec
+get_static(dhv::MultiTypeVec) = dhv.static
+
 # ============================================================================
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
@@ -172,10 +221,20 @@ Convert a struct field value for GPU storage. Override this for custom types.
 Materials should use loose type parameters so fields can be either raw values OR
 TextureRef. This way constant values don't need texture indirection at all.
 """
-maybe_convert_field(::MultiTypeVec, fval) = fval
+# Convert large arrays to TextureRef, but NOT StaticArrays (they're inline values, not textures)
 maybe_convert_field(dhv::MultiTypeVec, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
+maybe_convert_field(::MultiTypeVec, arr::StaticArrays.StaticArray) = arr  # Keep StaticArrays inline
 # Don't re-convert already converted refs
 maybe_convert_field(::MultiTypeVec, ref::TextureRef) = ref
+# Default: recurse into structs, pass through primitives
+function maybe_convert_field(dhv::MultiTypeVec, item::T) where T
+    # Recurse into struct types to convert nested arrays
+    if !isbitstype(T)
+        return convert_to_texturerefs(dhv, item)
+    end
+    # Primitives and empty structs pass through unchanged
+    return item
+end
 
 # Convert arrays in a struct to TextureRefs, storing them as GPU arrays
 function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
@@ -198,29 +257,32 @@ function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
 end
 
 # Store a texture as GPU array, return TextureRef pointing to isbits device pointer
-function store_texture(dhv::MultiTypeVec, arr::A) where A <: AbstractArray
+function store_texture(dhv::MultiTypeVec, arr::AbstractArray{T}) where T
     # Convert to GPU array and keep alive
+    if !isbitstype(T)
+        arr = map(x -> maybe_convert_field(dhv, x), arr)
+    end
     gpu_arr = Adapt.adapt(dhv.backend, arr)
+    AT = typeof(gpu_arr)
     push!(dhv.texture_gpu_arrays, gpu_arr)
 
     # Get isbits device pointer
     isbits_ptr = _get_isbits_ptr(dhv.backend, gpu_arr)
 
     # Check if this texture type already has a slot
-    type_idx = findfirst(==(A), dhv.texture_order)
+    type_idx = findfirst(==(AT), dhv.texture_order)
 
     if type_idx === nothing
         # New texture type - create CPU vector for it
-        dhv.texture_isbits[A] = [isbits_ptr]
-        push!(dhv.texture_order, A)
+        dhv.texture_isbits[AT] = [isbits_ptr]
+        push!(dhv.texture_order, AT)
         type_idx = length(dhv.texture_order)
     else
         # Existing type - push to CPU vector
-        push!(dhv.texture_isbits[A], isbits_ptr)
+        push!(dhv.texture_isbits[AT], isbits_ptr)
     end
-
-    vec_idx = length(dhv.texture_isbits[A])
-    return TextureRef{A, eltype(A), ndims(A), type_idx}(vec_idx)
+    vec_idx = length(dhv.texture_isbits[AT])
+    return TextureRef{AT, eltype(AT), ndims(AT), type_idx}(vec_idx)
 end
 
 # ============================================================================
@@ -229,7 +291,8 @@ end
 
 function Base.push!(dhv::MultiTypeVec, item::T)::HeteroVecIndex where T
     # Convert any arrays in the item to TextureRefs (textures stored as GPU arrays)
-    converted_item = convert_to_texturerefs(dhv, item)
+    # Uses maybe_convert_field which dispatches to type-specific methods or generic conversion
+    converted_item = maybe_convert_field(dhv, item)
     CT = typeof(converted_item)
 
     # Check if this material type already has a slot
@@ -263,7 +326,7 @@ end
 Execute function `f` with the element at index `idx`, passing additional `args`.
 The function is called as `f(element, args...)` where `element` has a concrete type.
 
-Uses compile-time unrolled if-branches for GPU compatibility.
+Uses a single if-elseif-else chain for SPIR-V structured control flow compatibility.
 The function `f` must not capture variables - pass all data as `args`.
 """
 @inline @generated function with_index(
@@ -275,15 +338,20 @@ The function `f` must not capture variables - pass all data as `args`.
         return :(error("with_index: empty StaticMultiTypeVec"))
     end
 
-    branches = [quote
-        if idx.type_idx === UInt8($i)
-            @inbounds return f(smv.data[$i][idx.vec_idx], args...)
-        end
-    end for i in 1:N]
+    # Build a single if-elseif-else chain for structured control flow (SPIR-V compatible)
+    # Start from the last branch and work backwards to build the chain
+    result = :(@inbounds f(smv.data[1][1], args...))  # default/else case
+
+    for i in N:-1:1
+        result = Expr(:if,
+            :(idx.type_idx === UInt8($i)),
+            :(@inbounds f(smv.data[$i][idx.vec_idx], args...)),
+            result
+        )
+    end
 
     quote
-        $(branches...)
-        @inbounds return f(smv.data[1][1], args...)
+        return $result
     end
 end
 

@@ -21,6 +21,12 @@ KA.@kernel function fill_bvhnode2_kernel!(arr, val)
     @inbounds arr[i] = val
 end
 
+"""GPU kernel: Fill array with sequential indices [1, 2, 3, ..., n]."""
+KA.@kernel function iota_kernel!(arr)
+    i = @index(Global, Linear)
+    @inbounds arr[i] = i
+end
+
 # ==============================================================================
 # GPU Kernel 0b: Compute Instance World AABBs
 # ==============================================================================

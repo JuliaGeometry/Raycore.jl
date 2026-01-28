@@ -23,6 +23,7 @@
 using StaticArrays
 using LinearAlgebra: I
 import KernelAbstractions as KA
+import AcceleratedKernels as AK
 
 # ==============================================================================
 # Core Data Structures
@@ -323,15 +324,10 @@ function _try_unsafe_free!(arr)
     return nothing
 end
 
-"""Helper to allocate empty BLAS array on backend with correct isbits element type."""
-function _allocate_empty_blas_array(backend)
-    # Create an empty array with isbits BLAS element type
-    # The actual element type will be BLAS{DeviceVector, DeviceVector}
-    # For now, use a placeholder that will be replaced on first push
-    IsbitsNodePtr = _get_isbits_ptr_type(backend, BVHNode2)
-    IsbitsPrimPtr = _get_isbits_ptr_type(backend, Triangle{UInt32})
-    BLASType = BLAS{IsbitsNodePtr, IsbitsPrimPtr}
-    return KA.allocate(backend, BLASType, 0)
+"""Helper to create initial empty BLAS array placeholder."""
+function _allocate_empty_blas_array(_backend)
+    # Return nothing - the array will be created on first push with the correct type
+    return nothing
 end
 
 """Get the isbits pointer type for a given element type and backend."""
@@ -362,13 +358,23 @@ function _to_isbits_blas(backend, blas::BLAS, keep_alive::Vector{Any})
     return BLAS(isbits_nodes, isbits_prims, blas.root_aabb)
 end
 
-"""Append a single isbits BLAS to blas_array using GPU-friendly append!."""
+"""
+Append a single isbits BLAS to blas_array using GPU-friendly append!.
+Returns the (possibly new) blas_array.
+"""
 function _append_blas!(backend, blas_array, isbits_blas)
     # Create a single-element array on CPU with the isbits BLAS, then adapt to backend
     single_arr = [isbits_blas]
     backend_arr = Adapt.adapt(backend, single_arr)
-    append!(blas_array, backend_arr)
-    return nothing
+
+    if blas_array === nothing
+        # First BLAS - create the array with correct type
+        return backend_arr
+    else
+        # Append to existing array
+        append!(blas_array, backend_arr)
+        return blas_array
+    end
 end
 
 """
@@ -396,7 +402,7 @@ end
 
 Get the total number of distinct geometries (BLASes) in the TLAS.
 """
-n_geometries(tlas::TLAS) = length(tlas.blas_array)
+n_geometries(tlas::TLAS) = tlas.blas_array === nothing ? 0 : length(tlas.blas_array)
 
 """
     n_total_instances(tlas::TLAS) -> Int
@@ -417,6 +423,38 @@ Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, geometry)
     inst = Instance(geometry)
+    return push!(tlas, inst)
+end
+
+"""
+    push!(tlas::TLAS, geometry, material_idx) -> TLASHandle
+
+Add geometry as a single instance at identity transform with material index.
+The material_idx (typically a HeteroVecIndex/MaterialIndex) is stored as metadata
+on the triangles for material lookup during shading.
+"""
+function Base.push!(tlas::TLAS, geometry, material_idx)
+    inst = Instance(geometry; metadata=material_idx)
+    return push!(tlas, inst)
+end
+
+"""
+    push!(tlas::TLAS, geometry, material_idx, transform::Mat4f) -> TLASHandle
+
+Add geometry as a single instance with transform and material index.
+"""
+function Base.push!(tlas::TLAS, geometry, material_idx, transform::Mat4f)
+    inst = Instance(geometry, transform, material_idx)
+    return push!(tlas, inst)
+end
+
+"""
+    push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f}) -> TLASHandle
+
+Add geometry as multiple instances with transforms sharing the same material index.
+"""
+function Base.push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f})
+    inst = Instance(geometry, transforms; metadata=material_idx)
     return push!(tlas, inst)
 end
 
@@ -442,7 +480,7 @@ function Base.push!(tlas::TLAS, inst::Instance)
 
     # Convert to isbits BLAS and append to blas_array (GPU append)
     isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.gpu_blas_arrays)
-    _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
+    tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
     blas_idx = UInt32(length(tlas.blas_array))
 
     # Create InstanceDescriptors on CPU
@@ -728,14 +766,10 @@ The TLAS must stay alive while the StaticTLAS is in use.
 """
 function Adapt.adapt_structure(to, tlas::TLAS)
     sync!(tlas)
-    length(tlas.instances) == 0 && error("Cannot adapt empty TLAS")
-    tlas.backend != to && error("TLAS backend ($(tlas.backend)) doesn't match target ($to). Create TLAS with the correct backend.")
-
-    # GPU-first: arrays are already on backend, just get isbits pointers
     return StaticTLAS(
-        _get_isbits_ptr(to, tlas.nodes),
-        _get_isbits_ptr(to, tlas.instances),
-        _get_isbits_ptr(to, tlas.blas_array),
+        adapt(to, tlas.nodes),
+        adapt(to, tlas.instances),
+        adapt(to, tlas.blas_array),
         tlas.root_aabb
     )
 end
@@ -1034,12 +1068,15 @@ function build_blas(
     calc_kernel! = calculate_morton_codes_kernel!(backend)
     calc_kernel!(morton_codes, primitives, scene_min, scene_extent, ndrange=n)
 
-    # Sort by Morton codes (works on GPU arrays directly)
-    sorted_indices = sortperm(morton_codes)
-    morton_codes_sorted = morton_codes[sorted_indices]
-    sorted_prims = primitives[sorted_indices]
-
-    copyto!(morton_codes, morton_codes_sorted)
+    # Sort primitives by Morton codes
+    # AcceleratedKernels only supports GPU backends, use Julia's sortperm for CPU
+    if backend isa KA.CPU
+        perm = sortperm(morton_codes)
+        morton_codes .= morton_codes[perm]
+        primitives .= primitives[perm]
+    else
+        AK.merge_sort_by_key!(morton_codes, primitives)
+    end
 
     # Allocate nodes and initialize with empty values
     # Use kernel-based fill (OpenCL's fill! doesn't support struct types)
@@ -1063,7 +1100,7 @@ function build_blas(
 
     # Launch kernel: Create leaf nodes
     leaf_kernel! = create_leaf_nodes_kernel!(backend)
-    leaf_kernel!(nodes, sorted_prims, Int32(n), ndrange=n)
+    leaf_kernel!(nodes, primitives, Int32(n), ndrange=n)
 
     # Refit AABBs bottom-up (parallel using atomic counters)
     update_flags = KA.zeros(backend, UInt32, n - 1)  # One flag per internal node
@@ -1077,7 +1114,7 @@ function build_blas(
     root_is_interior = is_interior(root_node)
     root_aabb = get_node_aabb(root_node, root_is_interior)
 
-    return BLAS(nodes, sorted_prims, root_aabb)
+    return BLAS(nodes, primitives, root_aabb)
 end
 
 # ==============================================================================
@@ -1177,12 +1214,18 @@ function build_tlas(
     calc_kernel!(morton_codes, backend_instances, blas_array, scene_min, scene_extent, ndrange=n)
     KA.synchronize(backend)
 
-    # Sort by Morton codes (copy to CPU for sorting, GPU sortperm causes scalar indexing)
-    cpu_morton_codes = Array(morton_codes)
-    cpu_sorted_indices = Int32.(sortperm(cpu_morton_codes))  # Use Int32 for GPU compatibility
-    sorted_indices = Adapt.adapt(backend, cpu_sorted_indices)
-    cpu_morton_codes_sorted = cpu_morton_codes[cpu_sorted_indices]
-    copyto!(morton_codes, Adapt.adapt(backend, cpu_morton_codes_sorted))
+    # Sort indices by Morton codes
+    # AcceleratedKernels only supports GPU backends, use Julia's sortperm for CPU
+    if backend isa KA.CPU
+        sorted_indices = sortperm(morton_codes)
+        morton_codes .= morton_codes[sorted_indices]
+    else
+        sorted_indices = KA.allocate(backend, Int, n)
+        iota_k! = iota_kernel!(backend)
+        iota_k!(sorted_indices, ndrange=n)
+        KA.synchronize(backend)
+        AK.merge_sort_by_key!(morton_codes, sorted_indices)
+    end
 
     # Allocate nodes and initialize with empty values
     # Use kernel-based fill (OpenCL's fill! doesn't support struct types)
@@ -1196,8 +1239,8 @@ function build_tlas(
 
     # Single-instance case: trivial TLAS
     if n == 1
-        # Use CPU copies to avoid GPU scalar indexing
-        original_idx = Array(sorted_indices[1:1])[1]
+        # For CPU, sorted_indices is already a CPU array; for GPU, copy to avoid scalar indexing
+        original_idx = backend isa KA.CPU ? sorted_indices[1] : Array(sorted_indices[1:1])[1]
 
         # Use scene_aabb computed from kernel (same as the single instance's world AABB)
         world_aabb = scene_aabb

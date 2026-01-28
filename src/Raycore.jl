@@ -89,7 +89,7 @@ export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, g
 
 # HeterogeneousVector for type-stable heterogeneous collections
 export HeteroVecIndex, MultiTypeVec, StaticMultiTypeVec, TextureRef
-export is_invalid, is_valid, with_index, n_slots, deref
+export is_invalid, is_valid, with_index, n_slots, deref, get_static
 export maybe_convert_field, store_texture
 
 end

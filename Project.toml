@@ -4,6 +4,7 @@ version = "0.1.1"
 authors = ["Anton Smirnov <tonysmn97@gmail.com>", "Simon Danisch <sdanisch@protonmail.com"]
 
 [deps]
+AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
 Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
 Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
 GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
@@ -21,6 +22,7 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 RaycoreMakieExt = "Makie"
 
 [compat]
+AcceleratedKernels = "0.4.3"
 Adapt = "4.4.0"
 Aqua = "0.8"
 Atomix = "1.1.2"
