@@ -103,6 +103,47 @@ The function `f` must not capture variables - pass all data as `args`.
 end
 
 # ============================================================================
+# mapreduce - Type-stable reduction over all elements
+# ============================================================================
+
+
+@inline function Base.mapreduce(
+        f::F, op::Op, smv::StaticMultiTypeVec{Data,Textures}, args...; init
+    ) where {F,Op,Data<:Tuple,Textures}
+    _mapreduce(f, op, smv, init, args...)
+end
+@inline function Base.mapreduce(
+    f::F, op::Op, smv::StaticMultiTypeVec{Data,Textures}, args::Vararg{Union{Base.AbstractBroadcasted,AbstractArray}}; init
+) where {F,Op,Data<:Tuple,Textures}
+    _mapreduce(f, op, smv, init, args...)
+end
+
+@inline @generated function _mapreduce(
+     f::F, op::Op, smv::StaticMultiTypeVec{Data,Textures}, init, args...) where {F, Op, Data<:Tuple, Textures}
+    N = length(Data.parameters)
+
+    if N == 0
+        return :(init)
+    end
+
+    # Generate unrolled reduction over each type slot
+    reductions = Expr[]
+    for i in 1:N
+        push!(reductions, quote
+            for j in eachindex(smv.data[$i])
+                @inbounds acc = op(acc, f(smv.data[$i][j], args...))
+            end
+        end)
+    end
+
+    quote
+        acc = init
+        $(reductions...)
+        acc
+    end
+end
+
+# ============================================================================
 # TextureRef - Typed reference to a texture
 # ============================================================================
 
