@@ -1,4 +1,8 @@
-struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<:AbstractVector{Normal3f}, TT<:AbstractVector{Vec3f}, UT<:AbstractVector{Point2f}} <: AbstractShape
+struct TriangleMesh{
+        VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32},
+        NT<:AbstractVector{Normal3f}, TT<:AbstractVector{Vec3f},
+        UT<:AbstractVector{Point2f}} <: AbstractGeometry{3, Float32}
+
     vertices::VT
     # For the i-th triangle, its 3 vertex positions are:
     # [vertices[indices[3 * i + j]] for j in 0:2].
@@ -26,7 +30,7 @@ struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<
     end
 end
 
-struct Triangle{TMetadata} <: AbstractShape
+struct Triangle{TMetadata} <: AbstractGeometry{3, Float32}
     vertices::SVector{3,Point3f}
     normals::SVector{3,Normal3f}
     tangents::SVector{3,Vec3f}

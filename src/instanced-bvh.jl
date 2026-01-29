@@ -430,7 +430,7 @@ end
     push!(tlas::TLAS, geometry, material_idx) -> TLASHandle
 
 Add geometry as a single instance at identity transform with material index.
-The material_idx (typically a HeteroVecIndex/MaterialIndex) is stored as metadata
+The material_idx (typically a SetKey/MaterialIndex) is stored as metadata
 on the triangles for material lookup during shading.
 """
 function Base.push!(tlas::TLAS, geometry, material_idx)
@@ -1070,13 +1070,9 @@ function build_blas(
 
     # Sort primitives by Morton codes
     # AcceleratedKernels only supports GPU backends, use Julia's sortperm for CPU
-    if backend isa KA.CPU
-        perm = sortperm(morton_codes)
-        morton_codes .= morton_codes[perm]
-        primitives .= primitives[perm]
-    else
-        AK.merge_sort_by_key!(morton_codes, primitives)
-    end
+    perm = AK.sortperm(morton_codes)
+    morton_codes = morton_codes[perm]
+    primitives = primitives[perm]
 
     # Allocate nodes and initialize with empty values
     # Use kernel-based fill (OpenCL's fill! doesn't support struct types)

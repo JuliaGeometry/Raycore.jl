@@ -61,7 +61,7 @@ end
 increase_hit(ray::Ray, t_hit) = Ray(ray; t_max=t_hit)
 increase_hit(ray::RayDifferentials, t_hit) = RayDifferentials(ray; t_max=t_hit)
 
-@inline function intersect_p!(shape::AbstractShape, ray::R) where {R<:AbstractRay}
+@inline function intersect_p!(shape::AbstractGeometry, ray::R) where {R<:AbstractRay}
     intersects, t_hit, barycentric = intersect(shape, ray)
     !intersects && return false, ray, barycentric
     ray = increase_hit(ray, t_hit)

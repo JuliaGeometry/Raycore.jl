@@ -1,5 +1,5 @@
 using Test
-using Raycore: MultiTypeVec, StaticMultiTypeVec, HeteroVecIndex, TextureRef
+using Raycore: MultiTypeSet, StaticMultiTypeSet, SetKey, TextureRef
 using Raycore: with_index, deref, is_valid, is_invalid, n_slots
 using KernelAbstractions
 using Adapt
@@ -22,8 +22,8 @@ struct MaterialWith2{T, T2}
     texture::T2
 end
 
-@testset "MultiTypeVec basic" begin
-    dhv = MultiTypeVec(backend)
+@testset "MultiTypeSet basic" begin
+    dhv = MultiTypeSet(backend)
     @test isempty(dhv)
 
     idx1 = push!(dhv, SimpleMaterial(0.5f0))
@@ -43,8 +43,8 @@ end
     @test n_slots(dhv.static) == 2
 end
 
-@testset "Empty MultiTypeVec" begin
-    dhv = MultiTypeVec(backend)
+@testset "Empty MultiTypeSet" begin
+    dhv = MultiTypeSet(backend)
     @test isempty(dhv)
 
     smv = dhv.static
@@ -53,7 +53,7 @@ end
 end
 
 @testset "GPU kernel with MaterialWith2" begin
-    dhv = MultiTypeVec(backend)
+    dhv = MultiTypeSet(backend)
     arr1 = Float32[1 2; 3 4]
     arr2 = Float32[5, 6, 7]
     arr3 = Float32[8 9; 10 11]
@@ -92,8 +92,8 @@ end
     @test result ≈ [arr1[1,1] + arr2[1], arr3[1,1] + arr4[1]]
 end
 
-@testset "StaticMultiTypeVec on GPU (no textures)" begin
-    dhv = MultiTypeVec(backend)
+@testset "StaticMultiTypeSet on GPU (no textures)" begin
+    dhv = MultiTypeSet(backend)
     idx1 = push!(dhv, SimpleMaterial(0.5f0))
     idx2 = push!(dhv, GlassMaterial(1.5f0))
     idx3 = push!(dhv, SimpleMaterial(0.8f0))

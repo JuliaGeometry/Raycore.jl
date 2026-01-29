@@ -10,7 +10,6 @@ using Adapt
 using GPUArraysCore: @allowscalar
 
 abstract type AbstractRay end
-abstract type AbstractShape end
 abstract type Primitive end
 const Maybe{T} = Union{T,Nothing}
 
@@ -62,7 +61,7 @@ export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bound
 export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
 export Instance, n_instances, n_geometries
 
-# TLASBuilder (new MultiTypeVec-style API)
+# TLASBuilder (new MultiTypeSet-style API)
 export TLASBuilder, TLASHandle, StaticTLAS, INVALID_HANDLE
 export sync!, update_instance!, update!, n_total_instances
 
@@ -88,7 +87,7 @@ export @get, @set, similar_soa
 export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, getindex_unrolled
 
 # HeterogeneousVector for type-stable heterogeneous collections
-export HeteroVecIndex, MultiTypeVec, StaticMultiTypeVec, TextureRef
+export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
 export is_invalid, is_valid, with_index, n_slots, deref, get_static
 export maybe_convert_field, store_texture
 

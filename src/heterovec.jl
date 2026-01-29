@@ -9,11 +9,11 @@ using Base: @propagate_inbounds
 import KernelAbstractions as KA
 
 # ============================================================================
-# HeteroVecIndex - Encodes type slot + vector index
+# SetKey - Encodes type slot + vector index
 # ============================================================================
 
 """
-    HeteroVecIndex
+    SetKey
 
 Index into a heterogeneous vector, encoding both which type slot (1-based)
 and the index within that type's array.
@@ -21,43 +21,43 @@ and the index within that type's array.
 - `type_idx`: Which tuple slot (1-based), 0 = invalid/constant sentinel
 - `vec_idx`: 1-based index within the vector at that slot
 """
-struct HeteroVecIndex
+struct SetKey
     type_idx::UInt8
     vec_idx::UInt32
 end
 
 # Default constructor for invalid/placeholder index
-HeteroVecIndex() = HeteroVecIndex(UInt8(0), UInt32(0))
+SetKey() = SetKey(UInt8(0), UInt32(0))
 
 # Check for invalid sentinel
-is_invalid(idx::HeteroVecIndex) = idx.type_idx == UInt8(0) && idx.vec_idx == UInt32(0)
-is_valid(idx::HeteroVecIndex) = !is_invalid(idx)
+is_invalid(idx::SetKey) = idx.type_idx == UInt8(0) && idx.vec_idx == UInt32(0)
+is_valid(idx::SetKey) = !is_invalid(idx)
 
 # ============================================================================
-# StaticMultiTypeVec - Immutable with separate texture storage for GPU
+# StaticMultiTypeSet - Immutable with separate texture storage for GPU
 # ============================================================================
 
 """
-    StaticMultiTypeVec{Data, Textures}
+    StaticMultiTypeSet{Data, Textures}
 
 Immutable heterogeneous collection with separate texture storage.
 - `data`: Tuple of GPU vectors for materials/objects
 - `textures`: Tuple of GPU vectors containing isbits device pointers
 """
-struct StaticMultiTypeVec{Data<:Tuple,Textures<:Tuple} <: AbstractVector{Any}
+struct StaticMultiTypeSet{Data<:Tuple,Textures<:Tuple} <: AbstractVector{Any}
     data::Data
     textures::Textures
 end
 
 # Empty constructor
-StaticMultiTypeVec() = StaticMultiTypeVec((), ())
+StaticMultiTypeSet() = StaticMultiTypeSet((), ())
 
-Base.isempty(smv::StaticMultiTypeVec) = isempty(smv.data)
-Base.length(smv::StaticMultiTypeVec) = sum(length, smv.data; init=0)
-n_slots(smv::StaticMultiTypeVec) = length(smv.data)
+Base.isempty(smv::StaticMultiTypeSet) = isempty(smv.data)
+Base.length(smv::StaticMultiTypeSet) = sum(length, smv.data; init=0)
+n_slots(smv::StaticMultiTypeSet) = length(smv.data)
 
-# Get the static version - identity for StaticMultiTypeVec, .static field for MultiTypeVec
-get_static(smv::StaticMultiTypeVec) = smv
+# Get the static version - identity for StaticMultiTypeSet, .static field for MultiTypeSet
+get_static(smv::StaticMultiTypeSet) = smv
 # Fallback for Tuple (used by legacy code paths)
 get_static(t::Tuple) = t
 
@@ -66,9 +66,9 @@ get_static(t::Tuple) = t
 # ============================================================================
 
 """
-    foreach_element(f, smv::StaticMultiTypeVec, args...)
+    foreach_element(f, smv::StaticMultiTypeSet, args...)
 
-Execute function `f` for each element in the StaticMultiTypeVec, passing additional `args`.
+Execute function `f` for each element in the StaticMultiTypeSet, passing additional `args`.
 The function is called as `f(element, linear_idx, args...)` where `element` has a concrete type
 and `linear_idx` is the 1-based linear index across all type slots.
 
@@ -76,7 +76,7 @@ Uses compile-time unrolled loops for type stability.
 The function `f` must not capture variables - pass all data as `args`.
 """
 @inline @generated function foreach_element(
-    f::F, smv::StaticMultiTypeVec{Data, Textures}, args...
+    f::F, smv::StaticMultiTypeSet{Data, Textures}, args...
 ) where {F, Data<:Tuple, Textures}
     N = length(Data.parameters)
 
@@ -108,18 +108,18 @@ end
 
 
 @inline function Base.mapreduce(
-        f::F, op::Op, smv::StaticMultiTypeVec{Data,Textures}, args...; init
+        f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, args...; init
     ) where {F,Op,Data<:Tuple,Textures}
     _mapreduce(f, op, smv, init, args...)
 end
 @inline function Base.mapreduce(
-    f::F, op::Op, smv::StaticMultiTypeVec{Data,Textures}, args::Vararg{Union{Base.AbstractBroadcasted,AbstractArray}}; init
+    f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, args::Vararg{Union{Base.AbstractBroadcasted,AbstractArray}}; init
 ) where {F,Op,Data<:Tuple,Textures}
     _mapreduce(f, op, smv, init, args...)
 end
 
 @inline @generated function _mapreduce(
-     f::F, op::Op, smv::StaticMultiTypeVec{Data,Textures}, init, args...) where {F, Op, Data<:Tuple, Textures}
+     f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, init, args...) where {F, Op, Data<:Tuple, Textures}
     N = length(Data.parameters)
 
     if N == 0
@@ -154,8 +154,8 @@ end
 
 Base.size(::TextureRef{ReferencedArrayType, T, N}) where {ReferencedArrayType, T, N} = ntuple(_ -> 0, N)
 
-# Deref for StaticMultiTypeVec - textures stored as Tuple{GPUVector{IsbitsPtr1}, GPUVector{IsbitsPtr2}, ...}
-@inline function deref(smv::StaticMultiTypeVec{Data, Textures}, tref::TextureRef{ReferencedArrayType, T, N, TIdx}) where {Data, Textures, ReferencedArrayType, T, N, TIdx}
+# Deref for StaticMultiTypeSet - textures stored as Tuple{GPUVector{IsbitsPtr1}, GPUVector{IsbitsPtr2}, ...}
+@inline function deref(smv::StaticMultiTypeSet{Data, Textures}, tref::TextureRef{ReferencedArrayType, T, N, TIdx}) where {Data, Textures, ReferencedArrayType, T, N, TIdx}
     @inbounds smv.textures[TIdx][tref.idx]
 end
 
@@ -171,11 +171,11 @@ function _get_isbits_ptr(backend, gpu_arr)
 end
 
 # ============================================================================
-# MultiTypeVec - Mutable, builds GPU-ready structures on push!
+# MultiTypeSet - Mutable, builds GPU-ready structures on push!
 # ============================================================================
 
 """
-    MultiTypeVec(backend)
+    MultiTypeSet(backend)
 
 Mutable heterogeneous vector that builds GPU-ready structures on each push!.
 Takes a KernelAbstractions backend at construction.
@@ -183,19 +183,19 @@ Takes a KernelAbstractions backend at construction.
 # Example
 ```julia
 backend = OpenCL.OpenCLBackend()
-dhv = MultiTypeVec(backend)
+dhv = MultiTypeSet(backend)
 texture = rand(Float32, 20, 20)
 idx1 = push!(dhv, MatteMaterial(texture))
 idx2 = push!(dhv, GlassMaterial(1.5f0))
 
-# Access the GPU-ready StaticMultiTypeVec directly
+# Access the GPU-ready StaticMultiTypeSet directly
 gpu_smv = dhv.static  # Always up-to-date, no adapt needed
 ```
 
 Push converts arrays to TextureRefs and stores texture data as GPU arrays.
 The static field is rebuilt on each push to stay up-to-date.
 """
-mutable struct MultiTypeVec{Backend} <: AbstractVector{Any}
+mutable struct MultiTypeSet{Backend} <: AbstractVector{Any}
     backend::Backend
     # Material storage - CPU vectors for accumulation
     data_vectors::Dict{DataType, Any}  # Type -> Vector{Type}
@@ -206,33 +206,48 @@ mutable struct MultiTypeVec{Backend} <: AbstractVector{Any}
     # Keep GPU texture arrays alive (the actual texture data)
     texture_gpu_arrays::Vector{Any}
     # Cached static version - rebuilt on each push
-    static::StaticMultiTypeVec
+    static::StaticMultiTypeSet
 end
 
-function MultiTypeVec(backend)
-    return MultiTypeVec(
+Base.size(set::MultiTypeSet) = (length(set),)
+function Base.length(set::MultiTypeSet)
+    return sum(length, values(set.data_vectors); init=0)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", set::MultiTypeSet)
+    n_types = length(set.data_order)
+    total = length(set)
+    print(io, "MultiTypeSet with $n_types type(s), $total element(s)")
+    for T in set.data_order
+        vec = set.data_vectors[T]::Vector
+        print(io, "\n  ", length(vec), "× ", T)
+    end
+end
+
+Base.show(io::IO, set::MultiTypeSet) = print(io, "MultiTypeSet(", length(set.data_order), " types, ", length(set), " elements)")
+
+function MultiTypeSet(backend)
+    return MultiTypeSet(
         backend,
         Dict{DataType, Any}(),
         DataType[],
         Dict{DataType, Any}(),
         DataType[],
         Any[],
-        StaticMultiTypeVec()
+        StaticMultiTypeSet()
     )
 end
 
-Base.isempty(dhv::MultiTypeVec) = isempty(dhv.data_order)
-Base.length(dhv::MultiTypeVec) = sum(length, values(dhv.data_vectors); init=0)
-n_slots(dhv::MultiTypeVec) = length(dhv.data_order)
+n_slots(dhv::MultiTypeSet) = length(dhv.data_order)
 
-# Get the static version - returns .static field for MultiTypeVec
-get_static(dhv::MultiTypeVec) = dhv.static
+# Get the static version - returns .static field for MultiTypeSet
+get_static(dhv::MultiTypeSet) = dhv.static
 
 # ============================================================================
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
 
-function _rebuild_static!(dhv::MultiTypeVec)
+function _rebuild_static!(dhv::MultiTypeSet)
     # Convert CPU data vectors to GPU
     data_tuple = if isempty(dhv.data_order)
         ()
@@ -245,7 +260,7 @@ function _rebuild_static!(dhv::MultiTypeVec)
     else
         Tuple(Adapt.adapt(dhv.backend, dhv.texture_isbits[T]) for T in dhv.texture_order)
     end
-    dhv.static = StaticMultiTypeVec(data_tuple, tex_tuple)
+    dhv.static = StaticMultiTypeSet(data_tuple, tex_tuple)
 end
 
 # ============================================================================
@@ -253,7 +268,7 @@ end
 # ============================================================================
 
 """
-    maybe_convert_field(dhv::MultiTypeVec, fval)
+    maybe_convert_field(dhv::MultiTypeSet, fval)
 
 Convert a struct field value for GPU storage. Override this for custom types.
 - AbstractArray → TextureRef (uploaded to GPU)
@@ -263,12 +278,12 @@ Materials should use loose type parameters so fields can be either raw values OR
 TextureRef. This way constant values don't need texture indirection at all.
 """
 # Convert large arrays to TextureRef, but NOT StaticArrays (they're inline values, not textures)
-maybe_convert_field(dhv::MultiTypeVec, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
-maybe_convert_field(::MultiTypeVec, arr::StaticArrays.StaticArray) = arr  # Keep StaticArrays inline
+maybe_convert_field(dhv::MultiTypeSet, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
+maybe_convert_field(::MultiTypeSet, arr::StaticArrays.StaticArray) = arr  # Keep StaticArrays inline
 # Don't re-convert already converted refs
-maybe_convert_field(::MultiTypeVec, ref::TextureRef) = ref
+maybe_convert_field(::MultiTypeSet, ref::TextureRef) = ref
 # Default: recurse into structs, pass through primitives
-function maybe_convert_field(dhv::MultiTypeVec, item::T) where T
+function maybe_convert_field(dhv::MultiTypeSet, item::T) where T
     # Recurse into struct types to convert nested arrays
     if !isbitstype(T)
         return convert_to_texturerefs(dhv, item)
@@ -278,7 +293,7 @@ function maybe_convert_field(dhv::MultiTypeVec, item::T) where T
 end
 
 # Convert arrays in a struct to TextureRefs, storing them as GPU arrays
-function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
+function convert_to_texturerefs(dhv::MultiTypeSet, item::T) where T
     if !isstructtype(T) || T <: AbstractArray
         return item
     end
@@ -298,7 +313,7 @@ function convert_to_texturerefs(dhv::MultiTypeVec, item::T) where T
 end
 
 # Store a texture as GPU array, return TextureRef pointing to isbits device pointer
-function store_texture(dhv::MultiTypeVec, arr::AbstractArray{T}) where T
+function store_texture(dhv::MultiTypeSet, arr::AbstractArray{T}) where T
     # Convert to GPU array and keep alive
     if !isbitstype(T)
         arr = map(x -> maybe_convert_field(dhv, x), arr)
@@ -330,7 +345,7 @@ end
 # push! - Adds item to CPU vectors, rebuilds GPU static on each push
 # ============================================================================
 
-function Base.push!(dhv::MultiTypeVec, item::T)::HeteroVecIndex where T
+function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
     # Convert any arrays in the item to TextureRefs (textures stored as GPU arrays)
     # Uses maybe_convert_field which dispatches to type-specific methods or generic conversion
     converted_item = maybe_convert_field(dhv, item)
@@ -354,7 +369,7 @@ function Base.push!(dhv::MultiTypeVec, item::T)::HeteroVecIndex where T
     # Rebuild GPU static on every push
     _rebuild_static!(dhv)
 
-    return HeteroVecIndex(UInt8(type_idx), UInt32(vec_idx))
+    return SetKey(UInt8(type_idx), UInt32(vec_idx))
 end
 
 # ============================================================================
@@ -362,7 +377,7 @@ end
 # ============================================================================
 
 """
-    with_index(f, smv::StaticMultiTypeVec, idx::HeteroVecIndex, args...)
+    with_index(f, smv::StaticMultiTypeSet, idx::SetKey, args...)
 
 Execute function `f` with the element at index `idx`, passing additional `args`.
 The function is called as `f(element, args...)` where `element` has a concrete type.
@@ -371,12 +386,12 @@ Uses a single if-elseif-else chain for SPIR-V structured control flow compatibil
 The function `f` must not capture variables - pass all data as `args`.
 """
 @inline @generated function with_index(
-    f::F, smv::StaticMultiTypeVec{Data, Textures}, idx::HeteroVecIndex, args...
+    f::F, smv::StaticMultiTypeSet{Data, Textures}, idx::SetKey, args...
 ) where {F, Data<:Tuple, Textures}
     N = length(Data.parameters)
 
     if N == 0
-        return :(error("with_index: empty StaticMultiTypeVec"))
+        return :(error("with_index: empty StaticMultiTypeSet"))
     end
 
     # Build a single if-elseif-else chain for structured control flow (SPIR-V compatible)
@@ -400,19 +415,19 @@ end
 # Adapt.jl integration for GPU array conversion
 # ============================================================================
 
-# Adapt StaticMultiTypeVec - adapts data and texture arrays
-# For MultiTypeVec.static, arrays are already GPU - this converts to isbits for kernel
-function Adapt.adapt_structure(to, smv::StaticMultiTypeVec)
+# Adapt StaticMultiTypeSet - adapts data and texture arrays
+# For MultiTypeSet.static, arrays are already GPU - this converts to isbits for kernel
+function Adapt.adapt_structure(to, smv::StaticMultiTypeSet)
     adapted_data = map(smv.data) do arr
         Adapt.adapt(to, arr)
     end
     adapted_textures = map(smv.textures) do tex
         Adapt.adapt(to, tex)
     end
-    return StaticMultiTypeVec(adapted_data, adapted_textures)
+    return StaticMultiTypeSet(adapted_data, adapted_textures)
 end
 
-# Adapt MultiTypeVec - returns the already GPU-ready static field
-function Adapt.adapt_structure(to, dhv::MultiTypeVec)
+# Adapt MultiTypeSet - returns the already GPU-ready static field
+function Adapt.adapt_structure(to, dhv::MultiTypeSet)
     return Adapt.adapt_structure(to, dhv.static)
 end

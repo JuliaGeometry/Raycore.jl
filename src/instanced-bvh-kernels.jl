@@ -9,7 +9,7 @@
 
 import KernelAbstractions as KA
 using KernelAbstractions: @index
-using Atomix: @atomicswap
+using Atomix: @atomic
 
 # ==============================================================================
 # GPU Kernel 0: Fill arrays (workaround for OpenCL fill! struct issue)
@@ -249,12 +249,13 @@ KA.@kernel function refit_aabbs_kernel!(
 
     # Walk up the tree
     while parent_idx != INVALID_NODE
-        # Atomic exchange: mark this node as visited
-        # If old_value == 0: we're first thread, bail out
-        # If old_value == 1: we're second thread, update AABB and continue
-        old_value = @inbounds @atomicswap update_flags[parent_idx] = UInt32(1)
+        # Atomic increment: mark this node as visited
+        # If new_value == 1: we're first thread (was 0), bail out
+        # If new_value == 2: we're second thread (was 1), update AABB and continue
+        # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
+        new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
 
-        if old_value == UInt32(1)
+        if new_value == UInt32(2)
             # Second thread arrived - compute AABB from both children
             @inbounds begin
                 node = nodes[parent_idx]
@@ -274,7 +275,6 @@ KA.@kernel function refit_aabbs_kernel!(
                     node.child0, node.child1, node.parent
                 )
                 nodes[parent_idx] = updated_node
-
                 # Move to parent
                 parent_idx = node.parent
             end
@@ -391,10 +391,11 @@ KA.@kernel function refit_tlas_aabbs_kernel!(
 
     # Walk up the tree
     while parent_idx != INVALID_NODE
-        # Atomic exchange: mark this node as visited
-        old_value = @inbounds @atomicswap update_flags[parent_idx] = UInt32(1)
+        # Atomic increment: mark this node as visited
+        # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
+        new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
 
-        if old_value == UInt32(1)
+        if new_value == UInt32(2)
             # Second thread arrived - compute AABB from both children
             @inbounds begin
                 node = nodes[parent_idx]
