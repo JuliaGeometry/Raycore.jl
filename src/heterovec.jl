@@ -285,6 +285,7 @@ Convert a struct field value for GPU storage. Override this for custom types.
 
 Materials should use loose type parameters so fields can be either raw values OR
 TextureRef. This way constant values don't need texture indirection at all.
+This function should not be overloaded outside Raycore.
 """
 # Convert large arrays to TextureRef, but NOT StaticArrays (they're inline values, not textures)
 maybe_convert_field(dhv::MultiTypeSet, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
