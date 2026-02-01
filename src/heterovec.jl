@@ -159,6 +159,15 @@ Base.size(::TextureRef{ReferencedArrayType, T, N}) where {ReferencedArrayType, T
     @inbounds smv.textures[TIdx][tref.idx]
 end
 
+# Fallback: if already a concrete array, just return it (no-op for CPU paths or non-TextureRef fields)
+@inline deref(::StaticMultiTypeSet, arr::AbstractArray) = arr
+
+# Fallback for nothing context (used by convenience overloads for CPU code that doesn't use MultiTypeSet)
+@inline deref(::Nothing, arr::AbstractArray) = arr
+
+@inline function deref(smv::StaticMultiTypeSet{Data,Textures}, tref::TextureRef{ReferencedArrayType,T,N,TIdx}) where {Data<:Tuple,Textures<:Tuple,ReferencedArrayType,T,N,TIdx}
+    @inbounds smv.textures[TIdx][tref.idx]
+end
 # ============================================================================
 # Dummy kernel for argconvert (same pattern as kernel-abstractions.jl)
 # ============================================================================
