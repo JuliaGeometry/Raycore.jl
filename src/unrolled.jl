@@ -211,6 +211,36 @@ end
     return _reduce_unrolled(fc, Base.tail(tuple), new_acc)
 end
 
+# StaticMultiTypeSet support: compile-time unrolled reduction over type slots
+@inline @generated function _reduce_unrolled(fc, smv::StaticMultiTypeSet{Data}, acc) where {Data<:Tuple}
+    N = length(Data.parameters)
+    if N == 0
+        return :(acc)
+    end
+    reductions = Expr[]
+    for i in 1:N
+        push!(reductions, quote
+            for j in eachindex(smv.data[$i])
+                @inbounds acc = fc(acc, smv.data[$i][j])
+            end
+        end)
+    end
+    quote
+        $(reductions...)
+        acc
+    end
+end
+
+# MultiTypeSet delegates to its static version
+@inline function reduce_unrolled(f::F, mts::MultiTypeSet, init, args...) where F
+    reduce_unrolled(f, get_static(mts), init, args...)
+end
+
+@inline function reduce_unrolled(f::F, smv::StaticMultiTypeSet, init, args...) where F
+    fc = FastClosure(f, args)
+    return _reduce_unrolled(fc, smv, init)
+end
+
 # ============================================================================
 # sum_unrolled - Common reduction pattern
 # ============================================================================

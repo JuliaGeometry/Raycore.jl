@@ -48,8 +48,8 @@ include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
 include("soa.jl")
-include("unrolled.jl")
 include("heterovec.jl")
+include("unrolled.jl")
 
 # Macros
 export @_inbounds
@@ -88,7 +88,8 @@ export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, g
 
 # HeterogeneousVector for type-stable heterogeneous collections
 export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
-export is_invalid, is_valid, with_index, n_slots, deref, get_static
+export is_invalid, is_valid, with_index, n_slots, deref, get_static, to_tuple
 export maybe_convert_field, store_texture
+export free!
 
 end

@@ -287,40 +287,28 @@ function TLAS(backend)
     )
 
     # Register finalizer to free GPU memory when TLAS is garbage collected
-    finalizer(_free_tlas_gpu_memory!, tlas)
+    finalizer(free!, tlas)
 
     return tlas
 end
 
-"""Free all GPU memory held by a TLAS. Called by finalizer."""
-function _free_tlas_gpu_memory!(tlas::TLAS)
-    # Free main backend arrays
-    _try_unsafe_free!(tlas.nodes)
-    _try_unsafe_free!(tlas.instances)
-    _try_unsafe_free!(tlas.blas_array)
+"""
+    free!(x)
 
-    # Free all backing arrays for isbits BLASes
+Trigger the registered finalizer on `x` to release GPU memory.
+Safe to call on any object — no-op if no finalizer is registered.
+"""
+free!(x) = (finalize(x); nothing)
+
+"""Free all GPU memory held by a TLAS."""
+function free!(tlas::TLAS)
+    finalize(tlas.nodes)
+    finalize(tlas.instances)
+    finalize(tlas.blas_array)
     for arr in tlas.gpu_blas_arrays
-        _try_unsafe_free!(arr)
+        finalize(arr)
     end
     empty!(tlas.gpu_blas_arrays)
-
-    return nothing
-end
-
-"""Try to free a GPU array if it supports unsafe_free!."""
-function _try_unsafe_free!(arr)
-    # GPU arrays (CLArray, CuArray) typically have unsafe_free! from GPUArrays
-    # Use duck typing to check if the method exists
-    try
-        # Try to call the method if it exists on the array's module
-        M = parentmodule(typeof(arr))
-        if isdefined(M, :unsafe_free!) && applicable(getfield(M, :unsafe_free!), arr)
-            getfield(M, :unsafe_free!)(arr)
-        end
-    catch
-        # Silently ignore - GC will handle cleanup
-    end
     return nothing
 end
 
@@ -711,34 +699,19 @@ function _rebuild_bvh!(tlas::TLAS)
     return
 end
 
-"""Internal: Compact instances array by removing deleted handles."""
+"""Internal: Compact instances array by removing deleted handles, and compact BLASes."""
 function _compact_instances!(tlas::TLAS)
-    # Collect ranges to keep (non-deleted handles)
-    ranges_to_keep = UnitRange{Int}[]
+    # Copy valid ranges to new array and update handle mappings
+    cpu_instances = Array(tlas.instances)
+    new_instances = InstanceDescriptor[]
+    new_handle_to_range = Dict{TLASHandle, UnitRange{Int}}()
+
     for (handle, range) in tlas.handle_to_range
         handle in tlas.deleted_handles && continue
-        push!(ranges_to_keep, range)
-    end
-    sort!(ranges_to_keep, by=first)
-
-    # If nothing to compact, just clear deleted handles
-    if length(ranges_to_keep) == length(tlas.handle_to_range) - length(tlas.deleted_handles)
-        # Copy valid ranges to new array and update handle mappings
-        cpu_instances = Array(tlas.instances)
-        new_instances = InstanceDescriptor[]
-        new_handle_to_range = Dict{TLASHandle, UnitRange{Int}}()
-
-        for (handle, range) in tlas.handle_to_range
-            handle in tlas.deleted_handles && continue
-            new_start = length(new_instances) + 1
-            append!(new_instances, cpu_instances[range])
-            new_end = length(new_instances)
-            new_handle_to_range[handle] = new_start:new_end
-        end
-
-        # Update TLAS with compacted instances
-        tlas.instances = Adapt.adapt(tlas.backend, new_instances)
-        tlas.handle_to_range = new_handle_to_range
+        new_start = length(new_instances) + 1
+        append!(new_instances, cpu_instances[range])
+        new_end = length(new_instances)
+        new_handle_to_range[handle] = new_start:new_end
     end
 
     # Remove deleted handles from tracking
@@ -746,6 +719,65 @@ function _compact_instances!(tlas::TLAS)
         delete!(tlas.handle_to_range, handle)
     end
     empty!(tlas.deleted_handles)
+    tlas.handle_to_range = new_handle_to_range
+
+    # Compact BLASes: find which blas_index values are still referenced
+    used_blas_indices = Set{UInt32}()
+    for inst in new_instances
+        push!(used_blas_indices, inst.blas_index)
+    end
+
+    n_blas = tlas.blas_array === nothing ? 0 : length(tlas.blas_array)
+    if n_blas > 0 && length(used_blas_indices) < n_blas
+        # Build old→new index mapping (only for referenced BLASes)
+        sorted_used = sort!(collect(used_blas_indices))
+        old_to_new = Dict{UInt32, UInt32}()
+        for (new_idx, old_idx) in enumerate(sorted_used)
+            old_to_new[old_idx] = UInt32(new_idx)
+        end
+
+        # Remap blas_index in all instances
+        for i in eachindex(new_instances)
+            inst = new_instances[i]
+            new_blas_idx = old_to_new[inst.blas_index]
+            if new_blas_idx != inst.blas_index
+                new_instances[i] = InstanceDescriptor(
+                    new_blas_idx, inst.instance_id,
+                    inst.transform, inst.inv_transform, inst.flags
+                )
+            end
+        end
+
+        # Rebuild gpu_blas_arrays keeping only referenced entries
+        # gpu_blas_arrays layout: [nodes_1, prims_1, nodes_2, prims_2, ...]
+        new_gpu_blas_arrays = Any[]
+        for old_idx in sorted_used
+            old_nodes_pos = 2 * (Int(old_idx) - 1) + 1
+            old_prims_pos = 2 * (Int(old_idx) - 1) + 2
+            push!(new_gpu_blas_arrays, tlas.gpu_blas_arrays[old_nodes_pos])
+            push!(new_gpu_blas_arrays, tlas.gpu_blas_arrays[old_prims_pos])
+        end
+
+        # Free unreferenced GPU arrays
+        for old_idx in UInt32(1):UInt32(n_blas)
+            old_idx in used_blas_indices && continue
+            old_nodes_pos = 2 * (Int(old_idx) - 1) + 1
+            old_prims_pos = 2 * (Int(old_idx) - 1) + 2
+            finalize(tlas.gpu_blas_arrays[old_nodes_pos])
+            finalize(tlas.gpu_blas_arrays[old_prims_pos])
+        end
+        tlas.gpu_blas_arrays = new_gpu_blas_arrays
+
+        # Rebuild blas_array with only referenced isbits BLASes
+        cpu_blas = Array(tlas.blas_array)
+        new_cpu_blas = [cpu_blas[Int(old_idx)] for old_idx in sorted_used]
+        tlas.blas_array = Adapt.adapt(tlas.backend, new_cpu_blas)
+    end
+
+    # Update instances on backend
+    tlas.instances = isempty(new_instances) ?
+        KA.allocate(tlas.backend, InstanceDescriptor, 0) :
+        Adapt.adapt(tlas.backend, new_instances)
 end
 
 # ------------------------------------------------------------------------------

@@ -61,6 +61,12 @@ get_static(smv::StaticMultiTypeSet) = smv
 # Fallback for Tuple (used by legacy code paths)
 get_static(t::Tuple) = t
 
+# Convert to a flat Tuple of all elements (preserves concrete element types)
+to_tuple(t::Tuple) = t
+_concat_to_tuple() = ()
+_concat_to_tuple(v::AbstractVector, rest...) = (v..., _concat_to_tuple(rest...)...)
+to_tuple(smv::StaticMultiTypeSet) = _concat_to_tuple(smv.data...)
+
 # ============================================================================
 # foreach_element - Type-stable iteration over all elements
 # ============================================================================
@@ -252,6 +258,9 @@ n_slots(dhv::MultiTypeSet) = length(dhv.data_order)
 # Get the static version - returns .static field for MultiTypeSet
 get_static(dhv::MultiTypeSet) = dhv.static
 
+# MultiTypeSet delegates to its static version
+to_tuple(mts::MultiTypeSet) = to_tuple(get_static(mts))
+
 # ============================================================================
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
@@ -440,4 +449,27 @@ end
 # Adapt MultiTypeSet - returns the already GPU-ready static field
 function Adapt.adapt_structure(to, dhv::MultiTypeSet)
     return Adapt.adapt_structure(to, dhv.static)
+end
+
+# ============================================================================
+# GPU Resource Cleanup
+# ============================================================================
+
+"""
+    free!(set::MultiTypeSet)
+
+Release GPU memory held by the MultiTypeSet (texture arrays and static data/textures).
+"""
+function free!(set::MultiTypeSet)
+    for arr in set.texture_gpu_arrays
+        finalize(arr)
+    end
+    empty!(set.texture_gpu_arrays)
+    for arr in set.static.data
+        finalize(arr)
+    end
+    for arr in set.static.textures
+        finalize(arr)
+    end
+    return nothing
 end
