@@ -392,6 +392,74 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
 end
 
 # ============================================================================
+# update! - Sync modified CPU data into existing GPU arrays
+# ============================================================================
+
+"""
+    update!(dhv::MultiTypeSet, key::SetKey, new_item)
+
+Update an existing item in the MultiTypeSet, syncing array data to GPU.
+Array fields in `new_item` are copied into the existing GPU arrays (via `copyto!`).
+Isbits fields are updated and the static tuple is rebuilt only if they changed.
+"""
+function update!(dhv::MultiTypeSet, key::SetKey, new_item)
+    CT = dhv.data_order[key.type_idx]
+    old_converted = dhv.data_vectors[CT][key.vec_idx]
+    updated = _update_item(dhv, old_converted, new_item)
+    if updated !== old_converted
+        dhv.data_vectors[CT][key.vec_idx] = updated
+        _rebuild_static!(dhv)
+    end
+    return nothing
+end
+
+# TextureRef → Array: copy data to existing GPU array
+function _update_item(dhv::MultiTypeSet, old::TextureRef{AT}, new_data::AbstractArray) where AT
+    _copyto_gpu!(dhv, old, new_data)
+    return old
+end
+
+# Nothing → Nothing: no-op
+_update_item(::MultiTypeSet, ::Nothing, ::Nothing) = nothing
+
+# Generic: recurse into structs with fields, return new value for leaf types
+function _update_item(dhv::MultiTypeSet, old, new)
+    T = typeof(old)
+    fnames = fieldnames(T)
+    # Leaf types (no fields): numbers, empty structs — just return new value
+    isempty(fnames) && return new
+    # Structs with fields: always recurse (even if isbits, since converted
+    # structs may contain TextureRefs that need GPU array sync)
+    changed = false
+    new_fields = ntuple(length(fnames)) do i
+        of = getfield(old, fnames[i])
+        nf = getfield(new, fnames[i])
+        uf = _update_item(dhv, of, nf)
+        if uf !== of
+            changed = true
+        end
+        uf
+    end
+    changed || return old
+    return Base.typename(T).wrapper(new_fields...)
+end
+
+# Find the GPU array for a TextureRef and copyto! new data
+function _copyto_gpu!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::AbstractArray) where AT
+    count = 0
+    for arr in dhv.texture_gpu_arrays
+        if typeof(arr) === AT
+            count += 1
+            if count == ref.idx
+                copyto!(arr, new_data)
+                return
+            end
+        end
+    end
+    error("GPU array not found for TextureRef(idx=$(ref.idx))")
+end
+
+# ============================================================================
 # with_index - Type-stable dispatch
 # ============================================================================
 
