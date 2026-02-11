@@ -798,10 +798,14 @@ The TLAS must stay alive while the StaticTLAS is in use.
 """
 function Adapt.adapt_structure(to, tlas::TLAS)
     sync!(tlas)
+    blas = tlas.blas_array
+    if blas === nothing
+        blas = BLAS{Vector{BVHNode2}, Vector{Triangle{UInt32}}}[]
+    end
     return StaticTLAS(
         adapt(to, tlas.nodes),
         adapt(to, tlas.instances),
-        adapt(to, tlas.blas_array),
+        adapt(to, blas),
         tlas.root_aabb
     )
 end
