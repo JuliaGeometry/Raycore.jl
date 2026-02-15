@@ -1,7 +1,7 @@
 struct TriangleMesh{
         VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32},
         NT<:AbstractVector{Normal3f}, TT<:AbstractVector{Vec3f},
-        UT<:AbstractVector{Point2f}} <: AbstractGeometry{3, Float32}
+        UT<:AbstractVector{Point2f}, MI<:AbstractVector} <: AbstractGeometry{3, Float32}
 
     vertices::VT
     # For the i-th triangle, its 3 vertex positions are:
@@ -13,6 +13,9 @@ struct TriangleMesh{
     tangents::TT
     # Optional parametric (u, v) values, one for each vertex.
     uv::UT
+    # Per-face material index. When non-empty, material_indices[face_idx] provides
+    # the material key for that triangle (overriding any instance-level material).
+    material_indices::MI
 
     function TriangleMesh(
             vertices::VT,
@@ -20,12 +23,14 @@ struct TriangleMesh{
             normals::NT = Normal3f[],
             tangents::TT = Vec3f[],
             uv::UT = Point2f[],
-        ) where {VT, IT, NT, TT, UT}
+            material_indices::MI = UInt32[],
+        ) where {VT, IT, NT, TT, UT, MI}
 
-        return new{VT, IT, NT, TT, UT}(
+        return new{VT, IT, NT, TT, UT, MI}(
             vertices,
             copy(indices), copy(normals),
             copy(tangents), copy(uv),
+            copy(material_indices),
         )
     end
 end
@@ -71,9 +76,19 @@ function TriangleMesh(mesh::GeometryBasics.Mesh)
         uvs = Point2f[]
     end
     indices = collect(reinterpret(UInt32, fs))
+    # Extract per-face material_idx if present (from FaceView attribute).
+    # After expand_faceviews, it's per-vertex with all 3 vertices of a face
+    # sharing the same value, so we just take the first vertex of each face.
+    material_indices = if hasproperty(nmesh, :material_idx)
+        mat_per_vertex = nmesh.material_idx
+        [mat_per_vertex[indices[3*(i-1)+1]] for i in 1:length(fs)]
+    else
+        similar(indices, 0)
+    end
     return TriangleMesh(
         vertices, indices,
         normals, Vec3f[], Point2f.(uvs),
+        material_indices,
     )
 end
 

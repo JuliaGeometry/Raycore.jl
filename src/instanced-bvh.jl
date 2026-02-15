@@ -457,9 +457,14 @@ Uses direct GPU append - instances are appended to the GPU array immediately.
 function Base.push!(tlas::TLAS, inst::Instance)
     # Build triangles on CPU first, then convert to backend
     mesh = to_triangle_mesh(inst.geometry)
-    cpu_triangles = [Triangle(mesh, i, (inst.metadata[1], UInt32(i)))
-                     for i in 1:div(length(mesh.indices), 3)
-                     if !is_degenerate(get_vertices(mesh, i))]
+    has_per_face_mat = !isempty(mesh.material_indices)
+    n_faces = div(length(mesh.indices), 3)
+    cpu_triangles = [begin
+            mat_key = has_per_face_mat ? mesh.material_indices[i] : inst.metadata[1]
+            Triangle(mesh, i, (mat_key, UInt32(i)))
+        end
+        for i in 1:n_faces
+        if !is_degenerate(get_vertices(mesh, i))]
     isempty(cpu_triangles) && error("Geometry has no valid triangles")
 
     # Convert triangles to backend and build BLAS directly on backend
