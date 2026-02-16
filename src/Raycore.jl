@@ -59,7 +59,7 @@ export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bound
 
 # Instanced BVH types
 export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
-export Instance, n_instances, n_geometries
+export Instance, n_instances, n_geometries, build_triangle, is_degenerate_face
 
 # TLASBuilder (new MultiTypeSet-style API)
 export TLASBuilder, TLASHandle, StaticTLAS, INVALID_HANDLE
@@ -89,7 +89,7 @@ export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, g
 # HeterogeneousVector for type-stable heterogeneous collections
 export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
 export is_invalid, is_valid, with_index, n_slots, deref, get_static, to_tuple
-export maybe_convert_field, store_texture
+export maybe_convert_field, store_texture, rebuild_static!
 export free!
 
 end

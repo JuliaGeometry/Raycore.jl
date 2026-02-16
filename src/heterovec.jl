@@ -265,7 +265,7 @@ to_tuple(mts::MultiTypeSet) = to_tuple(get_static(mts))
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
 
-function _rebuild_static!(dhv::MultiTypeSet)
+function rebuild_static!(dhv::MultiTypeSet)
     # Convert CPU data vectors to GPU
     data_tuple = if isempty(dhv.data_order)
         ()
@@ -364,7 +364,7 @@ end
 # push! - Adds item to CPU vectors, rebuilds GPU static on each push
 # ============================================================================
 
-function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
+function Base.push!(dhv::MultiTypeSet, item::T; rebuild::Bool=true)::SetKey where T
     # Convert any arrays in the item to TextureRefs (textures stored as GPU arrays)
     # Uses maybe_convert_field which dispatches to type-specific methods or generic conversion
     converted_item = maybe_convert_field(dhv, item)
@@ -385,8 +385,8 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
 
     vec_idx = length(dhv.data_vectors[CT])
 
-    # Rebuild GPU static on every push
-    _rebuild_static!(dhv)
+    # Rebuild GPU static (skip when batching many pushes)
+    rebuild && rebuild_static!(dhv)
 
     return SetKey(UInt8(type_idx), UInt32(vec_idx))
 end
@@ -408,7 +408,7 @@ function update!(dhv::MultiTypeSet, key::SetKey, new_item)
     updated = _update_item(dhv, old_converted, new_item)
     if updated !== old_converted
         dhv.data_vectors[CT][key.vec_idx] = updated
-        _rebuild_static!(dhv)
+        rebuild_static!(dhv)
     end
     return nothing
 end

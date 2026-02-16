@@ -404,6 +404,99 @@ n_total_instances(tlas::TLAS) = length(tlas.instances)
 # ------------------------------------------------------------------------------
 
 """
+    build_triangle(vertices, normals, uvs, indices, face_idx, metadata)
+
+Build a Triangle from decomposed mesh arrays at the given face index.
+"""
+function build_triangle(vertices, normals, uvs, indices, face_idx, metadata)
+    f_idx = 1 + (3 * (face_idx - 1))
+    vs = @SVector [vertices[indices[f_idx + i]] for i in 0:2]
+    ns = @SVector [normals[indices[f_idx + i]] for i in 0:2]
+    ts = @SVector [Vec3f(NaN) for _ in 1:3]
+    uv = if !isempty(uvs)
+        @SVector [uvs[indices[f_idx + i]] for i in 0:2]
+    else
+        SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
+    end
+    Triangle(vs, ns, ts, uv, metadata)
+end
+
+"""
+    is_degenerate_face(vertices, indices, face_idx)
+
+Check if a triangle face is degenerate (zero area) without constructing a full Triangle.
+"""
+function is_degenerate_face(vertices, indices, face_idx)
+    f_idx = 1 + (3 * (face_idx - 1))
+    vs = @SVector [vertices[indices[f_idx + i]] for i in 0:2]
+    is_degenerate(vs)
+end
+
+"""
+    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I)) -> TLASHandle
+
+Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
+`face_meta` attribute (if present). If no `face_meta` attribute exists, each
+triangle gets `UInt32(face_idx)` as metadata.
+
+Returns a stable handle for later reference.
+"""
+function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I))
+    nmesh = GeometryBasics.expand_faceviews(mesh)
+    fs = decompose(TriangleFace{UInt32}, nmesh)
+    verts = decompose(Point3f, nmesh)
+    norms = Normal3f.(decompose_normals(nmesh))
+    uvs_raw = GeometryBasics.decompose_uv(nmesh)
+    uvs = isnothing(uvs_raw) ? Point2f[] : Point2f.(uvs_raw)
+    indices = collect(reinterpret(UInt32, fs))
+
+    has_meta = hasproperty(nmesh, :face_meta)
+    n_faces = length(fs)
+
+    cpu_triangles = [begin
+            # After expand_faceviews, face_meta is per-vertex with all 3 verts sharing same value
+            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
+            build_triangle(verts, norms, uvs, indices, i, meta)
+        end
+        for i in 1:n_faces
+        if !is_degenerate_face(verts, indices, i)
+    ]
+    isempty(cpu_triangles) && error("Geometry has no valid triangles")
+
+    # Convert triangles to backend and build BLAS directly on backend
+    backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
+    blas = build_blas(backend_triangles)
+
+    # Convert to isbits BLAS and append to blas_array (GPU append)
+    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.gpu_blas_arrays)
+    tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
+    blas_idx = UInt32(length(tlas.blas_array))
+
+    # Create InstanceDescriptor
+    inv_transform = Mat4f(inv(transform))
+    instance_id = tlas.next_instance_id
+    tlas.next_instance_id += UInt32(1)
+    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
+
+    # Record range before append
+    start_idx = length(tlas.instances) + 1
+
+    # Adapt to backend and append (GPU append)
+    backend_descriptors = Adapt.adapt(tlas.backend, cpu_descriptors)
+    append!(tlas.instances, backend_descriptors)
+
+    end_idx = length(tlas.instances)
+
+    # Create handle and register range
+    handle = TLASHandle(tlas.next_handle_id)
+    tlas.next_handle_id += UInt32(1)
+    tlas.handle_to_range[handle] = start_idx:end_idx
+
+    tlas.dirty = true
+    return handle
+end
+
+"""
     push!(tlas::TLAS, geometry) -> TLASHandle
 
 Add geometry as a single instance at identity transform.
@@ -415,53 +508,58 @@ function Base.push!(tlas::TLAS, geometry)
 end
 
 """
-    push!(tlas::TLAS, geometry, material_idx) -> TLASHandle
+    push!(tlas::TLAS, geometry, material_idx; arealight_indices=nothing) -> TLASHandle
 
 Add geometry as a single instance at identity transform with material index.
 The material_idx (typically a SetKey/MaterialIndex) is stored as metadata
 on the triangles for material lookup during shading.
+
+`arealight_indices`: optional per-face Vector{UInt32} of flat light indices (0 = no area light).
 """
-function Base.push!(tlas::TLAS, geometry, material_idx)
+function Base.push!(tlas::TLAS, geometry, material_idx; arealight_indices=nothing)
     inst = Instance(geometry; metadata=material_idx)
-    return push!(tlas, inst)
+    return push!(tlas, inst; arealight_indices=arealight_indices)
 end
 
 """
-    push!(tlas::TLAS, geometry, material_idx, transform::Mat4f) -> TLASHandle
+    push!(tlas::TLAS, geometry, material_idx, transform::Mat4f; arealight_indices=nothing) -> TLASHandle
 
 Add geometry as a single instance with transform and material index.
 """
-function Base.push!(tlas::TLAS, geometry, material_idx, transform::Mat4f)
+function Base.push!(tlas::TLAS, geometry, material_idx, transform::Mat4f; arealight_indices=nothing)
     inst = Instance(geometry, transform, material_idx)
-    return push!(tlas, inst)
+    return push!(tlas, inst; arealight_indices=arealight_indices)
 end
 
 """
-    push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f}) -> TLASHandle
+    push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f}; arealight_indices=nothing) -> TLASHandle
 
 Add geometry as multiple instances with transforms sharing the same material index.
 """
-function Base.push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f})
+function Base.push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f}; arealight_indices=nothing)
     inst = Instance(geometry, transforms; metadata=material_idx)
-    return push!(tlas, inst)
+    return push!(tlas, inst; arealight_indices=arealight_indices)
 end
 
 """
-    push!(tlas::TLAS, inst::Instance) -> TLASHandle
+    push!(tlas::TLAS, inst::Instance; arealight_indices=nothing) -> TLASHandle
 
 Add an Instance with transforms and metadata.
 Returns a single handle referencing all instances in the group.
 
+`arealight_indices`: optional per-face Vector{UInt32} of flat light indices (0 = no area light).
+
 Uses direct GPU append - instances are appended to the GPU array immediately.
 """
-function Base.push!(tlas::TLAS, inst::Instance)
+function Base.push!(tlas::TLAS, inst::Instance; arealight_indices=nothing)
     # Build triangles on CPU first, then convert to backend
     mesh = to_triangle_mesh(inst.geometry)
     has_per_face_mat = !isempty(mesh.material_indices)
     n_faces = div(length(mesh.indices), 3)
     cpu_triangles = [begin
             mat_key = has_per_face_mat ? mesh.material_indices[i] : inst.metadata[1]
-            Triangle(mesh, i, (mat_key, UInt32(i)))
+            al_idx = !isnothing(arealight_indices) ? arealight_indices[i] : UInt32(0)
+            Triangle(mesh, i, TriangleMeta(mat_key, UInt32(i), al_idx))
         end
         for i in 1:n_faces
         if !is_degenerate(get_vertices(mesh, i))]
