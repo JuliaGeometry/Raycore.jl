@@ -22,15 +22,18 @@ and the index within that type's array.
 - `vec_idx`: 1-based index within the vector at that slot
 """
 struct SetKey
-    type_idx::UInt8
+    # UInt32 (not UInt8) is intentional: LLVM's select-scalarization pass produces broken
+    # IR (`select i1` with mismatched result type) when scalarizing a `select { i8, i32 }`.
+    # Using uniform UInt32 fields gives `{ i32, i32 }`, which scalarizes correctly.
+    type_idx::UInt32
     vec_idx::UInt32
 end
 
 # Default constructor for invalid/placeholder index
-SetKey() = SetKey(UInt8(0), UInt32(0))
+SetKey() = SetKey(UInt32(0), UInt32(0))
 
 # Check for invalid sentinel
-is_invalid(idx::SetKey) = idx.type_idx == UInt8(0) && idx.vec_idx == UInt32(0)
+is_invalid(idx::SetKey) = idx.type_idx == UInt32(0) && idx.vec_idx == UInt32(0)
 is_valid(idx::SetKey) = !is_invalid(idx)
 
 # ============================================================================
@@ -388,7 +391,7 @@ function Base.push!(dhv::MultiTypeSet, item::T; rebuild::Bool=true)::SetKey wher
     # Rebuild GPU static (skip when batching many pushes)
     rebuild && rebuild_static!(dhv)
 
-    return SetKey(UInt8(type_idx), UInt32(vec_idx))
+    return SetKey(UInt32(type_idx), UInt32(vec_idx))
 end
 
 # ============================================================================
