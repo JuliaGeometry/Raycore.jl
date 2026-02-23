@@ -1617,8 +1617,8 @@ Algorithm:
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)  # Use safe inversion to avoid division by zero
 
-    # Stack for traversal
-    stack = MVector{64, UInt32}(undef)
+    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
+    stack = MVector{32, UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
@@ -1744,8 +1744,8 @@ Matches HLSL TraceRays with ANY_HIT defined.
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)
 
-    # Stack for traversal
-    stack = MVector{64, UInt32}(undef)
+    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
+    stack = MVector{32, UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
