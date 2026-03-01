@@ -490,7 +490,7 @@ The function `f` must not capture variables - pass all data as `args`.
 
     for i in N:-1:1
         result = Expr(:if,
-            :(idx.type_idx === UInt8($i)),
+            :(idx.type_idx === UInt32($i)),
             :(@inbounds f(smv.data[$i][idx.vec_idx], args...)),
             result
         )
