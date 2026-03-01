@@ -1212,7 +1212,9 @@ end
         # Verify all fields are isbits
         @test isbitstype(typeof(cl_tlas.nodes))
         @test isbitstype(typeof(cl_tlas.instances))
-        @test isbitstype(typeof(cl_tlas.blas_array))
+        @test isbitstype(typeof(cl_tlas.all_blas_nodes))
+        @test isbitstype(typeof(cl_tlas.all_blas_prims))
+        @test isbitstype(typeof(cl_tlas.blas_descriptors))
     end
 
     @testset "World bound preserved after adapt" begin

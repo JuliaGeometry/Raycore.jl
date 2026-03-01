@@ -58,7 +58,7 @@ export @_inbounds
 export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bounds3, Normal3f
 
 # Instanced BVH types
-export BLAS, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
+export BLAS, BLASDescriptor, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
 export Instance, n_instances, n_geometries, build_triangle, is_degenerate_face
 
 # TLASBuilder (new MultiTypeSet-style API)
