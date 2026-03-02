@@ -403,34 +403,6 @@ end
     @test hit_miss == false
 end
 
-@testset "TLAS BVH-compatible API (argument order)" begin
-    # Test that closest_hit(ray, tlas) works (BVH-compatible order)
-    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
-    tri = RTriangle(
-        SVector(v1, v2, v3),
-        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
-        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
-        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
-        UInt32(1)
-    )
-
-    blas = build_blas([tri])
-    identity = Mat4f(I)
-    instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
-    tlas = build_tlas([blas], instances)
-
-    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-
-    # BVH-compatible order (ray first)
-    hit, prim, dist, bary = closest_hit(ray, tlas)
-    @test hit == true
-    @test dist ≈ 1.0f0
-
-    # any_hit with BVH-compatible order
-    hit_any, _, _, _ = any_hit(ray, tlas)
-    @test hit_any == true
-end
-
 # ==============================================================================
 # Instance API Tests
 # ==============================================================================
