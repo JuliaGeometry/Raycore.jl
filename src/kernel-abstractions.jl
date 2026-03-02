@@ -23,14 +23,6 @@ function to_gpu(ArrayType, m::AbstractArray)
     return KA.argconvert(kernel, arr)
 end
 
-# GPU conversion for BVH
-function to_gpu(ArrayType, bvh::Raycore.BVH)
-    nodes = to_gpu(ArrayType, bvh.nodes)
-    triangles = to_gpu(ArrayType, bvh.triangles)
-    primitives = to_gpu(ArrayType, bvh.primitives)
-    return Raycore.BVH(nodes, triangles, primitives, bvh.max_node_primitives)
-end
-
 # GPU conversion for BLAS (instanced BVH bottom-level)
 function to_gpu(ArrayType, blas::Raycore.BLAS)
     nodes = to_gpu(ArrayType, blas.nodes)

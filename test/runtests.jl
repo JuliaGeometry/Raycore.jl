@@ -1,10 +1,19 @@
+# NOTE: Run tests with --check-bounds=auto, NOT --check-bounds=yes (the Pkg.test default).
+# GPU kernels compiled with --check-bounds=yes generate SPIR-V that crashes pocl.
+# Use: Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
+
 using Test
 using GeometryBasics
 using LinearAlgebra
+using StaticArrays
 using Raycore
 using JET
 using Aqua
 using pocl_jll, OpenCL
+
+pocl_platform = OpenCL.cl.platforms()[1]
+pocl_device = OpenCL.cl.devices(pocl_platform)[1]
+OpenCL.cl.device!(pocl_device)
 
 # ambiguities come from GeometryBasics.@fixed_vector Normal = StaticVector
 Aqua.test_all(Raycore; ambiguities=(; broken=true))

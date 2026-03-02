@@ -25,6 +25,8 @@ jobs:
           version: 1
           arch: x64
       - uses: julia-actions/cache@v2
-      - name: Install pkgs dependencies
-        run: julia --project=@. -e 'using Pkg; Pkg.test("Raycore", coverage=true)'
       - uses: julia-actions/julia-runtest@v1
+        with:
+          # --check-bounds=auto: GPU kernels (OpenCL/pocl) crash with --check-bounds=yes
+          # because bounds-check code generates SPIR-V that pocl cannot handle
+          check_bounds: auto

@@ -11,15 +11,15 @@ using Statistics
 # ============================================================================
 
 """
-    MaterialScene(geometry_material_pairs) -> (bvh, materials)
+    MaterialScene(geometry_material_pairs) -> (tlas, materials)
 
-Create a BVH and materials array from a vector of (geometry, material) tuples.
+Create a TLAS and materials array from a vector of (geometry, material) tuples.
 
 # Arguments
 - `geometry_material_pairs`: Vector of `(mesh, material)` tuples
 
 # Returns
-- `bvh`: BVH with material indices as triangle metadata
+- `tlas`: TLAS with material indices as triangle metadata
 - `materials`: Vector of materials
 
 # Example
@@ -35,12 +35,12 @@ function MaterialScene(geometry_material_pairs::Vector{<:Tuple{<:Any, M}}) where
     meshes = [p[1] for p in geometry_material_pairs]
     materials = M[p[2] for p in geometry_material_pairs]
 
-    # Create BVH with material index as metadata
+    # Create TLAS with material index as metadata
     function metadata_fn(mesh_idx, _tri_idx)
         return Int32(mesh_idx)
     end
-    bvh = Raycore.BVH(meshes, metadata_fn)
-    return bvh, materials
+    tlas = Raycore.TLAS(meshes, metadata_fn)
+    return tlas, materials
 end
 
 # ============================================================================
@@ -268,7 +268,7 @@ end
     @inbounds if idx <= length(ray_queue.ray)
         # Read from SoA
         @get ray, pixel_x, pixel_y, sample_idx = ray_queue[idx]
-        hit_found, tri, dist, bary = Raycore.closest_hit(bvh, ray)
+        hit_found, tri, dist, bary, _ = Raycore.closest_hit(bvh, ray)
         # Write to SoA using @set
         @set hit_queue[idx] = (hit_found=hit_found, tri=tri, dist=dist, bary=Vec3f(bary),
                                ray=ray, pixel_x=pixel_x, pixel_y=pixel_y, sample_idx=sample_idx)
@@ -351,7 +351,7 @@ end
         # any_hit respects ray.t_max and only returns hits before the light
         # So if we get a hit, something is blocking the light
         visible = if ray.t_max > 0.0f0
-            hit_found, _, _, _ = Raycore.any_hit(bvh, ray)
+            hit_found, _, _, _, _ = Raycore.any_hit(bvh, ray)
             !hit_found  # Visible only if no obstruction
         else
             false  # Dummy ray (sky hits)
@@ -492,7 +492,7 @@ end
         @get ray, hit_idx = reflection_ray_soa[idx]
 
         if ray.t_max > 0.0f0
-            hit_found, tri, dist, bary = Raycore.closest_hit(bvh, ray)
+            hit_found, tri, dist, bary, _ = Raycore.closest_hit(bvh, ray)
             if hit_found
                 # Compute normal here so we don't need to store the triangle
                 v0, v1, v2 = Raycore.normals(tri)
@@ -639,7 +639,7 @@ converted to GPU using `to_gpu(ArrayType, renderer)`.
 
 # Fields
 - `framebuffer`: Output image buffer
-- `bvh`: BVH acceleration structure
+- `bvh`: TLAS acceleration structure
 - `ctx`: Scene context (materials, lights)
 - Camera parameters: `camera_pos`, `fov`, `sky_color`, `samples_per_pixel`
 - Work queues for each wavefront stage
@@ -733,7 +733,7 @@ function Raycore.to_gpu(Arr, renderer::WavefrontRenderer)
     # Convert image
     img = Arr(renderer.framebuffer)
 
-    # Convert BVH and context
+    # Convert TLAS and context
     bvh_gpu = Raycore.to_gpu(Arr, renderer.bvh)
     ctx_gpu = Raycore.to_gpu(Arr, renderer.ctx)
 

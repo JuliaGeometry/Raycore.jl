@@ -6,6 +6,9 @@ using Adapt
 using pocl_jll
 using OpenCL
 
+pocl_platform = OpenCL.cl.platforms()[1]
+pocl_device = OpenCL.cl.devices(pocl_platform)[1]
+OpenCL.cl.device!(pocl_device)
 backend = OpenCL.OpenCLBackend()
 
 # Test structs - used for both CPU and GPU tests

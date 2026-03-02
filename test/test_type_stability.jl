@@ -40,18 +40,10 @@ function gen_triangle()
     )
 end
 
-# Triangle Mesh
-function gen_triangle_mesh()
-    vertices = [Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)]
-    indices = UInt32[1, 2, 3]  # 1-based indices for Julia
-    normals = [Raycore.Normal3f(0, 0, 1), Raycore.Normal3f(0, 0, 1), Raycore.Normal3f(0, 0, 1)]
-    Raycore.TriangleMesh(vertices, indices, normals)
-end
-
-# BVH
-function gen_bvh_accel()
-    mesh = Rect3f(Point3f(0), Vec3f(1))
-    Raycore.BVH([mesh], 1)
+# TLAS from a simple mesh
+function gen_tlas_accel()
+    mesh = normal_mesh(Rect3f(Point3f(0), Vec3f(1)))
+    Raycore.TLAS([mesh], (mi, ti) -> UInt32(mi))
 end
 
 # Quaternion
@@ -351,20 +343,6 @@ end
 end
 
 @testset "Type Stability: triangle_mesh.jl" begin
-    @testset "TriangleMesh construction" begin
-        vertices = [Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)]
-        indices = UInt32[0, 1, 2]
-        normals = [Raycore.Normal3f(0, 0, 1), Raycore.Normal3f(0, 0, 1), Raycore.Normal3f(0, 0, 1)]
-
-        @test_opt Raycore.TriangleMesh(vertices, indices, normals)
-        @test_opt Raycore.TriangleMesh(vertices, indices)
-    end
-
-    @testset "Triangle construction" begin
-        mesh = gen_triangle_mesh()
-        @test_opt_alloc Raycore.Triangle(mesh, 1, UInt32(1))
-    end
-
     @testset "Triangle operations" begin
         t = gen_triangle()
 
@@ -403,42 +381,6 @@ end
     @testset "Triangle utilities" begin
         t = gen_triangle()
         @test_opt_alloc Raycore.is_degenerate(t.vertices)
-    end
-end
-
-# ==================== BVH Tests ====================
-
-@testset "Type Stability: bvh.jl" begin
-    @testset "BVHPrimitiveInfo" begin
-        b = gen_bounds3()
-        @test_opt_alloc Raycore.BVHPrimitiveInfo(UInt32(1), b)
-    end
-
-    @testset "BVHNode construction" begin
-        b = gen_bounds3()
-        @test_opt Raycore.BVHNode(UInt32(0), UInt32(1), b)
-    end
-
-    @testset "LinearBVH construction" begin
-        b = gen_bounds3()
-        @test_opt_alloc Raycore.LinearBVHLeaf(b, UInt32(0), UInt32(1))
-        @test_opt_alloc Raycore.LinearBVHInterior(b, UInt32(1), UInt8(0))
-    end
-
-    @testset "BVH operations" begin
-        bvh = gen_bvh_accel()
-        r = gen_ray()
-
-        @test_opt Raycore.world_bound(bvh)
-        @test_opt Raycore.closest_hit(bvh, r)
-        @test_opt Raycore.any_hit(bvh, r)
-    end
-
-    @testset "Ray grid generation" begin
-        bvh = gen_bvh_accel()
-        direction = Vec3f(0, 0, 1)
-        # generate_ray_grid allocates - needs optimization
-        @test_opt Raycore.generate_ray_grid(bvh, direction, 10)
     end
 end
 

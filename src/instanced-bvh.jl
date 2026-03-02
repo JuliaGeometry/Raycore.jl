@@ -196,8 +196,8 @@ kernel traversal.
 # Usage
 ```julia
 tlas = TLAS(CPU())
-h1 = push!(tlas, geometry)
-h2 = push!(tlas, Instance(geometry, transforms))
+h1 = push!(tlas, mesh)
+h2 = push!(tlas, mesh, transforms)
 update_transform!(tlas, h2, new_transform)
 delete!(tlas, h1)
 sync!(tlas)  # Rebuild BVH structure
@@ -235,48 +235,6 @@ mutable struct TLAS{Backend}
 end
 
 # Note: _get_isbits_ptr is defined in multitypeset.jl and reused here
-
-# ==============================================================================
-# Instance - High-level wrapper for instanced geometry
-# ==============================================================================
-
-"""
-    Instance{G, T, M}
-
-User-friendly wrapper for instanced geometry.
-
-Each Instance represents one or more copies of a geometry with different transforms.
-Used with TLAS construction and push! operations.
-
-# Type Parameters
-- `G`: Geometry type (TriangleMesh, or anything convertible via `to_triangle_mesh`)
-- `T`: Transform array type (AbstractVector{Mat4f})
-- `M`: Metadata array type (typically AbstractVector{UInt32})
-
-# Fields
-- `geometry`: The mesh/geometry to instance
-- `transforms`: Array of local-to-world transforms (one per instance)
-- `metadata`: Array of per-instance user data (typically instance IDs)
-"""
-struct Instance{G, T<:AbstractVector{Mat4f}, M<:AbstractVector}
-    geometry::G
-    transforms::T
-    metadata::M
-end
-
-# Convenience constructors
-"""Single instance with transform and metadata."""
-Instance(geom, transform::Mat4f, metadata) =
-    Instance(geom, [transform], [metadata])
-
-"""Single instance at identity transform."""
-Instance(geom; metadata=UInt32(1)) =
-    Instance(geom, [Mat4f(I)], [metadata])
-
-"""Multiple instances with same metadata."""
-function Instance(geom, transforms::AbstractVector{Mat4f}; metadata=UInt32(1))
-    Instance(geom, transforms, fill(metadata, length(transforms)))
-end
 
 # ------------------------------------------------------------------------------
 # TLAS Constructor and Core Operations
@@ -598,72 +556,32 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4
 end
 
 """
-    push!(tlas::TLAS, geometry) -> TLASHandle
+    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f}) -> TLASHandle
 
-Add geometry as a single instance at identity transform.
+Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
+Builds BLAS once, creates multiple InstanceDescriptors (one per transform).
+
 Returns a stable handle for later reference.
 """
-function Base.push!(tlas::TLAS, geometry)
-    inst = Instance(geometry)
-    return push!(tlas, inst)
-end
+function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f})
+    nmesh = GeometryBasics.expand_faceviews(mesh)
+    fs = decompose(TriangleFace{UInt32}, nmesh)
+    verts = decompose(Point3f, nmesh)
+    norms = Normal3f.(decompose_normals(nmesh))
+    uvs_raw = GeometryBasics.decompose_uv(nmesh)
+    uvs = isnothing(uvs_raw) ? Point2f[] : Point2f.(uvs_raw)
+    indices = collect(reinterpret(UInt32, fs))
 
-"""
-    push!(tlas::TLAS, geometry, material_idx; arealight_indices=nothing) -> TLASHandle
+    has_meta = hasproperty(nmesh, :face_meta)
+    n_faces = length(fs)
 
-Add geometry as a single instance at identity transform with material index.
-The material_idx (typically a SetKey/MaterialIndex) is stored as metadata
-on the triangles for material lookup during shading.
-
-`arealight_indices`: optional per-face Vector{UInt32} of flat light indices (0 = no area light).
-"""
-function Base.push!(tlas::TLAS, geometry, material_idx; arealight_indices=nothing)
-    inst = Instance(geometry; metadata=material_idx)
-    return push!(tlas, inst; arealight_indices=arealight_indices)
-end
-
-"""
-    push!(tlas::TLAS, geometry, material_idx, transform::Mat4f; arealight_indices=nothing) -> TLASHandle
-
-Add geometry as a single instance with transform and material index.
-"""
-function Base.push!(tlas::TLAS, geometry, material_idx, transform::Mat4f; arealight_indices=nothing)
-    inst = Instance(geometry, transform, material_idx)
-    return push!(tlas, inst; arealight_indices=arealight_indices)
-end
-
-"""
-    push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f}; arealight_indices=nothing) -> TLASHandle
-
-Add geometry as multiple instances with transforms sharing the same material index.
-"""
-function Base.push!(tlas::TLAS, geometry, material_idx, transforms::AbstractVector{Mat4f}; arealight_indices=nothing)
-    inst = Instance(geometry, transforms; metadata=material_idx)
-    return push!(tlas, inst; arealight_indices=arealight_indices)
-end
-
-"""
-    push!(tlas::TLAS, inst::Instance; arealight_indices=nothing) -> TLASHandle
-
-Add an Instance with transforms and metadata.
-Returns a single handle referencing all instances in the group.
-
-`arealight_indices`: optional per-face Vector{UInt32} of flat light indices (0 = no area light).
-
-Uses direct GPU append - instances are appended to the GPU array immediately.
-"""
-function Base.push!(tlas::TLAS, inst::Instance; arealight_indices=nothing)
-    # Build triangles on CPU first, then convert to backend
-    mesh = to_triangle_mesh(inst.geometry)
-    has_per_face_mat = !isempty(mesh.material_indices)
-    n_faces = div(length(mesh.indices), 3)
     cpu_triangles = [begin
-            mat_key = has_per_face_mat ? mesh.material_indices[i] : inst.metadata[1]
-            al_idx = !isnothing(arealight_indices) ? arealight_indices[i] : UInt32(0)
-            Triangle(mesh, i, TriangleMeta(mat_key, UInt32(i), al_idx))
+            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
+            build_triangle(verts, norms, uvs, indices, i, meta)
         end
         for i in 1:n_faces
-        if !is_degenerate(get_vertices(mesh, i))]
+        if !is_degenerate_face(verts, indices, i)
+    ]
     isempty(cpu_triangles) && error("Geometry has no valid triangles")
 
     # Convert triangles to backend and build BLAS directly on backend
@@ -676,7 +594,7 @@ function Base.push!(tlas::TLAS, inst::Instance; arealight_indices=nothing)
     blas_idx = UInt32(length(tlas.blas_array))
 
     # Create InstanceDescriptors on CPU
-    cpu_descriptors = map(inst.transforms) do transform
+    cpu_descriptors = map(transforms) do transform
         inv_transform = Mat4f(inv(transform))
         instance_id = tlas.next_instance_id
         tlas.next_instance_id += UInt32(1)
@@ -829,11 +747,25 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
     first_desc = Array(tlas.instances[first(range):first(range)])[1]
     blas_idx = Int(first_desc.blas_index)
 
-    # Build new BLAS on backend (GPU-first)
-    mesh = to_triangle_mesh(new_geometry)
-    cpu_triangles = [Triangle(mesh, i, (first_desc.instance_id, UInt32(i)))
-                     for i in 1:div(length(mesh.indices), 3)
-                     if !is_degenerate(get_vertices(mesh, i))]
+    # Build new BLAS on backend (GPU-first) - decompose GB.Mesh directly
+    nmesh = GeometryBasics.expand_faceviews(new_geometry)
+    fs = decompose(TriangleFace{UInt32}, nmesh)
+    verts = decompose(Point3f, nmesh)
+    norms = Normal3f.(decompose_normals(nmesh))
+    uvs_raw = GeometryBasics.decompose_uv(nmesh)
+    uvs = isnothing(uvs_raw) ? Point2f[] : Point2f.(uvs_raw)
+    indices = collect(reinterpret(UInt32, fs))
+
+    has_meta = hasproperty(nmesh, :face_meta)
+    n_faces = length(fs)
+
+    cpu_triangles = [begin
+            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : (first_desc.instance_id, UInt32(i))
+            build_triangle(verts, norms, uvs, indices, i, meta)
+        end
+        for i in 1:n_faces
+        if !is_degenerate_face(verts, indices, i)
+    ]
     isempty(cpu_triangles) && error("New geometry has no valid triangles")
 
     backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
@@ -2128,8 +2060,8 @@ end
 """
     TLAS(primitives::AbstractVector, metadata_fn::Function; backend=KA.CPU())
 
-Universal BVH constructor. Each primitive becomes a BLAS with a single instance.
-Drop-in replacement for `BVH(primitives, metadata_fn)`.
+Universal TLAS constructor. Each primitive (GB.Mesh or AbstractGeometry) becomes
+a BLAS with a single instance.
 
 Each mesh is automatically treated as an instance at identity transform.
 Perfect for scenes where you just have different meshes and want automatic instancing.
@@ -2140,7 +2072,6 @@ Example:
 ```julia
 geometries = [cat_mesh, floor, sphere]
 tlas = TLAS(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
-# Same API as BVH, but uses instancing internally!
 
 # GPU-first:
 tlas = TLAS(geometries, metadata_fn; backend=OpenCLBackend())
@@ -2151,46 +2082,30 @@ function TLAS(
     metadata_fn::Function;
     backend = KA.CPU()
 ) where {P}
-    # Each primitive becomes its own BLAS
-    first_mesh = Raycore.to_triangle_mesh(first(primitives))
     first_metadata = metadata_fn(1, 1)
     TMetadata = typeof(first_metadata)
 
-    # Build first BLAS on backend
-    first_triangles = Triangle{TMetadata}[]
-    for i in 1:div(length(first_mesh.indices), 3)
-        if !is_degenerate(get_vertices(first_mesh, i))
-            metadata = metadata_fn(1, i)
-            push!(first_triangles, Triangle(first_mesh, i, metadata))
-        end
-    end
-    backend_triangles = Adapt.adapt(backend, first_triangles)
-    first_blas = build_blas(backend_triangles)
-
-    # Create array of BLASes (with backend arrays)
-    blas_array = typeof(first_blas)[first_blas]
+    identity = Mat4f(I)
+    blas_array = BLAS[]
     instances = InstanceDescriptor[]
 
-    # Add first instance
-    identity = Mat4f(I)
-    push!(instances, InstanceDescriptor(
-        UInt32(1),  # BLAS index (1-based)
-        UInt32(1),  # Instance ID = mesh index for metadata
-        identity,
-        identity,
-        UInt32(0)
-    ))
-
-    # Process remaining meshes
-    for mi in 2:length(primitives)
+    for mi in 1:length(primitives)
         prim = primitives[mi]
-        triangle_mesh = Raycore.to_triangle_mesh(prim)
-        triangles = Triangle{TMetadata}[]
+        # Convert to GB.Mesh if needed
+        gb_mesh = prim isa GeometryBasics.Mesh ? prim : GeometryBasics.uv_normal_mesh(prim)
+        nmesh = GeometryBasics.expand_faceviews(gb_mesh)
+        fs = decompose(TriangleFace{UInt32}, nmesh)
+        verts = decompose(Point3f, nmesh)
+        norms = Normal3f.(decompose_normals(nmesh))
+        uvs_raw = GeometryBasics.decompose_uv(nmesh)
+        uvs = isnothing(uvs_raw) ? Point2f[] : Point2f.(uvs_raw)
+        indices = collect(reinterpret(UInt32, fs))
 
-        for i in 1:div(length(triangle_mesh.indices), 3)
-            if !is_degenerate(get_vertices(triangle_mesh, i))
+        triangles = Triangle{TMetadata}[]
+        for i in 1:length(fs)
+            if !is_degenerate_face(verts, indices, i)
                 metadata = metadata_fn(mi, i)
-                push!(triangles, Triangle(triangle_mesh, i, metadata))
+                push!(triangles, build_triangle(verts, norms, uvs, indices, i, metadata))
             end
         end
 
@@ -2212,9 +2127,7 @@ function TLAS(
     return build_tlas(blas_array, instances)
 end
 
-# Note: TLAS(items::AbstractVector) is defined in the High-Level Instance API section below.
-# Use TLAS(meshes, metadata_fn) for per-triangle metadata, or
-# TLAS([Instance(mesh1), Instance(mesh2), ...]) for the new Instance API.
+# Note: TLAS(meshes::AbstractVector{<:GB.Mesh}) is defined below.
 
 """
     Base.eltype(tlas::TraversableTLAS)
@@ -2242,41 +2155,28 @@ end
 # ==============================================================================
 
 """
-    TLAS(items::AbstractVector; backend=KA.CPU()) -> (TLAS, Vector{TLASHandle})
+    TLAS(meshes::AbstractVector{<:GeometryBasics.Mesh}; backend=KA.CPU()) -> (TLAS, Vector{TLASHandle})
 
-Create a mutable TLAS from a vector of geometries or Instance objects.
+Create a mutable TLAS from a vector of GB.Mesh objects.
+Each mesh becomes a BLAS with a single instance at identity transform.
 
-Plain geometries are automatically wrapped as single instances at identity transform.
 Returns the mutable TLAS and a vector of TLASHandles for later reference.
-
-The TLAS stores backend arrays directly in its fields (nodes, instances, blas_array).
-The TLAS must stay alive while any adapted StaticTLAS is in use.
 
 # Examples
 ```julia
-# Mix of plain geometry and instances
-tlas, handles = TLAS([
-    floor_mesh,                              # Auto-wrapped as Instance
-    Instance(sphere, particle_transforms),   # 10k instances sharing sphere BLAS
-    Instance(wall, wall_transform, UInt32(2))
-])
-
-# Later: update transforms via TLASHandle (uses update! function)
-# update!(tlas, handles[2], new_transforms)
-refit_tlas!(tlas)
+tlas, handles = TLAS([floor_mesh, wall_mesh, sphere_mesh])
 ```
 """
-function TLAS(items::AbstractVector; backend=KA.CPU())
-    isempty(items) && error("Cannot create TLAS from empty item list")
+function TLAS(meshes::AbstractVector{<:GeometryBasics.Mesh}; backend=KA.CPU())
+    isempty(meshes) && error("Cannot create TLAS from empty mesh list")
 
     # Create mutable TLAS with the specified backend
     tlas = TLAS(backend)
     handles = TLASHandle[]
 
-    # Push each item
-    for item in items
-        inst = item isa Instance ? item : Instance(item)
-        h = push!(tlas, inst)
+    # Push each mesh at identity transform
+    for mesh in meshes
+        h = push!(tlas, mesh)
         push!(handles, h)
     end
 
@@ -2307,7 +2207,7 @@ export build_blas, build_tlas, closest_hit, any_hit, world_bound
 export update_instance_transform!, update_instance_transforms!, refit_tlas!
 export INVALID_NODE
 
-# Instance API
-export Instance, TLASHandle
+# TLAS Handle API
+export TLASHandle
 export n_instances, n_geometries, get_instance, get_instances
 export update_transform!, update_transforms!, is_valid

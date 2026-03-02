@@ -14,8 +14,11 @@ begin
     l = 0.5
     floor = Rect3f(-l, -l, -0.01, 2l, 2l, 0.01)
     cat = load(Makie.assetpath("cat.obj"))
-    bvh = Raycore.BVH([s1, s2, s3, s4, cat]);
-    world_mesh = GeometryBasics.Mesh(bvh)
+    bvh = Raycore.TLAS([normal_mesh(s1), normal_mesh(s2), normal_mesh(s3), normal_mesh(s4), cat], (mi, ti) -> UInt32(mi));
+    # TODO: examples.jl needs rewrite for TLAS API
+    # bvh.primitives → iterate tlas.blas_array[i].primitives
+    # GeometryBasics.Mesh(bvh) → use Makie extension: plot(tlas)
+    world_mesh = Makie.convert_arguments(Makie.Mesh, bvh)[1]
     f, ax, pl = Makie.mesh(world_mesh; color=:teal)
     center!(ax.scene)
     viewdir = normalize(ax.scene.camera.view_direction[])

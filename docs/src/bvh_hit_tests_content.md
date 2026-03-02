@@ -1,6 +1,6 @@
-# BVH Hit Testing: `closest_hit` vs `any_hit`
+# TLAS Hit Testing: `closest_hit` vs `any_hit`
 
-This document tests and visualizes the difference between `closest_hit` and `any_hit` functions in the BVH implementation using the new `RayIntersectionSession` API.
+This document tests and visualizes the difference between `closest_hit` and `any_hit` functions in the TLAS implementation using the `trace_rays` API.
 
 ## Test Setup
 
@@ -9,19 +9,24 @@ using Raycore, GeometryBasics, LinearAlgebra
 using WGLMakie
 using Test
 using Bonito
+import KernelAbstractions as KA
 
 # Create a simple test scene with multiple overlapping primitives
 function create_test_scene()
     # Three spheres at different distances along the Z-axis
-    sphere1 = Tesselation(Sphere(Point3f(0, 0, 5), 1.0f0), 20)   # Furthest
-    sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)   # Middle
-    sphere3 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)   # Closest
+    sphere1 = normal_mesh(Sphere(Point3f(0, 0, 5), 1.0f0))   # Furthest
+    sphere2 = normal_mesh(Sphere(Point3f(0, 0, 3), 1.0f0))   # Middle
+    sphere3 = normal_mesh(Sphere(Point3f(0, 0, 1), 1.0f0))   # Closest
 
-    bvh = Raycore.BVH([sphere1, sphere2, sphere3])
-    return bvh
+    tlas = Raycore.TLAS(KA.CPU())
+    push!(tlas, sphere1)
+    push!(tlas, sphere2)
+    push!(tlas, sphere3)
+    sync!(tlas)
+    return tlas
 end
 
-bvh = create_test_scene()
+tlas = create_test_scene()
 ```
 ## Test 1: Single Ray Through Center
 
@@ -31,19 +36,14 @@ Test a ray through the center that passes through all three spheres.
 # Create a ray with slight offset to avoid hitting triangle vertices exactly
 test_ray = Raycore.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
 
-# Create session with closest_hit
-session_closest = RayIntersectionSession(Raycore.closest_hit, [test_ray], bvh)
-
-# Create session with any_hit for comparison
-session_any = RayIntersectionSession(Raycore.any_hit, [test_ray], bvh)
+# Trace with closest_hit (default)
+result_closest = trace_rays(tlas, [test_ray])
 
 fig = Figure()
 
 # Left: closest_hit visualization
-plot(fig[1, 1], session_closest; axis=(; show_axis=false))
-plot(fig[1, 2], session_any; axis=(; show_axis=false))
+plot(fig[1, 1], result_closest; axis=(; show_axis=false))
 Label(fig[0, 1], "closest_hit", fontsize=20, font=:bold, tellwidth=false)
-Label(fig[0, 2], "any_hit", fontsize=20, font=:bold, tellwidth=false)
 
 fig
 ```
@@ -57,64 +57,60 @@ test_positions = map(p-> (p = p.-0.5; Point3f(p..., -5)), rand(Point2f, 10))
 # Create rays
 rays = [Raycore.Ray(o=pos, d=Vec3f(0, 0, 1)) for pos in test_positions]
 
-# Create session
-session_multi = RayIntersectionSession(Raycore.closest_hit, rays, bvh)
-plot(session_multi; axis=(;show_axis=false))
+# Trace rays and visualize
+result_multi = trace_rays(tlas, rays)
+plot(result_multi; axis=(;show_axis=false))
 ```
 ## Visualization: Multiple Rays
 
-## Test 4: Difference Between any*hit and closest*hit
+## Test 4: Complex Scene
 
-Demonstrate that `any_hit` can return different results than `closest_hit`.
+Demonstrate ray tracing through a complex scene with many overlapping objects.
 
 ```julia (editor=true, logging=false, output=true)
 # Create a complex scene with overlapping geometry
-# This creates a BVH where traversal order can differ from distance order
 using Random
 Random.seed!(123)
 
-complex_spheres = []
+complex_tlas = Raycore.TLAS(KA.CPU())
 
 # Add some large overlapping spheres
-push!(complex_spheres, Tesselation(Sphere(Point3f(0, 0, 10), 3.0f0), 20))
-push!(complex_spheres, Tesselation(Sphere(Point3f(0.5, 0, 5), 0.5f0), 15))
-push!(complex_spheres, Tesselation(Sphere(Point3f(-0.5, 0, 15), 1.5f0), 18))
+push!(complex_tlas, normal_mesh(Sphere(Point3f(0, 0, 10), 3.0f0)))
+push!(complex_tlas, normal_mesh(Sphere(Point3f(0.5, 0, 5), 0.5f0)))
+push!(complex_tlas, normal_mesh(Sphere(Point3f(-0.5, 0, 15), 1.5f0)))
 
-# Add many small spheres to create complex BVH structure
+# Add many small spheres to create complex TLAS structure
 for i in 1:30
     x = randn() * 5
     y = randn() * 5
     z = rand(8.0:0.5:12.0)
     r = 0.3 + rand() * 0.5
-    push!(complex_spheres, Tesselation(Sphere(Point3f(x, y, z), r), 8))
+    push!(complex_tlas, normal_mesh(Sphere(Point3f(x, y, z), Float32(r))))
 end
 
-complex_bvh = Raycore.BVH(complex_spheres)
-# Test rays to find cases where any_hit differs from closest_hit
+sync!(complex_tlas)
+
+# Test rays
 test_rays = map(rand(Point2f, 20)) do p
     p = (p .* 14f0) .- 8f0
     Raycore.Ray(o=Point3f(p..., -5), d=Vec3f(0, 0, 1))
 end
 
-session_closest = RayIntersectionSession(Raycore.closest_hit, test_rays, complex_bvh)
-session_any = RayIntersectionSession(Raycore.any_hit, test_rays, complex_bvh)
+result = trace_rays(complex_tlas, test_rays)
+
 fig = Figure()
-# Left: closest_hit visualization
-plot(fig[1, 1], session_closest; axis=(; show_axis=false))
-plot(fig[1, 2], session_any; axis=(; show_axis=false))
+plot(fig[1, 1], result; axis=(; show_axis=false))
 Label(fig[0, 1], "closest_hit", tellwidth=false)
-Label(fig[0, 2], "any_hit", tellwidth=false)
 
 fig
 
 ```
 **Key Findings:**
 
-  * `any_hit` exits on the **first** intersection during BVH traversal (uses `intersect`, doesn't update ray)
-  * `closest_hit` continues searching and updates ray's `t_max` (uses `intersect_p!`)
-  * In complex scenes with overlapping geometry, `any_hit` can return hits that are significantly farther
+  * `closest_hit` continues searching and updates ray's `t_max` to find the nearest intersection
+  * `any_hit` exits on the **first** intersection during TLAS traversal (useful for shadow rays)
   * Both always agree on **whether** a hit occurred (hit vs miss)
-  * The difference appears when BVH traversal order differs from spatial distance order
+  * `any_hit` is typically faster than `closest_hit` due to early termination
 
 ## Performance Comparison
 
@@ -131,14 +127,16 @@ end
 ```
 ```julia (editor=true, logging=false, output=true)
 using BenchmarkTools
+using Adapt
 
 test_ray = Raycore.Ray(o=Point3f(0.1, 0.1, -5), d=Vec3f(0, 0, 1))
+static_tlas = Adapt.adapt(KA.CPU(), tlas)
 
 # Benchmark closest_hit
-closest_time = @benchmark Raycore.closest_hit($bvh, $test_ray)
+closest_time = @benchmark Raycore.closest_hit($static_tlas, $test_ray)
 
 # Benchmark any_hit
-any_time = @benchmark Raycore.any_hit($bvh, $test_ray)
+any_time = @benchmark Raycore.any_hit($static_tlas, $test_ray)
 
 
 perf_table = map([
@@ -153,23 +151,22 @@ Bonito.Table(perf_table)
 
 This document demonstrated:
 
-1. **`RayIntersectionSession`** - A convenient struct for managing ray tracing sessions
+1. **`trace_rays`** - A convenient function for tracing rays against a TLAS and collecting results for visualization
 
-      * Bundles rays, BVH, hit function, and results together
-      * Provides helper functions: `hit_count()`, `miss_count()`, `hit_points()`, `hit_distances()`
-2. **Makie visualization recipe** - Automatic visualization via `plot(session)`
+      * Returns a `RayIntersectionResult` bundling rays, hit data, and the TLAS
+      * Automatically builds a `StaticTLAS` for traversal
+2. **Makie visualization recipe** - Automatic visualization via `plot(result)`
 
-      * Automatically renders BVH geometry, rays, and hit points
+      * Automatically renders TLAS geometry, rays, and hit points
       * Customizable colors, transparency, markers, and labels
       * Works with any Makie backend (GLMakie, WGLMakie, CairoMakie)
 3. **`closest_hit`** correctly identifies the nearest intersection among multiple overlapping primitives
 
-      * Returns: `(hit_found::Bool, hit_primitive::Triangle, distance::Float32, barycentric_coords::Point3f)`
-      * `distance` is the distance from ray origin to the hit point
-      * Use `Raycore.sum_mul(bary_coords, primitive.vertices)` to convert to world-space hit point
+      * Returns: `(hit_found::Bool, triangle::Triangle, distance::Float32, bary_coords::SVector{3,Float32}, instance_id::UInt32)`
+      * Use `sum(bary_coords .* triangle.vertices)` to convert to world-space hit point
 4. **`any_hit`** efficiently determines if any intersection exists, exiting early
 
-      * Returns: Same format as `closest_hit`: `(hit_found::Bool, hit_primitive::Triangle, distance::Float32, barycentric_coords::Point3f)`
+      * Returns: Same format as `closest_hit`
       * Can exit early on first hit found, making it faster for occlusion testing
 5. Both functions handle miss cases correctly (returning `hit_found=false`)
 6. `any_hit` is typically faster than `closest_hit` due to early termination
