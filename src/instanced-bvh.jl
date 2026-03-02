@@ -1035,6 +1035,60 @@ end
     end
 end
 
+"""
+    cpu_refit_blas_aabbs!(nodes, n_prims)
+
+Bottom-up AABB refit on CPU. Fixes incorrect AABBs left by the GPU refit kernel,
+which suffers from relaxed memory ordering on Metal (Atomix ignores memory ordering
+on Metal, causing writes to node AABBs to not be visible across threadgroups).
+
+Recursively computes correct AABBs for all internal nodes.
+"""
+function cpu_refit_blas_aabbs!(nodes::AbstractVector{BVHNode2}, n_prims::Int)
+    function refit_node!(nodes, idx)
+        node = nodes[idx]
+        is_leaf(node) && return get_node_aabb(node, false)
+
+        aabb0 = refit_node!(nodes, Int(node.child0))
+        aabb1 = refit_node!(nodes, Int(node.child1))
+
+        updated = BVHNode2(
+            aabb0.p_min, aabb0.p_max,
+            aabb1.p_min, aabb1.p_max,
+            node.child0, node.child1, node.parent
+        )
+        nodes[idx] = updated
+        return aabb0 ∪ aabb1
+    end
+
+    length(nodes) > 0 && refit_node!(nodes, 1)
+end
+
+"""
+    cpu_refit_tlas_aabbs!(nodes, n_instances)
+
+Bottom-up AABB refit on CPU for TLAS nodes (leaves store AABBs, not triangle vertices).
+"""
+function cpu_refit_tlas_aabbs!(nodes::AbstractVector{BVHNode2}, n_instances::Int)
+    function refit_node!(nodes, idx)
+        node = nodes[idx]
+        is_leaf(node) && return get_tlas_node_aabb(node, false)
+
+        aabb0 = refit_node!(nodes, Int(node.child0))
+        aabb1 = refit_node!(nodes, Int(node.child1))
+
+        updated = BVHNode2(
+            aabb0.p_min, aabb0.p_max,
+            aabb1.p_min, aabb1.p_max,
+            node.child0, node.child1, node.parent
+        )
+        nodes[idx] = updated
+        return aabb0 ∪ aabb1
+    end
+
+    length(nodes) > 0 && refit_node!(nodes, 1)
+end
+
 """3-dilate bits for Morton code (spreads bits by factor of 3)."""
 @inline function expand_bits(x::UInt32)::UInt32
     x = (x * 0x00010001) & 0xFF0000FF
@@ -1290,10 +1344,18 @@ function build_blas(
     update_flags = KA.zeros(backend, UInt32, n - 1)  # One flag per internal node
     refit_kernel! = refit_aabbs_kernel!(backend)
     refit_kernel!(nodes, update_flags, Int32(n), ndrange=n)
+    KA.synchronize(backend)
+
+    # GPU refit uses relaxed atomics (Atomix ignores memory ordering on Metal),
+    # causing some internal nodes to have stale/zeroed AABBs. Fix on CPU.
+    if !(backend isa KA.CPU)
+        cpu_nodes = Array(nodes)
+        cpu_refit_blas_aabbs!(cpu_nodes, n)
+        copyto!(nodes, cpu_nodes)
+    end
 
     # Compute root AABB - check if root is interior or leaf
     # Use explicit copy to CPU to avoid scalar indexing issues on GPU
-    KA.synchronize(backend)
     root_node = Array(nodes[1:1])[1]
     root_is_interior = is_interior(root_node)
     root_aabb = get_node_aabb(root_node, root_is_interior)
@@ -1442,6 +1504,14 @@ function _build_tlas_topology(blas_array, instances, backend)
     update_flags = KA.zeros(backend, UInt32, n - 1)
     refit_kernel! = refit_tlas_aabbs_kernel!(backend)
     refit_kernel!(nodes, update_flags, Int32(n), ndrange=n)
+    KA.synchronize(backend)
+
+    # GPU refit uses relaxed atomics — fix AABBs on CPU (see cpu_refit_blas_aabbs!)
+    if !(backend isa KA.CPU)
+        cpu_nodes = Array(nodes)
+        cpu_refit_tlas_aabbs!(cpu_nodes, n)
+        copyto!(nodes, cpu_nodes)
+    end
 
     # Get root AABB (copy to CPU to avoid scalar indexing)
     root_node = Array(nodes[1:1])[1]
@@ -1572,6 +1642,10 @@ Matches HLSL reference implementation.
     # Begin calculating determinant - also used to calculate u parameter
     s1 = cross(ray_d, e2)
     determinant = dot(s1, e1)
+
+    # Avoid division by zero for rays exactly parallel to the triangle.
+    abs(determinant) < 1.0f-7 && return (false, 0.0f0, 0.0f0, 0.0f0)
+
     invd = 1.0f0 / determinant
 
     # Calculate distance from v0 to ray origin
@@ -2005,6 +2079,14 @@ function refit_tlas!(tlas::TLAS)
         update_flags = KA.zeros(backend, UInt32, n - 1)
         refit_kernel! = refit_tlas_aabbs_kernel!(backend)
         refit_kernel!(tlas.nodes, update_flags, Int32(n), ndrange=n)
+        KA.synchronize(backend)
+
+        # GPU refit uses relaxed atomics — fix AABBs on CPU (see cpu_refit_blas_aabbs!)
+        if !(backend isa KA.CPU)
+            cpu_nodes = Array(tlas.nodes)
+            cpu_refit_tlas_aabbs!(cpu_nodes, n)
+            copyto!(tlas.nodes, cpu_nodes)
+        end
     end
 
     return tlas
