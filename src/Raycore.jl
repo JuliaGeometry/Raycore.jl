@@ -48,7 +48,7 @@ include("kernel-abstractions.jl")
 include("kernels.jl")
 include("ray_intersection_session.jl")
 include("soa.jl")
-include("heterovec.jl")
+include("multitypeset.jl")
 include("unrolled.jl")
 
 # Macros
@@ -61,9 +61,9 @@ export Ray, RayDifferentials, Triangle, TriangleMesh, AccelPrimitive, BVH, Bound
 export BLAS, BLASDescriptor, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
 export Instance, n_instances, n_geometries, build_triangle, is_degenerate_face
 
-# TLASBuilder (new MultiTypeSet-style API)
-export TLASBuilder, TLASHandle, StaticTLAS, INVALID_HANDLE
-export sync!, update_instance!, update!, n_total_instances
+# TLAS (GPU two-level acceleration structure)
+export TLASHandle, StaticTLAS, INVALID_HANDLE
+export sync!, update!, n_total_instances
 
 # BVH4 types (HIPRT-style 4-wide nodes)
 export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
@@ -86,7 +86,7 @@ export @get, @set, similar_soa
 # GPU-safe unrolled iteration
 export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, getindex_unrolled
 
-# HeterogeneousVector for type-stable heterogeneous collections
+# MultiTypeSet - type-stable heterogeneous collections
 export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
 export is_invalid, is_valid, with_index, n_slots, deref, get_static, to_tuple
 export maybe_convert_field, store_texture, rebuild_static!

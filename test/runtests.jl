@@ -14,7 +14,7 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
         include("test_intersection.jl")
     end
     @testset "Type Stability" begin
-        # include("test_type_stability.jl")
+        # include("test_type_stability.jl")  # disabled: @allocated tests fail on Julia 1.12
     end
     @testset "Bounds" begin
         include("bounds.jl")
@@ -22,7 +22,10 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
     @testset "Instanced BVH" begin
         include("test_instanced_bvh.jl")
     end
-    @testset "HeteroVec" begin
-        include("test_heterovec.jl")
+    @testset "MultiTypeSet" begin
+        include("test_multitypeset.jl")
+    end
+    @testset "Unrolled" begin
+        # include("test_unrolled.jl")  # requires BenchmarkTools (not in test deps)
     end
 end

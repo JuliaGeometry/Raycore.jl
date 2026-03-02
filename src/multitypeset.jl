@@ -1,5 +1,5 @@
 # ============================================================================
-# HeterogeneousVector - Type-stable heterogeneous collections for GPU
+# MultiTypeSet - Type-stable heterogeneous collections for GPU
 # ============================================================================
 # Provides compile-time type-stable dispatch over collections of different types.
 # Used for materials, textures, media, lights, etc.
@@ -61,11 +61,8 @@ n_slots(smv::StaticMultiTypeSet) = length(smv.data)
 
 # Get the static version - identity for StaticMultiTypeSet, .static field for MultiTypeSet
 get_static(smv::StaticMultiTypeSet) = smv
-# Fallback for Tuple (used by legacy code paths)
-get_static(t::Tuple) = t
 
 # Convert to a flat Tuple of all elements (preserves concrete element types)
-to_tuple(t::Tuple) = t
 _concat_to_tuple() = ()
 _concat_to_tuple(v::AbstractVector, rest...) = (v..., _concat_to_tuple(rest...)...)
 to_tuple(smv::StaticMultiTypeSet) = _concat_to_tuple(smv.data...)
@@ -181,10 +178,10 @@ end
 # Dummy kernel for argconvert (same pattern as kernel-abstractions.jl)
 # ============================================================================
 
-KA.@kernel _heterovec_dummy_kernel() = nothing
+KA.@kernel _multitypeset_dummy_kernel() = nothing
 
 function _get_isbits_ptr(backend, gpu_arr)
-    kernel = _heterovec_dummy_kernel(backend)
+    kernel = _multitypeset_dummy_kernel(backend)
     return KA.argconvert(kernel, gpu_arr)
 end
 

@@ -234,10 +234,7 @@ mutable struct TLAS{Backend}
     next_instance_id::UInt32
 end
 
-# Legacy alias for compatibility
-const TLASBuilder = TLAS
-
-# Note: _get_isbits_ptr is defined in heterovec.jl and reused here
+# Note: _get_isbits_ptr is defined in multitypeset.jl and reused here
 
 # ==============================================================================
 # Instance - High-level wrapper for instanced geometry
@@ -2218,29 +2215,6 @@ end
 # Note: TLAS(items::AbstractVector) is defined in the High-Level Instance API section below.
 # Use TLAS(meshes, metadata_fn) for per-triangle metadata, or
 # TLAS([Instance(mesh1), Instance(mesh2), ...]) for the new Instance API.
-
-# Make closest_hit and any_hit work with both argument orders for compatibility
-"""
-    closest_hit(ray::AbstractRay, tlas::TLAS)
-
-BVH-compatible argument order for closest_hit.
-Returns (hit_found, triangle, distance, barycentric) - same as BVH.
-"""
-function closest_hit(ray::AbstractRay, tlas::StaticTLAS)
-    hit, tri, t, bary, inst_id = closest_hit(tlas, ray)
-    return (hit, tri, t, bary)
-end
-
-"""
-    any_hit(ray::AbstractRay, tlas::StaticTLAS)
-
-BVH-compatible argument order for any_hit.
-Returns (hit_found, triangle, distance, barycentric) - same as BVH.
-"""
-function any_hit(ray::AbstractRay, tlas::StaticTLAS)
-    hit, tri, t, bary, inst_id = any_hit(tlas, ray)
-    return (hit, tri, t, bary)
-end
 
 """
     Base.eltype(tlas::TraversableTLAS)
