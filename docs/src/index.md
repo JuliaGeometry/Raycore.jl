@@ -1,10 +1,10 @@
 # Raycore.jl
 
-High-performance ray-triangle intersection engine with BVH acceleration for CPU and GPU.
+High-performance ray-triangle intersection engine with TLAS/BLAS acceleration for CPU and GPU.
 
 ## Features
 
-- **Fast BVH acceleration** for ray-triangle intersection
+- **Fast TLAS/BLAS acceleration** for ray-triangle intersection
 - **CPU and GPU support** via KernelAbstractions.jl
 - **MultiTypeSet**: GPU-safe heterogeneous collections with compile-time type-stable dispatch for materials, textures, lights, etc.
 - **GPU TLAS**: Two-level acceleration structure (BLAS/TLAS) with instanced geometry, per-instance transforms, and GPU-first design
@@ -13,11 +13,11 @@ High-performance ray-triangle intersection engine with BVH acceleration for CPU 
 
 ## Interactive Examples
 
-### BVH Hit Tests & Basics
+### Hit Tests & Basics
 
-Learn the basics of ray-triangle intersection, BVH construction, and visualization.
+Learn the basics of ray-triangle intersection, TLAS construction, and visualization.
 
-![BVH Basics](basics.png)
+![Basics](basics.png)
 
 [BVH Hit tests](@ref)
 
