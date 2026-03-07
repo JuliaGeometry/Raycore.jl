@@ -1285,6 +1285,8 @@ function build_blas(
     # Launch kernel: Create leaf nodes
     leaf_kernel! = create_leaf_nodes_kernel!(backend)
     leaf_kernel!(nodes, primitives, Int32(n), ndrange=n)
+    # Ensure leaf writes are visible before the cross-workgroup atomic refit pass.
+    KA.synchronize(backend)
 
     # Refit AABBs bottom-up (parallel using atomic counters)
     update_flags = KA.zeros(backend, UInt32, n - 1)  # One flag per internal node
@@ -1438,6 +1440,8 @@ function _build_tlas_topology(blas_array, instances, backend)
     # Launch kernel: Create TLAS leaf nodes (different from BLAS - stores AABBs, not vertices)
     leaf_kernel! = create_tlas_leaf_nodes_kernel!(backend)
     leaf_kernel!(nodes, sorted_indices, instances, blas_array, Int32(n), ndrange=n)
+    # Ensure leaf writes are visible before the cross-workgroup atomic refit pass.
+    KA.synchronize(backend)
     # Refit AABBs bottom-up (parallel using atomic counters)
     update_flags = KA.zeros(backend, UInt32, n - 1)
     refit_kernel! = refit_tlas_aabbs_kernel!(backend)
@@ -2000,6 +2004,7 @@ function refit_tlas!(tlas::TLAS)
     # blas_array is only used for root_aabb (inline data, safe on Metal)
     leaf_kernel! = update_tlas_leaf_aabbs_kernel!(backend)
     leaf_kernel!(tlas.nodes, tlas.instances, tlas.blas_array, Int32(n), ndrange=n)
+    KA.synchronize(backend)
     # Refit internal nodes bottom-up using atomic counters
     if n > 1
         update_flags = KA.zeros(backend, UInt32, n - 1)
