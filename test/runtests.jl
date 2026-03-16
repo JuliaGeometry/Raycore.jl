@@ -1,6 +1,6 @@
-# NOTE: Run tests with --check-bounds=auto, NOT --check-bounds=yes (the Pkg.test default).
-# GPU kernels compiled with --check-bounds=yes generate SPIR-V that crashes pocl.
-# Use: Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
+# NOTE: GPU kernel tests are skipped under --check-bounds=yes (the Pkg.test default)
+# because bounds checking injects error paths that can't compile to SPIR-V.
+# For full test coverage: Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
 
 using Test
 using GeometryBasics

@@ -742,6 +742,14 @@ KA.@kernel function full_trace_kernel!(hits, distances, instance_ids, metadata_o
     end
 end
 
+# GPU kernel compilation is incompatible with --check-bounds=yes (Pkg.test default)
+# because bounds checking injects error-throwing paths that can't compile to SPIR-V.
+# Use: Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
+if Base.JLOptions().check_bounds == 1  # 1 = --check-bounds=yes
+    @testset "KernelAbstractions Dynamic Scenes (OpenCL/pocl)" begin
+        @test_broken false  # skipped: --check-bounds=yes is incompatible with GPU kernel compilation
+    end
+else
 @testset "KernelAbstractions Dynamic Scenes (OpenCL/pocl)" begin
     # Must select pocl platform/device before creating the backend
     pocl_platform = OpenCL.cl.platforms()[1]
@@ -1155,3 +1163,4 @@ end
     end
 
 end
+end # if check_bounds
