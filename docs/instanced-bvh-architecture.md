@@ -424,35 +424,27 @@ kernel!(hits, tlas, rays, ndrange=length(rays))
 ```julia
 using Raycore
 using GeometryBasics
+import KernelAbstractions as KA
 
-# Create geometry
-cube = GeometryBasics.Rect3f(Point3f(-0.5), Vec3f(1.0))
-mesh = TriangleMesh(GeometryBasics.mesh(cube))
+# Create geometry and build TLAS using the high-level API
+cube_mesh = normal_mesh(Rect3f(Point3f(-0.5), Vec3f(1.0)))
 
-# Extract triangles
-triangles = [Triangle(mesh, i) for i in 1:n_triangles(mesh)]
+tlas = Raycore.TLAS(KA.CPU())
 
-# Build BLAS
-blas = build_blas(triangles)
+# Add 10 instances of the cube at different positions
+for i in 1:10
+    t = Raycore.translate(Vec3f(i * 2, 0, 0))
+    push!(tlas, cube_mesh, t.m)
+end
 
-# Create instances
-instances = [
-    InstanceDescriptor(
-        UInt32(1),                      # BLAS index
-        UInt32(i),                      # Instance ID
-        translate(Vec3f(i*2, 0, 0)).m,  # Transform
-        inv_translate(Vec3f(i*2, 0, 0)).m,
-        UInt32(0)
-    )
-    for i in 1:10
-]
+Raycore.sync!(tlas)
 
-# Build TLAS
-tlas = build_tlas([blas], instances)
+# Get immutable StaticTLAS for traversal
+static = Adapt.adapt(KA.CPU(), tlas)
 
 # Trace ray
 ray = Ray(o=Point3f(0, 0, -5), d=Vec3f(0, 0, 1))
-hit, tri, t, bary, inst_id = closest_hit(tlas, ray)
+hit, tri, t, bary, inst_id = closest_hit(static, ray)
 
 if hit
     println("Hit instance $inst_id at distance $t")

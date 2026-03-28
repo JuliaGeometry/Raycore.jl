@@ -61,9 +61,8 @@ rays = [Raycore.Ray(o=pos, d=Vec3f(0, 0, 1)) for pos in test_positions]
 result_multi = trace_rays(tlas, rays)
 plot(result_multi; axis=(;show_axis=false))
 ```
-## Visualization: Multiple Rays
 
-## Test 4: Complex Scene
+## Test 3: Complex Scene
 
 Demonstrate ray tracing through a complex scene with many overlapping objects.
 
@@ -140,8 +139,8 @@ any_time = @benchmark Raycore.any_hit($static_tlas, $test_ray)
 
 
 perf_table = map([
-    ("closest_hit", any_time),
-    ("any_hit", closest_time),
+    ("closest_hit", closest_time),
+    ("any_hit", any_time),
 ]) do (method, time_us)
     (Method = method, Time_μs = render_io(time_us))
 end

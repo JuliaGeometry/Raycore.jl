@@ -38,7 +38,7 @@ Let's use the exact same scene as the CPU tutorial - the Makie cat with room geo
 # Load and prepare the cat model
 include("raytracing-core.jl")
 bvh, ctx = example_scene()
-md"**Scene loaded: $(length(bvh.primitives)) triangles, $(length(ctx.materials)) materials**"
+md"**Scene loaded: $(length(bvh.all_blas_prims)) triangles, $(length(ctx.materials)) materials**"
 ```
 ## Part 2: GPU Kernel Version 1 - Basic Naive Approach
 

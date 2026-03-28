@@ -10,6 +10,8 @@ High-performance ray-triangle intersection engine with TLAS/BLAS acceleration fo
 
 - **Fast TLAS/BLAS acceleration** for ray-triangle intersection
 - **CPU and GPU support** via KernelAbstractions.jl
+- **MultiTypeSet**: GPU-safe heterogeneous collections with compile-time type-stable dispatch for materials, textures, lights, etc.
+- **GPU TLAS**: Two-level acceleration structure (BLAS/TLAS) with instanced geometry, per-instance transforms, and GPU-first design
 - **Analysis tools**: centroid calculation, illumination analysis, view factors for radiosity
 - **Makie integration** for visualization
 
