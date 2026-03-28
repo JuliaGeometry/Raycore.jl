@@ -682,13 +682,13 @@ Create a WavefrontRenderer with all necessary buffers allocated for the given im
 # Arguments
 - `camera_pos`: Camera position in world space
 - `camera_lookat`: Point the camera is looking at (default: origin)
-- `camera_up`: Up vector for camera orientation (default: +Z)
+- `camera_up`: Up vector for camera orientation (default: +Y)
 """
 function WavefrontRenderer(
         img, bvh, ctx;
         camera_pos=Point3f(0, -0.9, -2.5),
-        camera_lookat=Point3f(0, 0, 0),
-        camera_up=Vec3f(0, 0, 1),
+        camera_lookat=Point3f(0, -0.9, 10),
+        camera_up=Vec3f(0, 1, 0),
         fov=45.0f0,
         sky_color=RGB{Float32}(0.5f0, 0.7f0, 1.0f0),
         samples_per_pixel=4
