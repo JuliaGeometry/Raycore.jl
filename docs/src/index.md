@@ -37,6 +37,14 @@ Port the ray tracer to the GPU with KernelAbstractions.jl. Learn about kernel op
 
 [GPU Ray Tracing with Raycore](@ref)
 
+### Hardware RT Acceleration
+
+Use dedicated GPU ray tracing hardware (RT cores / Ray Accelerators) for transparent BVH acceleration via Vulkan.
+
+![Hardware RT](hw-accel-materials.png)
+
+[Hardware-Accelerated Ray Tracing](@ref)
+
 ### View Factors Analysis
 
 Calculate view factors, illumination, and centroids for radiosity and thermal analysis.

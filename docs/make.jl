@@ -19,6 +19,7 @@ makedocs(;
             "BVH Hit Tests" => "bvh_hit_tests.md",
             "Ray Tracing Tutorial" => "raytracing_tutorial.md",
             "GPU Ray Tracing Tutorial" => "gpu_raytracing.md",
+            "Hardware RT Acceleration" => "hw_acceleration.md",
             "View Factors and More" => "viewfactors.md",
         ],
     ],
