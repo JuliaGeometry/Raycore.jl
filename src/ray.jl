@@ -1,12 +1,13 @@
 Base.@kwdef struct Ray <: AbstractRay
     o::Point3f
     d::Vec3f
+    t_min::Float32 = 0.0f0
     t_max::Float32 = Inf32
     time::Float32 = 0.0f0
 end
 
-@inline function Ray(ray::Ray; o::Point3f = ray.o, d::Vec3f = ray.d, t_max::Float32 = ray.t_max, time::Float32 = ray.time)
-    Ray(o, d, t_max, time)
+@inline function Ray(ray::Ray; o::Point3f = ray.o, d::Vec3f = ray.d, t_min::Float32 = ray.t_min, t_max::Float32 = ray.t_max, time::Float32 = ray.time)
+    Ray(o, d, t_min, t_max, time)
 end
 
 

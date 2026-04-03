@@ -1708,7 +1708,7 @@ Algorithm:
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
     ray_d::Vec3f = ray.d
-    ray_mint::Float32 = 0.0f0  # Minimum t for intersection
+    ray_mint::Float32 = ray.t_min  # Minimum t for intersection
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)  # Use safe inversion to avoid division by zero
 

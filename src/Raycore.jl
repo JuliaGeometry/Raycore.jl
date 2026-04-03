@@ -45,6 +45,7 @@ include("instanced-bvh-kernels.jl")
 include("bvh4.jl")
 include("kernel-abstractions.jl")
 include("kernels.jl")
+include("collision.jl")
 include("soa.jl")
 include("multitypeset.jl")
 include("unrolled.jl")
@@ -74,6 +75,9 @@ function trace_rays end
 
 # Math utilities
 export reflect
+
+# Collision detection
+export ContactPair, CollisionResult, collide_instances, collide_instances_any
 
 # Analysis functions
 export get_centroid, get_illumination, view_factors
