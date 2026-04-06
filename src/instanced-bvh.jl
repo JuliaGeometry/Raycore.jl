@@ -142,7 +142,7 @@ struct StaticTLAS{
     BLASNodeArray <: AbstractVector{BVHNode2},
     BLASPrimArray <: AbstractVector{<:Triangle},
     DescArray <: AbstractVector{BLASDescriptor}
-}
+} <: AbstractAdaptedAccel
     nodes::NodeArray
     instances::InstArray
     all_blas_nodes::BLASNodeArray
@@ -204,7 +204,7 @@ sync!(tlas)  # Rebuild BVH structure
 static = adapt(backend, tlas)  # Get StaticTLAS for kernels
 ```
 """
-mutable struct TLAS{Backend}
+mutable struct TLAS{Backend} <: AbstractAccel
     backend::Backend
 
     # Backend arrays for kernel traversal (GPU from start)
@@ -1996,6 +1996,7 @@ This is much faster than rebuilding the TLAS from scratch when only transforms c
 Operates directly on the backend arrays stored in the TLAS.
 """
 function refit_tlas!(tlas::TLAS)
+    tlas.dirty || return tlas
     n = length(tlas.instances)
     n == 0 && return tlas
     backend = tlas.backend
@@ -2012,6 +2013,7 @@ function refit_tlas!(tlas::TLAS)
         refit_kernel!(tlas.nodes, update_flags, Int32(n), ndrange=n)
     end
 
+    tlas.dirty = false
     return tlas
 end
 

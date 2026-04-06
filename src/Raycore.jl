@@ -11,6 +11,8 @@ using GPUArraysCore: @allowscalar
 
 abstract type AbstractRay end
 abstract type Primitive end
+abstract type AbstractAccel end
+abstract type AbstractAdaptedAccel end
 const Maybe{T} = Union{T,Nothing}
 
 GB.@fixed_vector Normal = StaticVector
@@ -49,6 +51,7 @@ include("collision.jl")
 include("soa.jl")
 include("multitypeset.jl")
 include("unrolled.jl")
+include("hw-accel.jl")
 
 # Macros
 export @_inbounds
@@ -68,7 +71,17 @@ export sync!, update!, n_total_instances
 export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 
 # Ray intersection functions
+export AbstractAccel, AbstractAdaptedAccel
 export closest_hit, any_hit, world_bound, trace_rays
+
+# Hardware RT types and stubs
+export HWTLAS, HWAdaptedAccel, RTRay, RTHitResult
+export supports_indirect_dispatch, indirect_ndrange
+export build_hw_blas, build_hw_tlas, trace_closest_hits!, trace_closest_hits_indirect!
+export batch_trace_indirect, set_custom_anyhit!, mat4_to_transform_matrix
+export rt_primitive_id, rt_instance_custom_index, rt_launch_id_x, rt_global_invocation_id_x
+export rt_ignore_intersection, rt_terminate_ray
+export rt_payload_store!, rt_payload_load, rt_trace_ray!
 
 # Stub for Makie extension
 function trace_rays end
