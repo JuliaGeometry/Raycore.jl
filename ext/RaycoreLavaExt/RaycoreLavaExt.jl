@@ -26,7 +26,7 @@ using Lava: LavaBackend, LavaArray, LavaBLAS, LavaTLAS,
             _lava_rt_ignore_intersection, _lava_rt_terminate_ray,
             _lava_rt_payload_store_f32_at, _lava_rt_payload_load_f32_at,
             _lava_rt_trace_ray,
-            _mat4_to_vk_transform
+            mat4_to_vk_transform
 
 const LavaHWTLAS = HWTLAS{LavaBackend}
 const LavaHWAdapted = HWAdaptedAccel{<:LavaHWTLAS}
@@ -42,11 +42,17 @@ Raycore.indirect_ndrange(size_buf::LavaArray) = size_buf
 # BLAS/TLAS construction
 # ============================================================================
 
-Raycore.build_hw_blas(::LavaBackend, vertices, indices) = Lava.build_blas(vertices, indices)
+function Raycore.build_hw_blas(::LavaBackend, vertices, indices)
+    Lava.as_build() do ctx
+        Lava.build_blas(ctx, vertices, indices)
+    end
+end
 
 function Raycore.build_hw_tlas(::LavaBackend, blas_refs, blas_triangles, blas_offsets;
                                 transforms, custom_indices)
-    hw_tlas = Lava.build_tlas(blas_refs; transforms, custom_indices)
+    hw_tlas = Lava.as_build() do ctx
+        Lava.build_tlas(ctx, blas_refs; transforms, custom_indices)
+    end
 
     all_tris_any = reduce(vcat, blas_triangles)
     T = typeof(all_tris_any[1])
@@ -59,7 +65,7 @@ function Raycore.build_hw_tlas(::LavaBackend, blas_refs, blas_triangles, blas_of
     return (hw_tlas, hw_accel, tri_gpu, off_gpu)
 end
 
-Raycore.mat4_to_transform_matrix(m::SMatrix{4,4,Float32,16}) = _mat4_to_vk_transform(m)
+Raycore.mat4_to_transform_matrix(m::SMatrix{4,4,Float32,16}) = mat4_to_vk_transform(m)
 
 # ============================================================================
 # Batch trace dispatch
