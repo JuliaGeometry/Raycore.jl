@@ -830,6 +830,10 @@ function _rebuild_bvh!(tlas::TLAS)
     tlas.nodes = nodes
     tlas.root_aabb = root_aabb
 
+    # Build flat BLAS arrays during sync (not during adapt_structure).
+    # This ensures the data is ready before any kernel dispatch.
+    _build_flat_blas_arrays!(tlas)
+
     tlas.dirty = false
     return
 end
@@ -933,9 +937,7 @@ The TLAS must stay alive while the StaticTLAS is in use.
 """
 function Adapt.adapt_structure(to, tlas::TLAS)
     sync!(tlas)
-
-    # Build flat BLAS arrays for traversal (avoids pointer-in-buffer on Metal)
-    _build_flat_blas_arrays!(tlas)
+    # Flat BLAS arrays are built during sync! -- no rebuild here.
 
     if tlas._flat_blas_nodes === nothing
         # Empty scene — need correct types for StaticTLAS type parameters
@@ -1259,6 +1261,7 @@ function build_blas(
     # Sort primitives by Morton codes
     # AcceleratedKernels only supports GPU backends, use Julia's sortperm for CPU
     perm = AK.sortperm(morton_codes)
+    KA.synchronize(backend)  # Ensure sort temp buffers aren't freed while GPU is still using them
     morton_codes = morton_codes[perm]
     primitives = primitives[perm]
 
@@ -1387,17 +1390,17 @@ function _build_tlas_topology(blas_array, instances, backend)
     calc_kernel!(morton_codes, instances, blas_array, scene_min, scene_extent, ndrange=n)
     KA.synchronize(backend)
 
-    # Sort indices by Morton codes
-    # AcceleratedKernels only supports GPU backends, use Julia's sortperm for CPU
+    # Sort instances by Morton codes.
+    # On Lava, merge_sort_by_key! with a 64-bit Int payload can corrupt the
+    # permutation vector, which later sends TLAS leaf creation out of bounds.
+    # Use sortperm like the BLAS path so the permutation type matches the backend.
     if backend isa KA.CPU
         sorted_indices = sortperm(morton_codes)
         morton_codes .= morton_codes[sorted_indices]
     else
-        sorted_indices = KA.allocate(backend, Int, n)
-        iota_k! = iota_kernel!(backend)
-        iota_k!(sorted_indices, ndrange=n)
-        KA.synchronize(backend)
-        AK.merge_sort_by_key!(morton_codes, sorted_indices)
+        sorted_indices = AK.sortperm(morton_codes)
+        KA.synchronize(backend)  # Ensure sort temp buffers aren't freed while GPU is still using them
+        morton_codes = morton_codes[sorted_indices]
     end
 
     # Allocate nodes and initialize with empty values

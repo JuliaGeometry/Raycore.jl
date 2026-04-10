@@ -265,7 +265,17 @@ to_tuple(mts::MultiTypeSet) = to_tuple(get_static(mts))
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
 
+const _REBUILD_KEEPALIVE = Any[]
+
 function rebuild_static!(dhv::MultiTypeSet)
+    # Keep old static arrays alive until the NEXT rebuild completes.
+    # Without this, GC can free old buffers during adapt() of new data,
+    # causing use-after-free (DEVICE_LOST on large scenes like killeroo).
+    old_static = dhv.static
+    if old_static !== nothing
+        push!(_REBUILD_KEEPALIVE, old_static)
+    end
+
     # Convert CPU data vectors to GPU
     data_tuple = if isempty(dhv.data_order)
         ()
@@ -279,6 +289,10 @@ function rebuild_static!(dhv::MultiTypeSet)
         Tuple(Adapt.adapt(dhv.backend, dhv.texture_isbits[T]) for T in dhv.texture_order)
     end
     dhv.static = StaticMultiTypeSet(data_tuple, tex_tuple)
+
+    # Material/light rebuilds enqueue GPU uploads. Make them visible before any
+    # subsequent BLAS/TLAS kernels or later rebuilds can reuse/finalize backing storage.
+    KA.synchronize(dhv.backend)
 end
 
 # ============================================================================

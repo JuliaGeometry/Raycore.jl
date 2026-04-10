@@ -23,9 +23,9 @@ using Lava: LavaBackend, LavaArray, LavaBLAS, LavaTLAS,
             lava_global_invocation_id_x,
             lava_rt_primitive_id, lava_rt_instance_custom_index,
             lava_rt_launch_id_x,
-            _lava_rt_ignore_intersection, _lava_rt_terminate_ray,
-            _lava_rt_payload_store_f32_at, _lava_rt_payload_load_f32_at,
-            _lava_rt_trace_ray,
+            lava_rt_ignore_intersection, lava_rt_terminate_ray,
+            lava_rt_payload_store_f32_at, lava_rt_payload_load_f32_at,
+            lava_rt_trace_ray,
             mat4_to_vk_transform
 
 const LavaHWTLAS = HWTLAS{LavaBackend}
@@ -139,14 +139,14 @@ Raycore.rt_primitive_id(::LavaHWAdapted) = lava_rt_primitive_id()
 Raycore.rt_instance_custom_index(::LavaHWAdapted) = lava_rt_instance_custom_index()
 Raycore.rt_launch_id_x(::LavaHWAdapted) = lava_rt_launch_id_x()
 Raycore.rt_global_invocation_id_x(::LavaHWAdapted) = lava_global_invocation_id_x()
-Raycore.rt_ignore_intersection(::LavaHWAdapted) = _lava_rt_ignore_intersection()
-Raycore.rt_terminate_ray(::LavaHWAdapted) = _lava_rt_terminate_ray()
-Raycore.rt_payload_store!(::LavaHWAdapted, val, slot) = _lava_rt_payload_store_f32_at(val, slot)
-Raycore.rt_payload_load(::LavaHWAdapted, slot) = _lava_rt_payload_load_f32_at(slot)
+Raycore.rt_ignore_intersection(::LavaHWAdapted) = lava_rt_ignore_intersection()
+Raycore.rt_terminate_ray(::LavaHWAdapted) = lava_rt_terminate_ray()
+Raycore.rt_payload_store!(::LavaHWAdapted, val, slot) = lava_rt_payload_store_f32_at(val, slot)
+Raycore.rt_payload_load(::LavaHWAdapted, slot) = lava_rt_payload_load_f32_at(slot)
 
 function Raycore.rt_trace_ray!(::LavaHWAdapted, flags, mask, sbt_offset, sbt_stride, miss_idx,
                                 ox, oy, oz, tmin, dx, dy, dz, tmax)
-    _lava_rt_trace_ray(flags, mask, sbt_offset, sbt_stride, miss_idx,
+    lava_rt_trace_ray(flags, mask, sbt_offset, sbt_stride, miss_idx,
                        ox, oy, oz, tmin, dx, dy, dz, tmax)
 end
 

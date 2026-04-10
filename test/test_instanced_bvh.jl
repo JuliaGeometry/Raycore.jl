@@ -783,6 +783,25 @@ else
         @test cl_tlas.nodes isa CLArray
     end
 
+    @testset "TLAS sync with many instances" begin
+        mesh = make_triangle_mesh()
+        transforms = [Mat4f(1, 0, 0, 0,
+                            0, 1, 0, 0,
+                            0, 0, 1, 0,
+                            Float32(mod(i - 1, 9)) * 1.5f0,
+                            Float32((i - 1) ÷ 9) * 1.25f0,
+                            0,
+                            1) for i in 1:81]
+
+        tlas = Raycore.TLAS(cl_backend)
+        push!(tlas, mesh, transforms)
+        sync!(tlas)
+
+        @test length(tlas.instances) == 81
+        @test length(tlas.nodes) == 161
+        @test Raycore.world_bound(tlas) isa Bounds3
+    end
+
     @testset "closest_hit_kernel! - basic intersection" begin
         mesh = make_triangle_mesh()
         tlas, _ = TLAS([mesh]; backend=cl_backend)
