@@ -870,13 +870,20 @@ else
     @testset "closest_hit_instance_id_kernel! - instance identification" begin
         mesh = make_triangle_mesh()
 
-        # Three instances at different positions
+        # Three instances at different positions with explicit overrides.
+        # `instance_id` is now the interface-override slot — the traversal
+        # forwards it verbatim as the 5th return value.
         transforms = [
             Mat4f(I),  # Instance 1 at origin
             Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1),   # Instance 2 at x=5
             Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 5, 0, 1)    # Instance 3 at y=5
         ]
-        tlas, _ = begin; tlas_tmp = Raycore.TLAS(cl_backend); push!(tlas_tmp, mesh, transforms); sync!(tlas_tmp); (tlas_tmp, [TLASHandle(UInt32(1))]); end
+        tlas, _ = begin
+            tlas_tmp = Raycore.TLAS(cl_backend)
+            push!(tlas_tmp, mesh, transforms; instance_ids=UInt32[1, 2, 3])
+            sync!(tlas_tmp)
+            (tlas_tmp, [TLASHandle(UInt32(1))])
+        end
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         n = 3
@@ -902,7 +909,7 @@ else
         instance_ids_cpu = Array(instance_ids)
 
         @test all(hits_cpu)
-        # Instance IDs should be 1, 2, 3 (1-based)
+        # Overrides forwarded verbatim
         @test instance_ids_cpu[1] == UInt32(1)
         @test instance_ids_cpu[2] == UInt32(2)
         @test instance_ids_cpu[3] == UInt32(3)
@@ -988,7 +995,10 @@ else
         mesh1 = make_triangle_mesh(Vec3f(0, 0, 0))
         mesh2 = make_triangle_mesh(Vec3f(5, 0, 0))
 
-        tlas, _ = TLAS([mesh1, mesh2]; backend=cl_backend)
+        tlas = Raycore.TLAS(cl_backend)
+        push!(tlas, mesh1, Mat4f(I); instance_id=UInt32(1))
+        push!(tlas, mesh2, Mat4f(I); instance_id=UInt32(2))
+        Raycore.sync!(tlas)
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         n = 3

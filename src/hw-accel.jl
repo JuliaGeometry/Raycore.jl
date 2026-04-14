@@ -176,12 +176,24 @@ function _hwtlas_add_geometry!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh)
     return blas_idx
 end
 
-function _hwtlas_add_instances!(hwtlas::HWTLAS, blas_idx::Int, transforms)
+"""
+Internal: add N instances of `blas_idx` to the HWTLAS.
+
+`instance_ids` (if given) supplies the per-instance interface override that
+the HW closest-hit shader reads via `gl_InstanceCustomIndexEXT`.  When
+`nothing`, every instance gets `0` (inherit from triangle metadata).
+"""
+function _hwtlas_add_instances!(hwtlas::HWTLAS, blas_idx::Int, transforms;
+                                instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
+    if instance_ids !== nothing && length(instance_ids) != length(transforms)
+        throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
+    end
     start_idx = length(hwtlas.instance_blas_indices) + 1
-    for transform in transforms
+    for (i, transform) in enumerate(transforms)
+        iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
         push!(hwtlas.instance_blas_indices, blas_idx)
         push!(hwtlas.instance_transforms, mat4_to_transform_matrix(transform))
-        push!(hwtlas.instance_custom_indices, UInt32(blas_idx - 1))
+        push!(hwtlas.instance_custom_indices, iid)
     end
     end_idx = length(hwtlas.instance_blas_indices)
 
@@ -193,14 +205,17 @@ end
 
 const Mat4f = SMatrix{4, 4, Float32, 16}
 
-function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I))
+function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
+                    instance_id::UInt32=UInt32(0))
     blas_idx = _hwtlas_add_geometry!(hwtlas, mesh)
-    return _hwtlas_add_instances!(hwtlas, blas_idx, (transform,))
+    return _hwtlas_add_instances!(hwtlas, blas_idx, (transform,);
+                                  instance_ids=UInt32[instance_id])
 end
 
-function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f})
+function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
+                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
     blas_idx = _hwtlas_add_geometry!(hwtlas, mesh)
-    return _hwtlas_add_instances!(hwtlas, blas_idx, transforms)
+    return _hwtlas_add_instances!(hwtlas, blas_idx, transforms; instance_ids)
 end
 
 function Base.delete!(hwtlas::HWTLAS, handle::TLASHandle)::Bool
@@ -256,8 +271,9 @@ function sync!(hwtlas::HWTLAS)
             hwtlas.blas_triangles = new_tris
             hwtlas.blas_offsets = new_offsets
             hwtlas.instance_blas_indices = [old_to_new[i] for i in hwtlas.instance_blas_indices]
-            # custom_indices reflect the old BLAS index; keep them remapped too
-            hwtlas.instance_custom_indices = [UInt32(old_to_new[Int(ci)+1]-1) for ci in hwtlas.instance_custom_indices]
+            # `instance_custom_indices` is the per-instance interface override
+            # (scene-level, independent of BLAS index).  No remapping needed
+            # when we compact BLASes away.
         end
 
         # Rebuild handle_to_range against the compacted indices.

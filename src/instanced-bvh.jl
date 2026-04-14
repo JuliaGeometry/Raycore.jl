@@ -72,14 +72,19 @@ Describes an instance of a bottom-level BVH in world space.
 
 Fields:
 - `blas_index`: Index into BLAS array
-- `instance_id`: User-defined instance ID
+- `instance_id`: Scene-binding slot for this instance.  `0` means "inherit
+  from the triangle's per-face metadata"; any nonzero value is forwarded
+  verbatim by `closest_hit` / `any_hit` as the 5th return value.  Hikari
+  uses it as a `medium_interface_idx` override so N instances of one BLAS
+  can have distinct materials / media / emission without duplicating the
+  BLAS geometry.  Matches Vulkan's `gl_InstanceCustomIndexEXT`.
 - `transform`: World-to-local transformation matrix (4x4)
 - `inv_transform`: Local-to-world transformation matrix (4x4)
 - `flags`: Instance flags (reserved for future use)
 """
 struct InstanceDescriptor
     blas_index::UInt32          # Which BLAS to instance
-    instance_id::UInt32         # User-provided ID
+    instance_id::UInt32         # Interface override (0 = inherit from triangle metadata)
     transform::Mat4f            # Local-to-world
     inv_transform::Mat4f        # World-to-local
     flags::UInt32               # Reserved
@@ -247,7 +252,6 @@ mutable struct TLAS{Backend} <: AbstractAccel
 
     # Counters
     next_handle_id::UInt32
-    next_instance_id::UInt32
 end
 
 # Note: _get_isbits_ptr is defined in multitypeset.jl and reused here
@@ -287,8 +291,7 @@ function TLAS(backend)
         nothing,                                     # _flat_blas_prims
         nothing,                                     # _flat_blas_descs
         true,                                        # dirty
-        UInt32(1),                                   # next_handle_id
-        UInt32(1)                                    # next_instance_id
+        UInt32(1)                                    # next_handle_id
     )
 
     # Register finalizer to free GPU memory when TLAS is garbage collected
@@ -502,16 +505,9 @@ function is_degenerate_face(vertices, indices, face_idx)
     is_degenerate(vs)
 end
 
-"""
-    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I)) -> TLASHandle
-
-Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
-`face_meta` attribute (if present). If no `face_meta` attribute exists, each
-triangle gets `UInt32(face_idx)` as metadata.
-
-Returns a stable handle for later reference.
-"""
-function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I))
+"""Internal: decompose a GB.Mesh, build a BLAS, append it to the TLAS, and
+return the new BLAS's 1-based index.  Shared by every `push!` variant."""
+function _build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
     nmesh = GeometryBasics.expand_faceviews(mesh)
     fs = decompose(TriangleFace{UInt32}, nmesh)
     verts = decompose(Point3f, nmesh)
@@ -533,101 +529,77 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4
     ]
     isempty(cpu_triangles) && error("Geometry has no valid triangles")
 
-    # Convert triangles to backend and build BLAS directly on backend
     backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
     blas = build_blas(backend_triangles)
-
-    # Convert to isbits BLAS and append to blas_array (GPU append)
     isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
     tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
-    blas_idx = UInt32(length(tlas.blas_array))
+    return UInt32(length(tlas.blas_array))
+end
 
-    # Create InstanceDescriptor
-    inv_transform = Mat4f(inv(transform))
-    instance_id = tlas.next_instance_id
-    tlas.next_instance_id += UInt32(1)
-    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
-
-    # Record range before append
+"""Internal: append the given instance descriptors to `tlas.instances`, register
+a handle for the appended range, and return it."""
+function _append_instances_with_handle!(tlas::TLAS, cpu_descriptors::AbstractVector{InstanceDescriptor})
     start_idx = length(tlas.instances) + 1
-
-    # Adapt to backend and append (GPU append)
-    backend_descriptors = Adapt.adapt(tlas.backend, cpu_descriptors)
+    backend_descriptors = Adapt.adapt(tlas.backend, collect(cpu_descriptors))
     append!(tlas.instances, backend_descriptors)
-
     end_idx = length(tlas.instances)
 
-    # Create handle and register range
     handle = TLASHandle(tlas.next_handle_id)
     tlas.next_handle_id += UInt32(1)
     tlas.handle_to_range[handle] = start_idx:end_idx
-
     tlas.dirty = true
     return handle
 end
 
 """
-    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f}) -> TLASHandle
+    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
+          instance_id::UInt32=UInt32(0)) -> TLASHandle
 
-Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
-Builds BLAS once, creates multiple InstanceDescriptors (one per transform).
+Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
+`face_meta` attribute (if present). If no `face_meta` attribute exists, each
+triangle gets `UInt32(face_idx)` as metadata.
+
+`instance_id` is forwarded to the `InstanceDescriptor`.  It defaults to `0`
+(inherit from triangle metadata); pass a nonzero value to override the
+per-triangle interface — see `InstanceDescriptor` for semantics.
 
 Returns a stable handle for later reference.
 """
-function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f})
-    nmesh = GeometryBasics.expand_faceviews(mesh)
-    fs = decompose(TriangleFace{UInt32}, nmesh)
-    verts = decompose(Point3f, nmesh)
-    norms = Normal3f.(decompose_normals(nmesh))
-    uvs_raw = GeometryBasics.decompose_uv(nmesh)
-    uvs = isnothing(uvs_raw) ? Point2f[] : Point2f.(uvs_raw)
-    indices = collect(reinterpret(UInt32, fs))
+function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
+                    instance_id::UInt32=UInt32(0))
+    blas_idx = _build_and_append_blas!(tlas, mesh)
+    inv_transform = Mat4f(inv(transform))
+    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
+    return _append_instances_with_handle!(tlas, cpu_descriptors)
+end
 
-    has_meta = hasproperty(nmesh, :face_meta)
-    n_faces = length(fs)
+"""
+    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
+          instance_ids::Union{Nothing, AbstractVector{UInt32}}=nothing) -> TLASHandle
 
-    cpu_triangles = [begin
-            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
-            build_triangle(verts, norms, uvs, indices, i, meta)
-        end
-        for i in 1:n_faces
-        if !is_degenerate_face(verts, indices, i)
-    ]
-    isempty(cpu_triangles) && error("Geometry has no valid triangles")
+Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
+Builds BLAS once, creates `length(transforms)` InstanceDescriptors.
 
-    # Convert triangles to backend and build BLAS directly on backend
-    backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
-    blas = build_blas(backend_triangles)
+`instance_ids` (if given) must match `length(transforms)` and supplies the
+per-instance interface override.  When `nothing`, every instance gets `0`
+(inherit from triangle metadata).
 
-    # Convert to isbits BLAS and append to blas_array (GPU append)
-    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
-    tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
-    blas_idx = UInt32(length(tlas.blas_array))
-
-    # Create InstanceDescriptors on CPU
-    cpu_descriptors = map(transforms) do transform
-        inv_transform = Mat4f(inv(transform))
-        instance_id = tlas.next_instance_id
-        tlas.next_instance_id += UInt32(1)
-        InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))
+Returns a stable handle for later reference.
+"""
+function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
+                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
+    if instance_ids !== nothing && length(instance_ids) != length(transforms)
+        throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
     end
 
-    # Record range before append
-    start_idx = length(tlas.instances) + 1
+    blas_idx = _build_and_append_blas!(tlas, mesh)
 
-    # Adapt to backend and append (GPU append)
-    backend_descriptors = Adapt.adapt(tlas.backend, cpu_descriptors)
-    append!(tlas.instances, backend_descriptors)
-
-    end_idx = length(tlas.instances)
-
-    # Create handle and register range
-    handle = TLASHandle(tlas.next_handle_id)
-    tlas.next_handle_id += UInt32(1)
-    tlas.handle_to_range[handle] = start_idx:end_idx
-
-    tlas.dirty = true
-    return handle
+    cpu_descriptors = map(enumerate(transforms)) do (i, transform)
+        inv_transform = Mat4f(inv(transform))
+        iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
+        InstanceDescriptor(blas_idx, iid, transform, inv_transform, UInt32(0))
+    end
+    return _append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
 # ------------------------------------------------------------------------------
@@ -771,7 +743,7 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
     n_faces = length(fs)
 
     cpu_triangles = [begin
-            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : (first_desc.instance_id, UInt32(i))
+            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
             build_triangle(verts, norms, uvs, indices, i, meta)
         end
         for i in 1:n_faces
