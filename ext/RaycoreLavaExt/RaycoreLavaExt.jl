@@ -21,7 +21,7 @@ using StaticArrays: SVector, SMatrix
 
 using Lava: LavaBackend, LavaArray, LavaBLAS, LavaTLAS,
             lava_global_invocation_id_x,
-            lava_rt_primitive_id, lava_rt_instance_custom_index,
+            lava_rt_primitive_id, lava_rt_instance_custom_index, lava_rt_instance_id,
             lava_rt_launch_id_x,
             lava_rt_ignore_intersection, lava_rt_terminate_ray,
             lava_rt_payload_store_f32_at, lava_rt_payload_load_f32_at,
@@ -49,7 +49,7 @@ function Raycore.build_hw_blas(::LavaBackend, vertices, indices)
 end
 
 function Raycore.build_hw_tlas(::LavaBackend, blas_refs, blas_triangles, blas_offsets;
-                                transforms, custom_indices)
+                                transforms, custom_indices, per_instance_tri_offsets)
     hw_tlas = Lava.as_build() do ctx
         Lava.build_tlas(ctx, blas_refs; transforms, custom_indices)
     end
@@ -57,10 +57,12 @@ function Raycore.build_hw_tlas(::LavaBackend, blas_refs, blas_triangles, blas_of
     all_tris_any = reduce(vcat, blas_triangles)
     T = typeof(all_tris_any[1])
     all_tris = T[t for t in all_tris_any]
-    hw_accel = Lava.HardwareAccel(hw_tlas, all_tris, blas_offsets)
+    hw_accel = Lava.HardwareAccel(hw_tlas, all_tris, blas_offsets, per_instance_tri_offsets)
 
     tri_gpu = LavaArray(all_tris)
-    off_gpu = LavaArray(blas_offsets)
+    # `off_gpu` is now keyed by `gl_InstanceID` (not BLAS index) — one entry
+    # per instance, giving the offset into `tri_gpu` for that instance.
+    off_gpu = LavaArray(collect(per_instance_tri_offsets))
 
     return (hw_tlas, hw_accel, tri_gpu, off_gpu)
 end
@@ -118,17 +120,21 @@ end
 
     if result.hit == UInt32(0)
         dummy = accel.triangles[1]
-        return (false, dummy, 0f0, SVector{3,Float32}(1f0, 0f0, 0f0))
+        return (false, dummy, 0f0, SVector{3,Float32}(1f0, 0f0, 0f0), UInt32(0))
     end
 
-    tri_idx = Int(accel.offsets[result.instance_custom_index + UInt32(1)]) +
+    # `accel.offsets` is keyed by `gl_InstanceID` (0-based).  `result.instance_id`
+    # is that builtin; `result.instance_custom_index` carries the interface
+    # override and is forwarded as the 5th return value (matching
+    # `Raycore.closest_hit(::StaticTLAS, ...)`).
+    tri_idx = Int(accel.offsets[result.instance_id + UInt32(1)]) +
               Int(result.primitive_id) + 1
     tri = accel.triangles[tri_idx]
 
     w = 1f0 - result.bary_u - result.bary_v
     bary = SVector{3,Float32}(w, result.bary_u, result.bary_v)
 
-    return (true, tri, result.t, bary)
+    return (true, tri, result.t, bary, result.instance_custom_index)
 end
 
 # ============================================================================
@@ -137,6 +143,7 @@ end
 
 Raycore.rt_primitive_id(::LavaHWAdapted) = lava_rt_primitive_id()
 Raycore.rt_instance_custom_index(::LavaHWAdapted) = lava_rt_instance_custom_index()
+Raycore.rt_instance_id(::LavaHWAdapted) = lava_rt_instance_id()
 Raycore.rt_launch_id_x(::LavaHWAdapted) = lava_rt_launch_id_x()
 Raycore.rt_global_invocation_id_x(::LavaHWAdapted) = lava_global_invocation_id_x()
 Raycore.rt_ignore_intersection(::LavaHWAdapted) = lava_rt_ignore_intersection()

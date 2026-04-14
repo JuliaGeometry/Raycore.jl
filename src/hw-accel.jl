@@ -34,6 +34,13 @@ end
     RTHitResult
 
 Ray hit output from hardware RT dispatch. 32 bytes.
+
+- `instance_custom_index` — value of `gl_InstanceCustomIndexEXT` at the hit.
+  Under the current semantics this carries the `InstanceDescriptor.instance_id`
+  (the interface-override slot).  `0` means "inherit from triangle metadata".
+- `instance_id` — value of `gl_InstanceID` at the hit (0-based instance array
+  position).  Used by the caller to look up per-instance data such as the
+  BLAS triangle offset.
 """
 struct RTHitResult
     hit::UInt32
@@ -42,7 +49,7 @@ struct RTHitResult
     instance_custom_index::UInt32
     bary_u::Float32
     bary_v::Float32
-    _pad1::UInt32
+    instance_id::UInt32
     _pad2::UInt32
 end
 
@@ -311,11 +318,18 @@ function sync!(hwtlas::HWTLAS)
 
     blas_refs = [hwtlas.blas_list[hwtlas.instance_blas_indices[i]] for i in 1:n_inst]
 
+    # Per-instance triangle-array offset, indexed by `gl_InstanceID` (0-based).
+    # Moves the old `off_gpu[custom_index + 1]` indirection to the CPU build
+    # step so the shader does a single lookup and leaves `custom_index` free
+    # to carry the interface override.
+    per_instance_tri_offsets = UInt32[hwtlas.blas_offsets[bi] for bi in hwtlas.instance_blas_indices]
+
     # Backend builds the TLAS + accel handle
     hw_tlas, hw_accel, tri_gpu, off_gpu = build_hw_tlas(
         hwtlas.backend, blas_refs, hwtlas.blas_triangles, hwtlas.blas_offsets;
         transforms=hwtlas.instance_transforms,
-        custom_indices=hwtlas.instance_custom_indices)
+        custom_indices=hwtlas.instance_custom_indices,
+        per_instance_tri_offsets=per_instance_tri_offsets)
 
     hwtlas.hw_tlas = hw_tlas
     hwtlas.hw_accel = hw_accel
@@ -382,6 +396,7 @@ function set_custom_anyhit! end
 # RT shader intrinsics (called inside GPU shaders, dispatched per backend)
 function rt_primitive_id end
 function rt_instance_custom_index end
+function rt_instance_id end                # gl_InstanceID (0-based instance array index)
 function rt_launch_id_x end
 function rt_global_invocation_id_x end
 function rt_ignore_intersection end
