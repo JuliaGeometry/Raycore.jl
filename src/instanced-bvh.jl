@@ -1667,9 +1667,16 @@ Matches HLSL IntersectLeafNode.
 end
 
 """
-    closest_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_id)
+    closest_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
 
 Traverse two-level BVH to find closest ray intersection.
+
+`instance_idx` is the 1-based position in `tlas.instances` (or `UInt32(0)`
+on miss).  Dereferencing `tlas.instances[instance_idx]` yields the full
+`InstanceDescriptor` — from which the caller can read the transforms, the
+interface-override `instance_id`, or anything else.  This keeps a single
+source of truth (the TLAS instance array) rather than duplicating a
+pre-extracted sub-field.
 
 Algorithm:
 1. Traverse TLAS to find candidate instances
@@ -1787,22 +1794,23 @@ Algorithm:
 
     # Fill in hit output - matches HLSL
     @inbounds if closest_instance >= Int32(0)
-        inst = tlas_instances[closest_instance + Int32(1)]
+        inst_idx = UInt32(closest_instance + Int32(1))
+        inst = tlas_instances[inst_idx]
         desc = tlas_blas_descs[inst.blas_index]
         tri = tlas_blas_prims[desc.primitives_offset + closest_prim]
         w = 1.0f0 - hit_u - hit_v
         bary = SVector{3, Float32}(w, hit_u, hit_v)
-        return (true, tri, ray_maxt, bary, inst.instance_id)
+        return (true, tri, ray_maxt, bary, inst_idx)
     else
         # No hit - return dummy values
         dummy_tri = tlas_blas_prims[1]
         bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-        return (false, dummy_tri, 0.0f0, bary, INVALID_NODE)
+        return (false, dummy_tri, 0.0f0, bary, UInt32(0))
     end
 end
 
 """
-    any_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_id)
+    any_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
 
 Traverse two-level BVH to find ANY ray intersection (returns on first hit).
 Faster than closest_hit when only occlusion testing is needed.
@@ -1883,12 +1891,13 @@ Matches HLSL TraceRays with ANY_HIT defined.
             hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
             if hit
                 # ANY_HIT: return immediately on first hit
-                inst = tlas_instances[current_instance + Int32(1)]
+                inst_idx = UInt32(current_instance + Int32(1))
+                inst = tlas_instances[inst_idx]
                 desc = tlas_blas_descs[inst.blas_index]
                 tri = tlas_blas_prims[desc.primitives_offset + node.child1]
                 w = 1.0f0 - u - v
                 bary = SVector{3, Float32}(w, u, v)
-                return (true, tri, t, bary, inst.instance_id)
+                return (true, tri, t, bary, inst_idx)
             end
         end
 
@@ -1913,7 +1922,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
     # No hit found
     @inbounds dummy_tri = tlas_blas_prims[1]
     bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-    return (false, dummy_tri, 0.0f0, bary, INVALID_NODE)
+    return (false, dummy_tri, 0.0f0, bary, UInt32(0))
 end
 
 # ==============================================================================
