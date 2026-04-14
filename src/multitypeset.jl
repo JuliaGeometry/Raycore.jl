@@ -265,17 +265,7 @@ to_tuple(mts::MultiTypeSet) = to_tuple(get_static(mts))
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
 
-const _REBUILD_KEEPALIVE = Any[]
-
 function rebuild_static!(dhv::MultiTypeSet)
-    # Keep old static arrays alive until the NEXT rebuild completes.
-    # Without this, GC can free old buffers during adapt() of new data,
-    # causing use-after-free (DEVICE_LOST on large scenes like killeroo).
-    old_static = dhv.static
-    if old_static !== nothing
-        push!(_REBUILD_KEEPALIVE, old_static)
-    end
-
     # Convert CPU data vectors to GPU
     data_tuple = if isempty(dhv.data_order)
         ()
@@ -292,6 +282,7 @@ function rebuild_static!(dhv::MultiTypeSet)
 
     # Material/light rebuilds enqueue GPU uploads. Make them visible before any
     # subsequent BLAS/TLAS kernels or later rebuilds can reuse/finalize backing storage.
+    # This sync also makes the prior static safe to drop on the next rebuild.
     KA.synchronize(dhv.backend)
 end
 
@@ -419,7 +410,13 @@ Isbits fields are updated and the static tuple is rebuilt only if they changed.
 function update!(dhv::MultiTypeSet, key::SetKey, new_item)
     CT = dhv.data_order[key.type_idx]
     old_converted = dhv.data_vectors[CT][key.vec_idx]
-    updated = _update_item(dhv, old_converted, new_item)
+    # Apply the same field-level conversion that `push!` does (e.g. unwrap
+    # ConstTexture → raw value via `maybe_convert_field`). Without this, an
+    # update with a user-level struct (Dielectric{Texture{…}, …}) wouldn't
+    # match the stored form (Dielectric{RGBSpectrum, …}) and `_update_item`
+    # would FieldError on mismatched fieldnames.
+    converted = maybe_convert_field(dhv, new_item)
+    updated = _update_item(dhv, old_converted, converted)
     if updated !== old_converted
         dhv.data_vectors[CT][key.vec_idx] = updated
         rebuild_static!(dhv)

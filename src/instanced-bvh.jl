@@ -169,6 +169,19 @@ end
 const INVALID_HANDLE = TLASHandle(UInt32(0))
 
 """
+    BLASArrays
+
+Per-BLAS backing GPU arrays.  Field ownership transitively keeps the
+`nodes` / `primitives` buffers alive while the TLAS holds them, so the
+isbits device pointers stored in `blas_array` (and the flat arrays used
+by StaticTLAS) remain valid.
+"""
+struct BLASArrays
+    nodes::Any        # AbstractVector{BVHNode2}
+    primitives::Any   # AbstractVector{Triangle}
+end
+
+"""
     TLAS{Backend}
 
 Mutable Top-Level Acceleration Structure with direct GPU arrays.
@@ -190,7 +203,7 @@ kernel traversal.
 - `root_aabb`: World-space bounding box
 - `handle_to_range`: Handle -> range in instances array (CPU-side)
 - `deleted_handles`: Handles deleted but not yet compacted (CPU-side)
-- `gpu_blas_arrays`: Keeps GPU arrays alive for isbits pointers
+- `blas_storage`: Per-BLAS backing arrays; keeps GPU buffers alive for isbits pointers
 - `dirty`: Whether BVH topology needs rebuild
 
 # Usage
@@ -218,8 +231,11 @@ mutable struct TLAS{Backend} <: AbstractAccel
     handle_to_range::Dict{TLASHandle, UnitRange{Int}}
     deleted_handles::Set{TLASHandle}
 
-    # Backend arrays kept alive for GC (isbits pointers in blas_array reference these)
-    gpu_blas_arrays::Vector{Any}
+    # Per-BLAS backing arrays.  Structural composition: the TLAS owning
+    # `blas_storage` transitively pins every BLAS's `nodes` / `primitives`
+    # buffer, so the isbits pointers stored in `blas_array` stay valid as
+    # long as the TLAS does.
+    blas_storage::Vector{BLASArrays}
 
     # Flat BLAS arrays for StaticTLAS traversal (built during adapt, kept alive for isbits pointers)
     _flat_blas_nodes::Any    # concatenated BVH nodes from all BLASes
@@ -266,7 +282,7 @@ function TLAS(backend)
         Bounds3(),                                   # root_aabb
         Dict{TLASHandle, UnitRange{Int}}(),         # handle_to_range
         Set{TLASHandle}(),                          # deleted_handles
-        Any[],                                       # gpu_blas_arrays (GC roots)
+        BLASArrays[],                                # blas_storage
         nothing,                                     # _flat_blas_nodes
         nothing,                                     # _flat_blas_prims
         nothing,                                     # _flat_blas_descs
@@ -294,10 +310,11 @@ function free!(tlas::TLAS)
     finalize(tlas.nodes)
     finalize(tlas.instances)
     finalize(tlas.blas_array)
-    for arr in tlas.gpu_blas_arrays
-        finalize(arr)
+    for ba in tlas.blas_storage
+        finalize(ba.nodes)
+        finalize(ba.primitives)
     end
-    empty!(tlas.gpu_blas_arrays)
+    empty!(tlas.blas_storage)
     tlas._flat_blas_nodes !== nothing && finalize(tlas._flat_blas_nodes)
     tlas._flat_blas_prims !== nothing && finalize(tlas._flat_blas_prims)
     tlas._flat_blas_descs !== nothing && finalize(tlas._flat_blas_descs)
@@ -326,18 +343,17 @@ function _get_isbits_ptr_type(backend, ::Type{T}) where T
 end
 
 """
-Convert a BLAS with backend arrays to isbits BLAS with device pointers.
-Stores the backend arrays in `keep_alive` vector to prevent GC
-(entries are stored in groups of 2: nodes, primitives).
+Convert a BLAS with backend arrays to an isbits BLAS with device pointers.
+
+Appends a `BLASArrays(nodes, primitives)` to `blas_storage` so the backing
+buffers outlive every isbits pointer that references them.
 
 Note: The isbits BLAS is only used by management kernels that read root_aabb
 (inline data). For traversal, StaticTLAS uses flat arrays with offset-based
 indexing instead (see BLASDescriptor).
 """
-function _to_isbits_blas(backend, blas::BLAS, keep_alive::Vector{Any})
-    # Store the backend arrays to keep them alive
-    push!(keep_alive, blas.nodes)
-    push!(keep_alive, blas.primitives)
+function _to_isbits_blas(backend, blas::BLAS, blas_storage::Vector{BLASArrays})
+    push!(blas_storage, BLASArrays(blas.nodes, blas.primitives))
 
     # Get isbits device pointers
     isbits_nodes = _get_isbits_ptr(backend, blas.nodes)
@@ -378,7 +394,7 @@ The flat arrays are MtlVector/CuVector etc., kept alive by the TLAS.
 During adapt, they are converted to isbits device pointers for kernels.
 """
 function _build_flat_blas_arrays!(tlas::TLAS)
-    n_blas = length(tlas.gpu_blas_arrays) ÷ 2
+    n_blas = length(tlas.blas_storage)
     backend = tlas.backend
 
     if n_blas == 0
@@ -396,32 +412,27 @@ function _build_flat_blas_arrays!(tlas::TLAS)
     total_nodes = 0
     total_prims = 0
     for i in 1:n_blas
-        nodes_arr = tlas.gpu_blas_arrays[2(i-1) + 1]
-        prims_arr = tlas.gpu_blas_arrays[2(i-1) + 2]
+        ba = tlas.blas_storage[i]
         descriptors[i] = BLASDescriptor(UInt32(total_nodes), UInt32(total_prims), cpu_blas[i].root_aabb)
-        total_nodes += length(nodes_arr)
-        total_prims += length(prims_arr)
+        total_nodes += length(ba.nodes)
+        total_prims += length(ba.primitives)
     end
 
-    # Allocate flat arrays on backend
-    first_nodes = tlas.gpu_blas_arrays[1]
-    first_prims = tlas.gpu_blas_arrays[2]
-    all_nodes = similar(first_nodes, total_nodes)
-    all_prims = similar(first_prims, total_prims)
+    # Allocate flat arrays on backend (use first BLAS's array type as template)
+    first_ba = tlas.blas_storage[1]
+    all_nodes = similar(first_ba.nodes, total_nodes)
+    all_prims = similar(first_ba.primitives, total_prims)
 
     # Copy BLAS data into flat arrays
     nodes_pos = 1
     prims_pos = 1
-    for i in 1:n_blas
-        nodes_arr = tlas.gpu_blas_arrays[2(i-1) + 1]
-        prims_arr = tlas.gpu_blas_arrays[2(i-1) + 2]
-
-        nn = length(nodes_arr)
-        copyto!(all_nodes, nodes_pos, nodes_arr, 1, nn)
+    for ba in tlas.blas_storage
+        nn = length(ba.nodes)
+        copyto!(all_nodes, nodes_pos, ba.nodes, 1, nn)
         nodes_pos += nn
 
-        np = length(prims_arr)
-        copyto!(all_prims, prims_pos, prims_arr, 1, np)
+        np = length(ba.primitives)
+        copyto!(all_prims, prims_pos, ba.primitives, 1, np)
         prims_pos += np
     end
 
@@ -527,7 +538,7 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4
     blas = build_blas(backend_triangles)
 
     # Convert to isbits BLAS and append to blas_array (GPU append)
-    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.gpu_blas_arrays)
+    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
     tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
     blas_idx = UInt32(length(tlas.blas_array))
 
@@ -589,7 +600,7 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractV
     blas = build_blas(backend_triangles)
 
     # Convert to isbits BLAS and append to blas_array (GPU append)
-    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.gpu_blas_arrays)
+    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
     tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
     blas_idx = UInt32(length(tlas.blas_array))
 
@@ -771,12 +782,10 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
     backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
     new_blas = build_blas(backend_triangles)
 
-    # Convert to isbits and replace in blas_array
-    # First, update gpu_blas_arrays (replace the old backing arrays)
-    old_nodes_idx = 2*(blas_idx-1) + 1
-    old_prims_idx = 2*(blas_idx-1) + 2
-    tlas.gpu_blas_arrays[old_nodes_idx] = new_blas.nodes
-    tlas.gpu_blas_arrays[old_prims_idx] = new_blas.primitives
+    # Swap in the new backing arrays; the old BLASArrays entry is replaced
+    # atomically so the isbits pointers in `blas_array` are never left
+    # dangling mid-update.
+    tlas.blas_storage[blas_idx] = BLASArrays(new_blas.nodes, new_blas.primitives)
 
     # Create isbits version and replace in blas_array
     isbits_blas = BLAS(
@@ -887,25 +896,16 @@ function _compact_instances!(tlas::TLAS)
             end
         end
 
-        # Rebuild gpu_blas_arrays keeping only referenced entries
-        # gpu_blas_arrays layout: [nodes_1, prims_1, nodes_2, prims_2, ...]
-        new_gpu_blas_arrays = Any[]
-        for old_idx in sorted_used
-            old_nodes_pos = 2 * (Int(old_idx) - 1) + 1
-            old_prims_pos = 2 * (Int(old_idx) - 1) + 2
-            push!(new_gpu_blas_arrays, tlas.gpu_blas_arrays[old_nodes_pos])
-            push!(new_gpu_blas_arrays, tlas.gpu_blas_arrays[old_prims_pos])
-        end
-
-        # Free unreferenced GPU arrays
+        # Rebuild blas_storage keeping only referenced entries; finalize the rest.
+        new_blas_storage = BLASArrays[tlas.blas_storage[Int(old_idx)] for old_idx in sorted_used]
         for old_idx in UInt32(1):UInt32(n_blas)
             old_idx in used_blas_indices && continue
-            old_nodes_pos = 2 * (Int(old_idx) - 1) + 1
-            old_prims_pos = 2 * (Int(old_idx) - 1) + 2
-            finalize(tlas.gpu_blas_arrays[old_nodes_pos])
-            finalize(tlas.gpu_blas_arrays[old_prims_pos])
+            drop = tlas.blas_storage[Int(old_idx)]
+            finalize(drop.nodes)
+            finalize(drop.primitives)
         end
-        tlas.gpu_blas_arrays = new_gpu_blas_arrays
+        empty!(tlas.blas_storage)
+        append!(tlas.blas_storage, new_blas_storage)
 
         # Rebuild blas_array with only referenced isbits BLASes
         cpu_blas = Array(tlas.blas_array)
@@ -941,7 +941,7 @@ function Adapt.adapt_structure(to, tlas::TLAS)
 
     if tlas._flat_blas_nodes === nothing
         # Empty scene — need correct types for StaticTLAS type parameters
-        prim_type = length(tlas.gpu_blas_arrays) >= 2 ? eltype(tlas.gpu_blas_arrays[2]) : Triangle{UInt32}
+        prim_type = isempty(tlas.blas_storage) ? Triangle{UInt32} : eltype(tlas.blas_storage[1].primitives)
         empty_nodes = KA.allocate(tlas.backend, BVHNode2, 0)
         empty_prims = KA.allocate(tlas.backend, prim_type, 0)
         empty_descs = Adapt.adapt(tlas.backend, BLASDescriptor[])
@@ -2142,18 +2142,13 @@ end
 """
     Base.eltype(tlas::TraversableTLAS)
 
-Get the element type of primitives stored in the TLAS.
-Returns the element type of the first BLAS's primitives.
-This is needed for compatibility with code that expects `eltype(bvh.primitives)`.
-
-GPU-first: Uses gpu_blas_arrays which contains the backing arrays.
+Get the element type of primitives stored in the TLAS.  Returns the element
+type of the first BLAS's primitives; defaults to `Triangle{UInt32}` when the
+TLAS has no BLASes yet.
 """
 function Base.eltype(tlas::TLAS)
-    # gpu_blas_arrays contains pairs of (nodes, prims) for each BLAS
-    # The second entry is the primitives array of the first BLAS
-    length(tlas.gpu_blas_arrays) < 2 && return Triangle{UInt32}
-    prims_array = tlas.gpu_blas_arrays[2]
-    return eltype(prims_array)
+    isempty(tlas.blas_storage) && return Triangle{UInt32}
+    return eltype(tlas.blas_storage[1].primitives)
 end
 
 function Base.eltype(::StaticTLAS{NA, IA, BNA, BPA, DA}) where {NA, IA, BNA, BPA, DA}

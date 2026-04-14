@@ -214,6 +214,77 @@ end
 function sync!(hwtlas::HWTLAS)
     hwtlas.dirty || return hwtlas
 
+    # Compact: deleted handles leave orphan entries in instance_blas_indices
+    # and instance_transforms. Without filtering, each re-push! grows the TLAS
+    # forever, wastes VRAM, and eventually triggers GPU faults. Rebuild the
+    # instance arrays without the deleted ranges, then rebuild blas_list to
+    # drop BLAS that no instance still points to.
+    if !isempty(hwtlas.deleted_handles)
+        deleted_inst_idx = BitSet()
+        for h in hwtlas.deleted_handles
+            r = get(hwtlas.handle_to_range, h, nothing)
+            r === nothing && continue
+            for i in r
+                push!(deleted_inst_idx, i)
+            end
+            delete!(hwtlas.handle_to_range, h)
+        end
+
+        keep_inst = [i for i in eachindex(hwtlas.instance_blas_indices) if !(i in deleted_inst_idx)]
+        hwtlas.instance_blas_indices = [hwtlas.instance_blas_indices[i] for i in keep_inst]
+        hwtlas.instance_transforms = [hwtlas.instance_transforms[i] for i in keep_inst]
+        hwtlas.instance_custom_indices = [hwtlas.instance_custom_indices[i] for i in keep_inst]
+
+        # After removing instances, some BLAS may be unreferenced.
+        # Rebuild blas_list/blas_triangles/blas_offsets, remapping instance indices.
+        still_used = Set(hwtlas.instance_blas_indices)
+        if length(still_used) < length(hwtlas.blas_list)
+            old_to_new = Dict{Int,Int}()
+            new_blas = similar(hwtlas.blas_list, 0)
+            new_tris = Vector{Any}[]
+            new_offsets = UInt32[]
+            running_offset = UInt32(0)
+            for (old_idx, blas) in enumerate(hwtlas.blas_list)
+                old_idx in still_used || continue
+                push!(new_blas, blas)
+                push!(new_tris, hwtlas.blas_triangles[old_idx])
+                push!(new_offsets, running_offset)
+                running_offset += UInt32(length(hwtlas.blas_triangles[old_idx]))
+                old_to_new[old_idx] = length(new_blas)
+            end
+            hwtlas.blas_list = new_blas
+            hwtlas.blas_triangles = new_tris
+            hwtlas.blas_offsets = new_offsets
+            hwtlas.instance_blas_indices = [old_to_new[i] for i in hwtlas.instance_blas_indices]
+            # custom_indices reflect the old BLAS index; keep them remapped too
+            hwtlas.instance_custom_indices = [UInt32(old_to_new[Int(ci)+1]-1) for ci in hwtlas.instance_custom_indices]
+        end
+
+        # Rebuild handle_to_range against the compacted indices.
+        idx_shift = Dict{Int,Int}()
+        shift = 0
+        sorted_deleted = sort(collect(deleted_inst_idx))
+        for d in sorted_deleted
+            shift += 1
+            idx_shift[d] = shift
+        end
+        shift_of(i) = begin
+            s = 0
+            for d in sorted_deleted
+                d < i && (s += 1)
+            end
+            s
+        end
+        new_range = Dict{TLASHandle,UnitRange{Int}}()
+        for (h, r) in hwtlas.handle_to_range
+            lo = first(r) - shift_of(first(r))
+            hi = last(r) - shift_of(last(r))
+            new_range[h] = lo:hi
+        end
+        hwtlas.handle_to_range = new_range
+        empty!(hwtlas.deleted_handles)
+    end
+
     n_inst = length(hwtlas.instance_blas_indices)
     if n_inst == 0
         hwtlas.hw_tlas = nothing
