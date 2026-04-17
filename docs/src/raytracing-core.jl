@@ -85,7 +85,7 @@ function compute_light(
         shadow_dir = normalize(shadow_vec)
 
         shadow_ray = Raycore.Ray(o=point + normal * 0.001f0, d=shadow_dir)
-        shadow_hit, _, hit_dist, _ = Raycore.any_hit(bvh, shadow_ray)
+        shadow_hit, _, hit_dist, _, _ = Raycore.any_hit(bvh, shadow_ray)
 
         if !shadow_hit || hit_dist >= shadow_dist
             shadow_factor += 1.0f0
@@ -148,7 +148,7 @@ function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color, shadow_sam
 
         # Cast reflection ray
         reflect_ray = Raycore.Ray(o=hit_point + normal * 0.001f0, d=reflect_dir)
-        refl_hit, refl_tri, refl_dist, refl_bary = Raycore.closest_hit(bvh, reflect_ray)
+        refl_hit, refl_tri, refl_dist, refl_bary, _ = Raycore.closest_hit(bvh, reflect_ray)
 
         reflection_color = if refl_hit
             refl_point = reflect_ray.o + reflect_ray.d * refl_dist
@@ -187,8 +187,8 @@ function example_scene(; glass_cat=false)
     left_wall = normal_mesh(Rect3f(Vec3f(-5, -1.5, -2), Vec3f(0.01, 5, 10)))
 
     # Add a couple of spheres for visual interest
-    sphere1 = Tesselation(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0), 64)
-    sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
+    sphere1 = normal_mesh(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0))
+    sphere2 = normal_mesh(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0))
 
     # Material: base_color, metallic, roughness, ior, transmission
     cat_material = if glass_cat
@@ -209,7 +209,7 @@ function example_scene(; glass_cat=false)
 
     geometries = [g for (g, _) in scene]
     materials = [m for (_, m) in scene]
-    bvh = Raycore.BVH(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+    bvh = Raycore.TLAS(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
     lights = default_lights()
     ctx = RenderContext(lights, materials, 0.1f0)
     return bvh, ctx
@@ -222,7 +222,7 @@ end
 function sample_light(bvh, ctx, width, height, camera_pos, focal_length, aspect, x, y, sky_color)
     jitter = rand(Vec2f)
     ray = camera_ray(x, y, width, height, camera_pos, focal_length, aspect; jitter)
-    hit_found, tri, dist, bary = Raycore.closest_hit(bvh, ray)
+    hit_found, tri, dist, bary, _ = Raycore.closest_hit(bvh, ray)
     if hit_found
         color = reflective_kernel(bvh, ctx, tri, dist, bary, ray, RGB(0.5f0, 0.7f0, 1.0f0), 8)
         return to_vec3f(color)

@@ -1,5 +1,5 @@
 # ============================================================================
-# HeterogeneousVector - Type-stable heterogeneous collections for GPU
+# MultiTypeSet - Type-stable heterogeneous collections for GPU
 # ============================================================================
 # Provides compile-time type-stable dispatch over collections of different types.
 # Used for materials, textures, media, lights, etc.
@@ -61,11 +61,8 @@ n_slots(smv::StaticMultiTypeSet) = length(smv.data)
 
 # Get the static version - identity for StaticMultiTypeSet, .static field for MultiTypeSet
 get_static(smv::StaticMultiTypeSet) = smv
-# Fallback for Tuple (used by legacy code paths)
-get_static(t::Tuple) = t
 
 # Convert to a flat Tuple of all elements (preserves concrete element types)
-to_tuple(t::Tuple) = t
 _concat_to_tuple() = ()
 _concat_to_tuple(v::AbstractVector, rest...) = (v..., _concat_to_tuple(rest...)...)
 to_tuple(smv::StaticMultiTypeSet) = _concat_to_tuple(smv.data...)
@@ -181,10 +178,10 @@ end
 # Dummy kernel for argconvert (same pattern as kernel-abstractions.jl)
 # ============================================================================
 
-KA.@kernel _heterovec_dummy_kernel() = nothing
+KA.@kernel _multitypeset_dummy_kernel() = nothing
 
 function _get_isbits_ptr(backend, gpu_arr)
-    kernel = _heterovec_dummy_kernel(backend)
+    kernel = _multitypeset_dummy_kernel(backend)
     return KA.argconvert(kernel, gpu_arr)
 end
 
@@ -268,7 +265,17 @@ to_tuple(mts::MultiTypeSet) = to_tuple(get_static(mts))
 # Internal: Rebuild the static tuple - converts CPU vectors to GPU
 # ============================================================================
 
+const _REBUILD_KEEPALIVE = Any[]
+
 function rebuild_static!(dhv::MultiTypeSet)
+    # Keep old static arrays alive until the NEXT rebuild completes.
+    # Without this, GC can free old buffers during adapt() of new data,
+    # causing use-after-free (DEVICE_LOST on large scenes like killeroo).
+    old_static = dhv.static
+    if old_static !== nothing
+        push!(_REBUILD_KEEPALIVE, old_static)
+    end
+
     # Convert CPU data vectors to GPU
     data_tuple = if isempty(dhv.data_order)
         ()
@@ -282,6 +289,10 @@ function rebuild_static!(dhv::MultiTypeSet)
         Tuple(Adapt.adapt(dhv.backend, dhv.texture_isbits[T]) for T in dhv.texture_order)
     end
     dhv.static = StaticMultiTypeSet(data_tuple, tex_tuple)
+
+    # Material/light rebuilds enqueue GPU uploads. Make them visible before any
+    # subsequent BLAS/TLAS kernels or later rebuilds can reuse/finalize backing storage.
+    KA.synchronize(dhv.backend)
 end
 
 # ============================================================================
@@ -490,7 +501,7 @@ The function `f` must not capture variables - pass all data as `args`.
 
     for i in N:-1:1
         result = Expr(:if,
-            :(idx.type_idx === UInt8($i)),
+            :(idx.type_idx === UInt32($i)),
             :(@inbounds f(smv.data[$i][idx.vec_idx], args...)),
             result
         )

@@ -1,95 +1,9 @@
-struct TriangleMesh{
-        VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32},
-        NT<:AbstractVector{Normal3f}, TT<:AbstractVector{Vec3f},
-        UT<:AbstractVector{Point2f}, MI<:AbstractVector} <: AbstractGeometry{3, Float32}
-
-    vertices::VT
-    # For the i-th triangle, its 3 vertex positions are:
-    # [vertices[indices[3 * i + j]] for j in 0:2].
-    indices::IT
-    # Optional normal vectors, one per vertex.
-    normals::NT
-    # Optional tangent vectors, one per vertex.
-    tangents::TT
-    # Optional parametric (u, v) values, one for each vertex.
-    uv::UT
-    # Per-face material index. When non-empty, material_indices[face_idx] provides
-    # the material key for that triangle (overriding any instance-level material).
-    material_indices::MI
-
-    function TriangleMesh(
-            vertices::VT,
-            indices::IT,
-            normals::NT = Normal3f[],
-            tangents::TT = Vec3f[],
-            uv::UT = Point2f[],
-            material_indices::MI = UInt32[],
-        ) where {VT, IT, NT, TT, UT, MI}
-
-        return new{VT, IT, NT, TT, UT, MI}(
-            vertices,
-            copy(indices), copy(normals),
-            copy(tangents), copy(uv),
-            copy(material_indices),
-        )
-    end
-end
-
 struct Triangle{TMetadata} <: AbstractGeometry{3, Float32}
     vertices::SVector{3,Point3f}
     normals::SVector{3,Normal3f}
     tangents::SVector{3,Vec3f}
     uv::SVector{3,Point2f}
     metadata::TMetadata
-end
-
-# Constructor with metadata
-function Triangle(m::TriangleMesh, face_indx, metadata)
-    f_idx = 1 + (3 * (face_indx - 1))
-    vs = @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
-    ns = @SVector [m.normals[m.indices[f_idx + i]] for i in 0:2] # Every mesh should have normals!?
-    if !isempty(m.tangents)
-        ts = @SVector [m.tangents[m.indices[f_idx + i]] for i in 0:2]
-    else
-        ts = @SVector [Vec3f(NaN) for _ in 1:3]
-    end
-    if !isempty(m.uv)
-        uv = @SVector [m.uv[m.indices[f_idx + i]] for i in 0:2]
-    else
-        uv = SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
-    end
-    return Triangle(vs, ns, ts, uv, metadata)
-end
-
-# Convenience constructor without metadata (uses Nothing)
-function Triangle(m::TriangleMesh, face_indx)
-    return Triangle(m, face_indx, nothing)
-end
-
-function TriangleMesh(mesh::GeometryBasics.Mesh)
-    nmesh = GeometryBasics.expand_faceviews(mesh)
-    fs = decompose(TriangleFace{UInt32}, nmesh)
-    vertices = decompose(Point3f, nmesh)
-    normals = Normal3f.(decompose_normals(nmesh))
-    uvs = GeometryBasics.decompose_uv(nmesh)
-    if isnothing(uvs)
-        uvs = Point2f[]
-    end
-    indices = collect(reinterpret(UInt32, fs))
-    # Extract per-face material_idx if present (from FaceView attribute).
-    # After expand_faceviews, it's per-vertex with all 3 vertices of a face
-    # sharing the same value, so we just take the first vertex of each face.
-    material_indices = if hasproperty(nmesh, :material_idx)
-        mat_per_vertex = nmesh.material_idx
-        [mat_per_vertex[indices[3*(i-1)+1]] for i in 1:length(fs)]
-    else
-        similar(indices, 0)
-    end
-    return TriangleMesh(
-        vertices, indices,
-        normals, Vec3f[], Point2f.(uvs),
-        material_indices,
-    )
 end
 
 function area(t::Triangle)
@@ -100,17 +14,6 @@ end
 function is_degenerate(vs::AbstractVector{Point3f})::Bool
     v = (vs[3] - vs[1]) × (vs[2] - vs[1])
     (v ⋅ v) ≈ 0f0
-end
-
-"""
-    get_vertices(mesh::TriangleMesh, face_idx::Integer) -> SVector{3, Point3f}
-
-Get the 3 vertices of a triangle face from the mesh without constructing the full Triangle.
-Useful for checking if a triangle is degenerate before creating it.
-"""
-function get_vertices(m::TriangleMesh, face_idx::Integer)
-    f_idx = 1 + (3 * (face_idx - 1))
-    @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
 end
 
 vertices(t::Triangle) = t.vertices
@@ -214,13 +117,9 @@ end
     ∂n∂u, ∂n∂v
 end
 
-# Note: surface_interaction and init_triangle_shading_geometry have been removed
-# These functions are now handled by Trace.jl's triangle_to_surface_interaction
-# Raycore only provides low-level ray-triangle intersection via intersect_triangle
-
 @inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
-    verts = vertices(triangle)  # Get triangle vertices
-    return intersect_triangle(verts, ray)  # Check if ray hits triangle
+    verts = vertices(triangle)
+    return intersect_triangle(verts, ray)
 end
 
 @inline function intersect_p(t::Triangle, ray::Union{Ray,RayDifferentials}, ::Bool=false)
@@ -255,7 +154,6 @@ end
     # Test against t_max range.
     det < 0f0 && (t_scaled >= 0f0 || t_scaled < ray.t_max * det) && return false, t_hit, barycentric
     det > 0f0 && (t_scaled <= 0f0 || t_scaled > ray.t_max * det) && return false, t_hit, barycentric
-    # TODO test against alpha texture if present.
     # Compute barycentric coordinates and t value for triangle intersection.
     inv_det = 1.0f0 / det
     barycentric = edges .* inv_det
