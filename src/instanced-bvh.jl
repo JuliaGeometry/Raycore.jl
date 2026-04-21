@@ -72,14 +72,19 @@ Describes an instance of a bottom-level BVH in world space.
 
 Fields:
 - `blas_index`: Index into BLAS array
-- `instance_id`: User-defined instance ID
+- `instance_id`: Scene-binding slot for this instance.  `0` means "inherit
+  from the triangle's per-face metadata"; any nonzero value is forwarded
+  verbatim by `closest_hit` / `any_hit` as the 5th return value.  Hikari
+  uses it as a `medium_interface_idx` override so N instances of one BLAS
+  can have distinct materials / media / emission without duplicating the
+  BLAS geometry.  Matches Vulkan's `gl_InstanceCustomIndexEXT`.
 - `transform`: World-to-local transformation matrix (4x4)
 - `inv_transform`: Local-to-world transformation matrix (4x4)
 - `flags`: Instance flags (reserved for future use)
 """
 struct InstanceDescriptor
     blas_index::UInt32          # Which BLAS to instance
-    instance_id::UInt32         # User-provided ID
+    instance_id::UInt32         # Interface override (0 = inherit from triangle metadata)
     transform::Mat4f            # Local-to-world
     inv_transform::Mat4f        # World-to-local
     flags::UInt32               # Reserved
@@ -169,6 +174,19 @@ end
 const INVALID_HANDLE = TLASHandle(UInt32(0))
 
 """
+    BLASArrays
+
+Per-BLAS backing GPU arrays.  Field ownership transitively keeps the
+`nodes` / `primitives` buffers alive while the TLAS holds them, so the
+isbits device pointers stored in `blas_array` (and the flat arrays used
+by StaticTLAS) remain valid.
+"""
+struct BLASArrays
+    nodes::Any        # AbstractVector{BVHNode2}
+    primitives::Any   # AbstractVector{Triangle}
+end
+
+"""
     TLAS{Backend}
 
 Mutable Top-Level Acceleration Structure with direct GPU arrays.
@@ -190,7 +208,7 @@ kernel traversal.
 - `root_aabb`: World-space bounding box
 - `handle_to_range`: Handle -> range in instances array (CPU-side)
 - `deleted_handles`: Handles deleted but not yet compacted (CPU-side)
-- `gpu_blas_arrays`: Keeps GPU arrays alive for isbits pointers
+- `blas_storage`: Per-BLAS backing arrays; keeps GPU buffers alive for isbits pointers
 - `dirty`: Whether BVH topology needs rebuild
 
 # Usage
@@ -218,8 +236,11 @@ mutable struct TLAS{Backend} <: AbstractAccel
     handle_to_range::Dict{TLASHandle, UnitRange{Int}}
     deleted_handles::Set{TLASHandle}
 
-    # Backend arrays kept alive for GC (isbits pointers in blas_array reference these)
-    gpu_blas_arrays::Vector{Any}
+    # Per-BLAS backing arrays.  Structural composition: the TLAS owning
+    # `blas_storage` transitively pins every BLAS's `nodes` / `primitives`
+    # buffer, so the isbits pointers stored in `blas_array` stay valid as
+    # long as the TLAS does.
+    blas_storage::Vector{BLASArrays}
 
     # Flat BLAS arrays for StaticTLAS traversal (built during adapt, kept alive for isbits pointers)
     _flat_blas_nodes::Any    # concatenated BVH nodes from all BLASes
@@ -234,10 +255,9 @@ mutable struct TLAS{Backend} <: AbstractAccel
 
     # Counters
     next_handle_id::UInt32
-    next_instance_id::UInt32
 end
 
-# Note: _get_isbits_ptr is defined in multitypeset.jl and reused here
+# Note: get_isbits_ptr is defined in multitypeset.jl and reused here
 
 # ------------------------------------------------------------------------------
 # TLAS Constructor and Core Operations
@@ -269,14 +289,13 @@ function TLAS(backend)
         Bounds3(),                                   # root_aabb
         Dict{TLASHandle, UnitRange{Int}}(),         # handle_to_range
         Set{TLASHandle}(),                          # deleted_handles
-        Any[],                                       # gpu_blas_arrays (GC roots)
+        BLASArrays[],                                # blas_storage
         nothing,                                     # _flat_blas_nodes
         nothing,                                     # _flat_blas_prims
         nothing,                                     # _flat_blas_descs
         true,                                        # dirty (topology)
         false,                                       # transforms_dirty
-        UInt32(1),                                   # next_handle_id
-        UInt32(1)                                    # next_instance_id
+        UInt32(1)                                    # next_handle_id
     )
 
     # Register finalizer to free GPU memory when TLAS is garbage collected
@@ -293,15 +312,30 @@ Safe to call on any object — no-op if no finalizer is registered.
 """
 free!(x) = (finalize(x); nothing)
 
-"""Free all GPU memory held by a TLAS."""
+"""
+    free!(tlas::TLAS)
+
+Release all GPU memory held by `tlas`.  Does **not** synchronize.
+
+**Precondition (caller's responsibility):** the GPU must be idle for
+`tlas.backend` before this is called — either because the caller just
+returned from `sync!(tlas)` / `Hikari.sync!(scene)`, from a
+`colorbuffer` that issued its own `device_wait_idle`, or because the
+caller has otherwise issued `KA.synchronize(tlas.backend)`.
+
+Calling `free!` while dispatches are still in flight through a `LavaArray`
+/ `VkAccelerationStructureKHR` BDA captured in an arg buffer is a
+use-after-free.
+"""
 function free!(tlas::TLAS)
     finalize(tlas.nodes)
     finalize(tlas.instances)
     finalize(tlas.blas_array)
-    for arr in tlas.gpu_blas_arrays
-        finalize(arr)
+    for ba in tlas.blas_storage
+        finalize(ba.nodes)
+        finalize(ba.primitives)
     end
-    empty!(tlas.gpu_blas_arrays)
+    empty!(tlas.blas_storage)
     tlas._flat_blas_nodes !== nothing && finalize(tlas._flat_blas_nodes)
     tlas._flat_blas_prims !== nothing && finalize(tlas._flat_blas_prims)
     tlas._flat_blas_descs !== nothing && finalize(tlas._flat_blas_descs)
@@ -318,34 +352,33 @@ function _allocate_empty_blas_array(_backend)
 end
 
 """Get the isbits pointer type for a given element type and backend."""
-function _get_isbits_ptr_type(backend::KA.CPU, ::Type{T}) where T
+function get_isbits_ptr_type(backend::KA.CPU, ::Type{T}) where T
     return Vector{T}  # On CPU, Vector is already isbits-compatible for our purposes
 end
 
-function _get_isbits_ptr_type(backend, ::Type{T}) where T
+function get_isbits_ptr_type(backend, ::Type{T}) where T
     # For GPU backends, use argconvert to get the isbits device pointer type
     arr = KA.allocate(backend, T, 1)
-    isbits_ptr = _get_isbits_ptr(backend, arr)
+    isbits_ptr = get_isbits_ptr(backend, arr)
     return typeof(isbits_ptr)
 end
 
 """
-Convert a BLAS with backend arrays to isbits BLAS with device pointers.
-Stores the backend arrays in `keep_alive` vector to prevent GC
-(entries are stored in groups of 2: nodes, primitives).
+Convert a BLAS with backend arrays to an isbits BLAS with device pointers.
+
+Appends a `BLASArrays(nodes, primitives)` to `blas_storage` so the backing
+buffers outlive every isbits pointer that references them.
 
 Note: The isbits BLAS is only used by management kernels that read root_aabb
 (inline data). For traversal, StaticTLAS uses flat arrays with offset-based
 indexing instead (see BLASDescriptor).
 """
-function _to_isbits_blas(backend, blas::BLAS, keep_alive::Vector{Any})
-    # Store the backend arrays to keep them alive
-    push!(keep_alive, blas.nodes)
-    push!(keep_alive, blas.primitives)
+function _to_isbits_blas(backend, blas::BLAS, blas_storage::Vector{BLASArrays})
+    push!(blas_storage, BLASArrays(blas.nodes, blas.primitives))
 
     # Get isbits device pointers
-    isbits_nodes = _get_isbits_ptr(backend, blas.nodes)
-    isbits_prims = _get_isbits_ptr(backend, blas.primitives)
+    isbits_nodes = get_isbits_ptr(backend, blas.nodes)
+    isbits_prims = get_isbits_ptr(backend, blas.primitives)
 
     return BLAS(isbits_nodes, isbits_prims, blas.root_aabb)
 end
@@ -382,7 +415,7 @@ The flat arrays are MtlVector/CuVector etc., kept alive by the TLAS.
 During adapt, they are converted to isbits device pointers for kernels.
 """
 function _build_flat_blas_arrays!(tlas::TLAS)
-    n_blas = length(tlas.gpu_blas_arrays) ÷ 2
+    n_blas = length(tlas.blas_storage)
     backend = tlas.backend
 
     if n_blas == 0
@@ -400,32 +433,27 @@ function _build_flat_blas_arrays!(tlas::TLAS)
     total_nodes = 0
     total_prims = 0
     for i in 1:n_blas
-        nodes_arr = tlas.gpu_blas_arrays[2(i-1) + 1]
-        prims_arr = tlas.gpu_blas_arrays[2(i-1) + 2]
+        ba = tlas.blas_storage[i]
         descriptors[i] = BLASDescriptor(UInt32(total_nodes), UInt32(total_prims), cpu_blas[i].root_aabb)
-        total_nodes += length(nodes_arr)
-        total_prims += length(prims_arr)
+        total_nodes += length(ba.nodes)
+        total_prims += length(ba.primitives)
     end
 
-    # Allocate flat arrays on backend
-    first_nodes = tlas.gpu_blas_arrays[1]
-    first_prims = tlas.gpu_blas_arrays[2]
-    all_nodes = similar(first_nodes, total_nodes)
-    all_prims = similar(first_prims, total_prims)
+    # Allocate flat arrays on backend (use first BLAS's array type as template)
+    first_ba = tlas.blas_storage[1]
+    all_nodes = similar(first_ba.nodes, total_nodes)
+    all_prims = similar(first_ba.primitives, total_prims)
 
     # Copy BLAS data into flat arrays
     nodes_pos = 1
     prims_pos = 1
-    for i in 1:n_blas
-        nodes_arr = tlas.gpu_blas_arrays[2(i-1) + 1]
-        prims_arr = tlas.gpu_blas_arrays[2(i-1) + 2]
-
-        nn = length(nodes_arr)
-        copyto!(all_nodes, nodes_pos, nodes_arr, 1, nn)
+    for ba in tlas.blas_storage
+        nn = length(ba.nodes)
+        copyto!(all_nodes, nodes_pos, ba.nodes, 1, nn)
         nodes_pos += nn
 
-        np = length(prims_arr)
-        copyto!(all_prims, prims_pos, prims_arr, 1, np)
+        np = length(ba.primitives)
+        copyto!(all_prims, prims_pos, ba.primitives, 1, np)
         prims_pos += np
     end
 
@@ -495,16 +523,9 @@ function is_degenerate_face(vertices, indices, face_idx)
     is_degenerate(vs)
 end
 
-"""
-    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I)) -> TLASHandle
-
-Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
-`face_meta` attribute (if present). If no `face_meta` attribute exists, each
-triangle gets `UInt32(face_idx)` as metadata.
-
-Returns a stable handle for later reference.
-"""
-function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I))
+"""Internal: decompose a GB.Mesh, build a BLAS, append it to the TLAS, and
+return the new BLAS's 1-based index.  Shared by every `push!` variant."""
+function _build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
     nmesh = GeometryBasics.expand_faceviews(mesh)
     fs = decompose(TriangleFace{UInt32}, nmesh)
     verts = decompose(Point3f, nmesh)
@@ -526,101 +547,77 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4
     ]
     isempty(cpu_triangles) && error("Geometry has no valid triangles")
 
-    # Convert triangles to backend and build BLAS directly on backend
     backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
     blas = build_blas(backend_triangles)
-
-    # Convert to isbits BLAS and append to blas_array (GPU append)
-    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.gpu_blas_arrays)
+    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
     tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
-    blas_idx = UInt32(length(tlas.blas_array))
+    return UInt32(length(tlas.blas_array))
+end
 
-    # Create InstanceDescriptor
-    inv_transform = Mat4f(inv(transform))
-    instance_id = tlas.next_instance_id
-    tlas.next_instance_id += UInt32(1)
-    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
-
-    # Record range before append
+"""Internal: append the given instance descriptors to `tlas.instances`, register
+a handle for the appended range, and return it."""
+function _append_instances_with_handle!(tlas::TLAS, cpu_descriptors::AbstractVector{InstanceDescriptor})
     start_idx = length(tlas.instances) + 1
-
-    # Adapt to backend and append (GPU append)
-    backend_descriptors = Adapt.adapt(tlas.backend, cpu_descriptors)
+    backend_descriptors = Adapt.adapt(tlas.backend, collect(cpu_descriptors))
     append!(tlas.instances, backend_descriptors)
-
     end_idx = length(tlas.instances)
 
-    # Create handle and register range
     handle = TLASHandle(tlas.next_handle_id)
     tlas.next_handle_id += UInt32(1)
     tlas.handle_to_range[handle] = start_idx:end_idx
-
     tlas.dirty = true
     return handle
 end
 
 """
-    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f}) -> TLASHandle
+    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
+          instance_id::UInt32=UInt32(0)) -> TLASHandle
 
-Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
-Builds BLAS once, creates multiple InstanceDescriptors (one per transform).
+Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
+`face_meta` attribute (if present). If no `face_meta` attribute exists, each
+triangle gets `UInt32(face_idx)` as metadata.
+
+`instance_id` is forwarded to the `InstanceDescriptor`.  It defaults to `0`
+(inherit from triangle metadata); pass a nonzero value to override the
+per-triangle interface — see `InstanceDescriptor` for semantics.
 
 Returns a stable handle for later reference.
 """
-function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f})
-    nmesh = GeometryBasics.expand_faceviews(mesh)
-    fs = decompose(TriangleFace{UInt32}, nmesh)
-    verts = decompose(Point3f, nmesh)
-    norms = Normal3f.(decompose_normals(nmesh))
-    uvs_raw = GeometryBasics.decompose_uv(nmesh)
-    uvs = isnothing(uvs_raw) ? Point2f[] : Point2f.(uvs_raw)
-    indices = collect(reinterpret(UInt32, fs))
+function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
+                    instance_id::UInt32=UInt32(0))
+    blas_idx = _build_and_append_blas!(tlas, mesh)
+    inv_transform = Mat4f(inv(transform))
+    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
+    return _append_instances_with_handle!(tlas, cpu_descriptors)
+end
 
-    has_meta = hasproperty(nmesh, :face_meta)
-    n_faces = length(fs)
+"""
+    push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
+          instance_ids::Union{Nothing, AbstractVector{UInt32}}=nothing) -> TLASHandle
 
-    cpu_triangles = [begin
-            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
-            build_triangle(verts, norms, uvs, indices, i, meta)
-        end
-        for i in 1:n_faces
-        if !is_degenerate_face(verts, indices, i)
-    ]
-    isempty(cpu_triangles) && error("Geometry has no valid triangles")
+Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
+Builds BLAS once, creates `length(transforms)` InstanceDescriptors.
 
-    # Convert triangles to backend and build BLAS directly on backend
-    backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
-    blas = build_blas(backend_triangles)
+`instance_ids` (if given) must match `length(transforms)` and supplies the
+per-instance interface override.  When `nothing`, every instance gets `0`
+(inherit from triangle metadata).
 
-    # Convert to isbits BLAS and append to blas_array (GPU append)
-    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.gpu_blas_arrays)
-    tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
-    blas_idx = UInt32(length(tlas.blas_array))
-
-    # Create InstanceDescriptors on CPU
-    cpu_descriptors = map(transforms) do transform
-        inv_transform = Mat4f(inv(transform))
-        instance_id = tlas.next_instance_id
-        tlas.next_instance_id += UInt32(1)
-        InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))
+Returns a stable handle for later reference.
+"""
+function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
+                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
+    if instance_ids !== nothing && length(instance_ids) != length(transforms)
+        throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
     end
 
-    # Record range before append
-    start_idx = length(tlas.instances) + 1
+    blas_idx = _build_and_append_blas!(tlas, mesh)
 
-    # Adapt to backend and append (GPU append)
-    backend_descriptors = Adapt.adapt(tlas.backend, cpu_descriptors)
-    append!(tlas.instances, backend_descriptors)
-
-    end_idx = length(tlas.instances)
-
-    # Create handle and register range
-    handle = TLASHandle(tlas.next_handle_id)
-    tlas.next_handle_id += UInt32(1)
-    tlas.handle_to_range[handle] = start_idx:end_idx
-
-    tlas.dirty = true
-    return handle
+    cpu_descriptors = map(enumerate(transforms)) do (i, transform)
+        inv_transform = Mat4f(inv(transform))
+        iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
+        InstanceDescriptor(blas_idx, iid, transform, inv_transform, UInt32(0))
+    end
+    return _append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
 # ------------------------------------------------------------------------------
@@ -764,7 +761,7 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
     n_faces = length(fs)
 
     cpu_triangles = [begin
-            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : (first_desc.instance_id, UInt32(i))
+            meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
             build_triangle(verts, norms, uvs, indices, i, meta)
         end
         for i in 1:n_faces
@@ -775,17 +772,15 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
     backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
     new_blas = build_blas(backend_triangles)
 
-    # Convert to isbits and replace in blas_array
-    # First, update gpu_blas_arrays (replace the old backing arrays)
-    old_nodes_idx = 2*(blas_idx-1) + 1
-    old_prims_idx = 2*(blas_idx-1) + 2
-    tlas.gpu_blas_arrays[old_nodes_idx] = new_blas.nodes
-    tlas.gpu_blas_arrays[old_prims_idx] = new_blas.primitives
+    # Swap in the new backing arrays; the old BLASArrays entry is replaced
+    # atomically so the isbits pointers in `blas_array` are never left
+    # dangling mid-update.
+    tlas.blas_storage[blas_idx] = BLASArrays(new_blas.nodes, new_blas.primitives)
 
     # Create isbits version and replace in blas_array
     isbits_blas = BLAS(
-        _get_isbits_ptr(tlas.backend, new_blas.nodes),
-        _get_isbits_ptr(tlas.backend, new_blas.primitives),
+        get_isbits_ptr(tlas.backend, new_blas.nodes),
+        get_isbits_ptr(tlas.backend, new_blas.primitives),
         new_blas.root_aabb
     )
     tlas.blas_array[blas_idx] = isbits_blas
@@ -801,10 +796,22 @@ end
 """
     sync!(tlas::TLAS) -> TLAS
 
-Rebuild the BVH structure if dirty. No-op if already up-to-date.
+Rebuild the BVH structure if dirty, then **wait for the GPU to finish**
+all work currently queued on `tlas.backend` (via `KA.synchronize`).
+No-op if already up-to-date AND no work is pending.
 
-If there are deleted handles, compacts the instances array first.
-Then rebuilds the BVH topology from the (compacted) instances.
+After `sync!(tlas)` returns:
+- The TLAS reflects all prior `push!`/`delete!` calls.
+- The GPU is idle for `tlas.backend`.
+- Any resource that is no longer reachable through the (new) accel is
+  safe to release synchronously: its `VkAccelerationStructureKHR` /
+  BDA captures in in-flight work have drained.
+
+Invariants for callers:
+- `update!` / `push!` / `delete!` on the TLAS do NOT wait and do NOT
+  perform cleanup; they mark state dirty and return immediately. Call
+  `sync!` to establish a safe boundary before freeing transitively-
+  owned resources.
 """
 function sync!(tlas::TLAS)
     if tlas.dirty
@@ -813,6 +820,7 @@ function sync!(tlas::TLAS)
     elseif tlas.transforms_dirty
         refit_tlas!(tlas)
     end
+    KA.synchronize(tlas.backend)
     return tlas
 end
 
@@ -895,25 +903,16 @@ function _compact_instances!(tlas::TLAS)
             end
         end
 
-        # Rebuild gpu_blas_arrays keeping only referenced entries
-        # gpu_blas_arrays layout: [nodes_1, prims_1, nodes_2, prims_2, ...]
-        new_gpu_blas_arrays = Any[]
-        for old_idx in sorted_used
-            old_nodes_pos = 2 * (Int(old_idx) - 1) + 1
-            old_prims_pos = 2 * (Int(old_idx) - 1) + 2
-            push!(new_gpu_blas_arrays, tlas.gpu_blas_arrays[old_nodes_pos])
-            push!(new_gpu_blas_arrays, tlas.gpu_blas_arrays[old_prims_pos])
-        end
-
-        # Free unreferenced GPU arrays
+        # Rebuild blas_storage keeping only referenced entries; finalize the rest.
+        new_blas_storage = BLASArrays[tlas.blas_storage[Int(old_idx)] for old_idx in sorted_used]
         for old_idx in UInt32(1):UInt32(n_blas)
             old_idx in used_blas_indices && continue
-            old_nodes_pos = 2 * (Int(old_idx) - 1) + 1
-            old_prims_pos = 2 * (Int(old_idx) - 1) + 2
-            finalize(tlas.gpu_blas_arrays[old_nodes_pos])
-            finalize(tlas.gpu_blas_arrays[old_prims_pos])
+            drop = tlas.blas_storage[Int(old_idx)]
+            finalize(drop.nodes)
+            finalize(drop.primitives)
         end
-        tlas.gpu_blas_arrays = new_gpu_blas_arrays
+        empty!(tlas.blas_storage)
+        append!(tlas.blas_storage, new_blas_storage)
 
         # Rebuild blas_array with only referenced isbits BLASes
         cpu_blas = Array(tlas.blas_array)
@@ -949,7 +948,7 @@ function Adapt.adapt_structure(to, tlas::TLAS)
 
     if tlas._flat_blas_nodes === nothing
         # Empty scene — need correct types for StaticTLAS type parameters
-        prim_type = length(tlas.gpu_blas_arrays) >= 2 ? eltype(tlas.gpu_blas_arrays[2]) : Triangle{UInt32}
+        prim_type = isempty(tlas.blas_storage) ? Triangle{UInt32} : eltype(tlas.blas_storage[1].primitives)
         empty_nodes = KA.allocate(tlas.backend, BVHNode2, 0)
         empty_prims = KA.allocate(tlas.backend, prim_type, 0)
         empty_descs = Adapt.adapt(tlas.backend, BLASDescriptor[])
@@ -1703,9 +1702,16 @@ Matches HLSL IntersectLeafNode.
 end
 
 """
-    closest_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_id)
+    closest_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
 
 Traverse two-level BVH to find closest ray intersection.
+
+`instance_idx` is the 1-based position in `tlas.instances` (or `UInt32(0)`
+on miss).  Dereferencing `tlas.instances[instance_idx]` yields the full
+`InstanceDescriptor` — from which the caller can read the transforms, the
+interface-override `instance_id`, or anything else.  This keeps a single
+source of truth (the TLAS instance array) rather than duplicating a
+pre-extracted sub-field.
 
 Algorithm:
 1. Traverse TLAS to find candidate instances
@@ -1823,22 +1829,23 @@ Algorithm:
 
     # Fill in hit output - matches HLSL
     @inbounds if closest_instance >= Int32(0)
-        inst = tlas_instances[closest_instance + Int32(1)]
+        inst_idx = UInt32(closest_instance + Int32(1))
+        inst = tlas_instances[inst_idx]
         desc = tlas_blas_descs[inst.blas_index]
         tri = tlas_blas_prims[desc.primitives_offset + closest_prim]
         w = 1.0f0 - hit_u - hit_v
         bary = SVector{3, Float32}(w, hit_u, hit_v)
-        return (true, tri, ray_maxt, bary, inst.instance_id)
+        return (true, tri, ray_maxt, bary, inst_idx)
     else
         # No hit - return dummy values
         dummy_tri = tlas_blas_prims[1]
         bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-        return (false, dummy_tri, 0.0f0, bary, INVALID_NODE)
+        return (false, dummy_tri, 0.0f0, bary, UInt32(0))
     end
 end
 
 """
-    any_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_id)
+    any_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
 
 Traverse two-level BVH to find ANY ray intersection (returns on first hit).
 Faster than closest_hit when only occlusion testing is needed.
@@ -1919,12 +1926,13 @@ Matches HLSL TraceRays with ANY_HIT defined.
             hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
             if hit
                 # ANY_HIT: return immediately on first hit
-                inst = tlas_instances[current_instance + Int32(1)]
+                inst_idx = UInt32(current_instance + Int32(1))
+                inst = tlas_instances[inst_idx]
                 desc = tlas_blas_descs[inst.blas_index]
                 tri = tlas_blas_prims[desc.primitives_offset + node.child1]
                 w = 1.0f0 - u - v
                 bary = SVector{3, Float32}(w, u, v)
-                return (true, tri, t, bary, inst.instance_id)
+                return (true, tri, t, bary, inst_idx)
             end
         end
 
@@ -1949,7 +1957,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
     # No hit found
     @inbounds dummy_tri = tlas_blas_prims[1]
     bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-    return (false, dummy_tri, 0.0f0, bary, INVALID_NODE)
+    return (false, dummy_tri, 0.0f0, bary, UInt32(0))
 end
 
 # ==============================================================================
@@ -2158,18 +2166,13 @@ end
 """
     Base.eltype(tlas::TraversableTLAS)
 
-Get the element type of primitives stored in the TLAS.
-Returns the element type of the first BLAS's primitives.
-This is needed for compatibility with code that expects `eltype(bvh.primitives)`.
-
-GPU-first: Uses gpu_blas_arrays which contains the backing arrays.
+Get the element type of primitives stored in the TLAS.  Returns the element
+type of the first BLAS's primitives; defaults to `Triangle{UInt32}` when the
+TLAS has no BLASes yet.
 """
 function Base.eltype(tlas::TLAS)
-    # gpu_blas_arrays contains pairs of (nodes, prims) for each BLAS
-    # The second entry is the primitives array of the first BLAS
-    length(tlas.gpu_blas_arrays) < 2 && return Triangle{UInt32}
-    prims_array = tlas.gpu_blas_arrays[2]
-    return eltype(prims_array)
+    isempty(tlas.blas_storage) && return Triangle{UInt32}
+    return eltype(tlas.blas_storage[1].primitives)
 end
 
 function Base.eltype(::StaticTLAS{NA, IA, BNA, BPA, DA}) where {NA, IA, BNA, BPA, DA}
@@ -2236,4 +2239,4 @@ export INVALID_NODE
 # TLAS Handle API
 export TLASHandle
 export n_instances, n_geometries, get_instance, get_instances
-export update_transform!, update_transforms!, is_valid
+export update_transform!, update_transforms!, update_transform_at!, is_valid

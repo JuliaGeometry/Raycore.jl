@@ -34,6 +34,13 @@ end
     RTHitResult
 
 Ray hit output from hardware RT dispatch. 32 bytes.
+
+- `instance_custom_index` — value of `gl_InstanceCustomIndexEXT` at the hit.
+  Under the current semantics this carries the `InstanceDescriptor.instance_id`
+  (the interface-override slot).  `0` means "inherit from triangle metadata".
+- `instance_id` — value of `gl_InstanceID` at the hit (0-based instance array
+  position).  Used by the caller to look up per-instance data such as the
+  BLAS triangle offset.
 """
 struct RTHitResult
     hit::UInt32
@@ -42,7 +49,7 @@ struct RTHitResult
     instance_custom_index::UInt32
     bary_u::Float32
     bary_v::Float32
-    _pad1::UInt32
+    instance_id::UInt32
     _pad2::UInt32
 end
 
@@ -176,12 +183,24 @@ function _hwtlas_add_geometry!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh)
     return blas_idx
 end
 
-function _hwtlas_add_instances!(hwtlas::HWTLAS, blas_idx::Int, transforms)
+"""
+Internal: add N instances of `blas_idx` to the HWTLAS.
+
+`instance_ids` (if given) supplies the per-instance interface override that
+the HW closest-hit shader reads via `gl_InstanceCustomIndexEXT`.  When
+`nothing`, every instance gets `0` (inherit from triangle metadata).
+"""
+function _hwtlas_add_instances!(hwtlas::HWTLAS, blas_idx::Int, transforms;
+                                instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
+    if instance_ids !== nothing && length(instance_ids) != length(transforms)
+        throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
+    end
     start_idx = length(hwtlas.instance_blas_indices) + 1
-    for transform in transforms
+    for (i, transform) in enumerate(transforms)
+        iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
         push!(hwtlas.instance_blas_indices, blas_idx)
         push!(hwtlas.instance_transforms, mat4_to_transform_matrix(transform))
-        push!(hwtlas.instance_custom_indices, UInt32(blas_idx - 1))
+        push!(hwtlas.instance_custom_indices, iid)
     end
     end_idx = length(hwtlas.instance_blas_indices)
 
@@ -193,14 +212,51 @@ end
 
 const Mat4f = SMatrix{4, 4, Float32, 16}
 
-function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I))
+function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
+                    instance_id::UInt32=UInt32(0))
     blas_idx = _hwtlas_add_geometry!(hwtlas, mesh)
-    return _hwtlas_add_instances!(hwtlas, blas_idx, (transform,))
+    return _hwtlas_add_instances!(hwtlas, blas_idx, (transform,);
+                                  instance_ids=UInt32[instance_id])
 end
 
-function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f})
+function Base.push!(hwtlas::HWTLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
+                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
     blas_idx = _hwtlas_add_geometry!(hwtlas, mesh)
-    return _hwtlas_add_instances!(hwtlas, blas_idx, transforms)
+    return _hwtlas_add_instances!(hwtlas, blas_idx, transforms; instance_ids)
+end
+
+"""
+    update_transform!(hwtlas::HWTLAS, handle::TLASHandle, transform::Mat4f)
+
+Update *every* instance belonging to `handle` (typically 1 for single-mesh
+plots) to the same transform.  Marks the HWTLAS dirty so the next `sync!`
+repacks the instance buffer.
+"""
+function update_transform!(hwtlas::HWTLAS, handle::TLASHandle, transform::Mat4f)
+    r = get(hwtlas.handle_to_range, handle, nothing)
+    r === nothing && return false
+    vk_tr = mat4_to_transform_matrix(transform)
+    for i in r
+        hwtlas.instance_transforms[i] = vk_tr
+    end
+    hwtlas.dirty = true
+    return true
+end
+
+"""
+    update_transform_at!(hwtlas::HWTLAS, handle::TLASHandle, i::Integer, transform::Mat4f)
+
+Update the i-th instance (1-based) within `handle`'s instance range.  Used
+by `meshscatter`'s arity-stable incremental path: one `TLASHandle` per
+batch-pushed meshscatter owns N instances, each with its own transform.
+"""
+function update_transform_at!(hwtlas::HWTLAS, handle::TLASHandle, i::Integer, transform::Mat4f)
+    r = get(hwtlas.handle_to_range, handle, nothing)
+    r === nothing && return false
+    1 <= i <= length(r) || throw(BoundsError(1:length(r), i))
+    hwtlas.instance_transforms[first(r) + i - 1] = mat4_to_transform_matrix(transform)
+    hwtlas.dirty = true
+    return true
 end
 
 function Base.delete!(hwtlas::HWTLAS, handle::TLASHandle)::Bool
@@ -211,32 +267,183 @@ function Base.delete!(hwtlas::HWTLAS, handle::TLASHandle)::Bool
     return true
 end
 
+"""
+    sync!(hwtlas::HWTLAS)
+
+Rebuild the hardware TLAS (and any needed BLASes) if dirty, then **wait
+for the GPU to finish** all work currently queued on `hwtlas.backend`.
+No-op on the topology if already up-to-date — but still issues a
+`KA.synchronize` at the end, so the caller can use the return as a safe
+boundary for releasing transitively-owned GPU resources.
+
+After `sync!(hwtlas)` returns:
+- The hardware AS reflects all prior `push!`/`delete!` calls.
+- The GPU is idle on `hwtlas.backend`.
+- Old `hw_tlas` / `tri_gpu` / `off_gpu` that were just replaced are no
+  longer referenced by in-flight dispatches; their `VkAccelerationStructureKHR`
+  handles and BDA captures have drained. Finalizing them is safe.
+
+Invariants for callers:
+- `push!` / `delete!` / `update_*` on the HWTLAS do NOT sync — they flip
+  the dirty bit and return. The caller is responsible for pairing any
+  follow-up cleanup with a `sync!` call.
+"""
 function sync!(hwtlas::HWTLAS)
-    hwtlas.dirty || return hwtlas
+    hwtlas.dirty || (KA.synchronize(hwtlas.backend); return hwtlas)
+
+    # BLASes evicted by this rebuild — released via `release_hw_accel_state!`
+    # after the rebuild fence. Hoisted out of the `deleted_handles` block so
+    # both the early-return (n_inst==0) and the main rebuild path can see it.
+    dropped_blases = typeof(hwtlas.blas_list)(undef, 0)
+
+    # Compact: deleted handles leave orphan entries in instance_blas_indices
+    # and instance_transforms. Without filtering, each re-push! grows the TLAS
+    # forever, wastes VRAM, and eventually triggers GPU faults. Rebuild the
+    # instance arrays without the deleted ranges, then rebuild blas_list to
+    # drop BLAS that no instance still points to.
+    if !isempty(hwtlas.deleted_handles)
+        deleted_inst_idx = BitSet()
+        for h in hwtlas.deleted_handles
+            r = get(hwtlas.handle_to_range, h, nothing)
+            r === nothing && continue
+            for i in r
+                push!(deleted_inst_idx, i)
+            end
+            delete!(hwtlas.handle_to_range, h)
+        end
+
+        keep_inst = [i for i in eachindex(hwtlas.instance_blas_indices) if !(i in deleted_inst_idx)]
+        hwtlas.instance_blas_indices = [hwtlas.instance_blas_indices[i] for i in keep_inst]
+        hwtlas.instance_transforms = [hwtlas.instance_transforms[i] for i in keep_inst]
+        hwtlas.instance_custom_indices = [hwtlas.instance_custom_indices[i] for i in keep_inst]
+
+        # After removing instances, some BLAS may be unreferenced.
+        # Rebuild blas_list/blas_triangles/blas_offsets, remapping instance indices.
+        still_used = Set(hwtlas.instance_blas_indices)
+        if length(still_used) < length(hwtlas.blas_list)
+            old_to_new = Dict{Int,Int}()
+            new_blas = similar(hwtlas.blas_list, 0)
+            new_tris = Vector{Any}[]
+            new_offsets = UInt32[]
+            running_offset = UInt32(0)
+            for (old_idx, blas) in enumerate(hwtlas.blas_list)
+                if old_idx in still_used
+                    push!(new_blas, blas)
+                    push!(new_tris, hwtlas.blas_triangles[old_idx])
+                    push!(new_offsets, running_offset)
+                    running_offset += UInt32(length(hwtlas.blas_triangles[old_idx]))
+                    old_to_new[old_idx] = length(new_blas)
+                else
+                    push!(dropped_blases, blas)
+                end
+            end
+            hwtlas.blas_list = new_blas
+            hwtlas.blas_triangles = new_tris
+            hwtlas.blas_offsets = new_offsets
+            hwtlas.instance_blas_indices = [old_to_new[i] for i in hwtlas.instance_blas_indices]
+            # `instance_custom_indices` is the per-instance interface override
+            # (scene-level, independent of BLAS index).  No remapping needed
+            # when we compact BLASes away.
+        end
+
+        # Rebuild handle_to_range against the compacted indices.
+        idx_shift = Dict{Int,Int}()
+        shift = 0
+        sorted_deleted = sort(collect(deleted_inst_idx))
+        for d in sorted_deleted
+            shift += 1
+            idx_shift[d] = shift
+        end
+        shift_of(i) = begin
+            s = 0
+            for d in sorted_deleted
+                d < i && (s += 1)
+            end
+            s
+        end
+        new_range = Dict{TLASHandle,UnitRange{Int}}()
+        for (h, r) in hwtlas.handle_to_range
+            lo = first(r) - shift_of(first(r))
+            hi = last(r) - shift_of(last(r))
+            new_range[h] = lo:hi
+        end
+        hwtlas.handle_to_range = new_range
+        empty!(hwtlas.deleted_handles)
+    end
 
     n_inst = length(hwtlas.instance_blas_indices)
     if n_inst == 0
+        old_hw_tlas = hwtlas.hw_tlas
+        old_tri_gpu = hwtlas.tri_gpu
+        old_off_gpu = hwtlas.off_gpu
         hwtlas.hw_tlas = nothing
         hwtlas.hw_accel = nothing
+        hwtlas.tri_gpu = nothing
+        hwtlas.off_gpu = nothing
         hwtlas.dirty = false
+        KA.synchronize(hwtlas.backend)
+        release_hw_accel_state!(old_hw_tlas)
+        release_hw_accel_state!(old_tri_gpu)
+        release_hw_accel_state!(old_off_gpu)
+        for blas in dropped_blases
+            release_hw_accel_state!(blas)
+        end
         return hwtlas
     end
 
     blas_refs = [hwtlas.blas_list[hwtlas.instance_blas_indices[i]] for i in 1:n_inst]
 
-    # Backend builds the TLAS + accel handle
+    # Per-instance triangle-array offset, indexed by `gl_InstanceID` (0-based).
+    # Moves the old `off_gpu[custom_index + 1]` indirection to the CPU build
+    # step so the shader does a single lookup and leaves `custom_index` free
+    # to carry the interface override.
+    per_instance_tri_offsets = UInt32[hwtlas.blas_offsets[bi] for bi in hwtlas.instance_blas_indices]
+
+    # Backend builds the TLAS + accel handle.  Pass the existing tri_gpu /
+    # off_gpu so the backend can grow-and-overwrite in place instead of
+    # churning a fresh GPU allocation per rebuild — tri_gpu for a full
+    # streamplot tubes scene is ~100s of MiB, allocating it every frame
+    # thrashes VRAM even if the old one is released afterwards.
     hw_tlas, hw_accel, tri_gpu, off_gpu = build_hw_tlas(
         hwtlas.backend, blas_refs, hwtlas.blas_triangles, hwtlas.blas_offsets;
         transforms=hwtlas.instance_transforms,
-        custom_indices=hwtlas.instance_custom_indices)
+        custom_indices=hwtlas.instance_custom_indices,
+        per_instance_tri_offsets=per_instance_tri_offsets,
+        tri_gpu_prev=hwtlas.tri_gpu,
+        off_gpu_prev=hwtlas.off_gpu)
+
+    old_hw_tlas = hwtlas.hw_tlas
+    # tri_gpu / off_gpu get reused-in-place when sizes permit, so we do NOT
+    # release the old ones unless the backend returned a different object
+    # (i.e. it couldn't reuse and allocated new).
+    old_tri_gpu = hwtlas.tri_gpu === tri_gpu ? nothing : hwtlas.tri_gpu
+    old_off_gpu = hwtlas.off_gpu === off_gpu ? nothing : hwtlas.off_gpu
 
     hwtlas.hw_tlas = hw_tlas
     hwtlas.hw_accel = hw_accel
     hwtlas.tri_gpu = tri_gpu
     hwtlas.off_gpu = off_gpu
     hwtlas.dirty = false
+    KA.synchronize(hwtlas.backend)
+    release_hw_accel_state!(old_hw_tlas)
+    release_hw_accel_state!(old_tri_gpu)
+    release_hw_accel_state!(old_off_gpu)
+    for blas in dropped_blases
+        release_hw_accel_state!(blas)
+    end
     return hwtlas
 end
+
+"""
+    release_hw_accel_state!(x)
+
+Backend hook: explicitly release a backend-specific BLAS/TLAS/array that the
+core rebuild just replaced.  Default is a no-op — backends that hold GPU
+resources in custom structs (e.g. Lava's LavaTLAS/LavaBLAS/LavaArray) override
+this to call `unsafe_free!` through their lifetime path.
+"""
+release_hw_accel_state!(::Any) = nothing
+release_hw_accel_state!(::Nothing) = nothing
 
 # Accessors
 world_bound(hwtlas::HWTLAS) = hwtlas.root_aabb
@@ -295,6 +502,7 @@ function set_custom_anyhit! end
 # RT shader intrinsics (called inside GPU shaders, dispatched per backend)
 function rt_primitive_id end
 function rt_instance_custom_index end
+function rt_instance_id end                # gl_InstanceID (0-based instance array index)
 function rt_launch_id_x end
 function rt_global_invocation_id_x end
 function rt_ignore_intersection end
