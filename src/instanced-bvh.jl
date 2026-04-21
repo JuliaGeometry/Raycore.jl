@@ -2008,7 +2008,7 @@ This is much faster than rebuilding the TLAS from scratch when only transforms c
 Operates directly on the backend arrays stored in the TLAS.
 """
 function refit_tlas!(tlas::TLAS)
-    tlas.dirty || return tlas
+    tlas.transforms_dirty || return tlas
     n = length(tlas.instances)
     n == 0 && return tlas
     backend = tlas.backend
@@ -2023,8 +2023,13 @@ function refit_tlas!(tlas::TLAS)
         update_flags = KA.zeros(backend, UInt32, n - 1)
         refit_kernel! = refit_tlas_aabbs_kernel!(backend)
         refit_kernel!(tlas.nodes, update_flags, Int32(n), ndrange=n)
+        KA.synchronize(backend)
     end
 
+    # Propagate the refitted root-node AABB back to the cached world bound so
+    # `world_bound(tlas)` reports the post-transform extents (rays/grids depend on this).
+    root_node = Array(tlas.nodes[1:1])[1]
+    tlas.root_aabb = get_tlas_node_aabb(root_node, is_interior(root_node))
     tlas.transforms_dirty = false
     return tlas
 end
