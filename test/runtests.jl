@@ -1,6 +1,13 @@
 # NOTE: GPU kernel tests are skipped under --check-bounds=yes (the Pkg.test default)
 # because bounds checking injects error paths that can't compile to SPIR-V.
 # For full test coverage: Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
+#
+# The Lava-backed HW TLAS stress + correctness suite lives in
+# `test/test_hw_tlas_lava.jl`.  It is NOT included here because Lava is an
+# optional Raycore dep (pulls in a real Vulkan device) — run it explicitly:
+#
+#   julia --project=/sim/Programmieren/VulkanDev \
+#         dev/Raycore/test/test_hw_tlas_lava.jl
 
 using Test
 using GeometryBasics

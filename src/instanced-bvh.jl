@@ -254,7 +254,7 @@ mutable struct TLAS{Backend} <: AbstractAccel
     next_handle_id::UInt32
 end
 
-# Note: _get_isbits_ptr is defined in multitypeset.jl and reused here
+# Note: get_isbits_ptr is defined in multitypeset.jl and reused here
 
 # ------------------------------------------------------------------------------
 # TLAS Constructor and Core Operations
@@ -308,7 +308,21 @@ Safe to call on any object — no-op if no finalizer is registered.
 """
 free!(x) = (finalize(x); nothing)
 
-"""Free all GPU memory held by a TLAS."""
+"""
+    free!(tlas::TLAS)
+
+Release all GPU memory held by `tlas`.  Does **not** synchronize.
+
+**Precondition (caller's responsibility):** the GPU must be idle for
+`tlas.backend` before this is called — either because the caller just
+returned from `sync!(tlas)` / `Hikari.sync!(scene)`, from a
+`colorbuffer` that issued its own `device_wait_idle`, or because the
+caller has otherwise issued `KA.synchronize(tlas.backend)`.
+
+Calling `free!` while dispatches are still in flight through a `LavaArray`
+/ `VkAccelerationStructureKHR` BDA captured in an arg buffer is a
+use-after-free.
+"""
 function free!(tlas::TLAS)
     finalize(tlas.nodes)
     finalize(tlas.instances)
@@ -334,14 +348,14 @@ function _allocate_empty_blas_array(_backend)
 end
 
 """Get the isbits pointer type for a given element type and backend."""
-function _get_isbits_ptr_type(backend::KA.CPU, ::Type{T}) where T
+function get_isbits_ptr_type(backend::KA.CPU, ::Type{T}) where T
     return Vector{T}  # On CPU, Vector is already isbits-compatible for our purposes
 end
 
-function _get_isbits_ptr_type(backend, ::Type{T}) where T
+function get_isbits_ptr_type(backend, ::Type{T}) where T
     # For GPU backends, use argconvert to get the isbits device pointer type
     arr = KA.allocate(backend, T, 1)
-    isbits_ptr = _get_isbits_ptr(backend, arr)
+    isbits_ptr = get_isbits_ptr(backend, arr)
     return typeof(isbits_ptr)
 end
 
@@ -359,8 +373,8 @@ function _to_isbits_blas(backend, blas::BLAS, blas_storage::Vector{BLASArrays})
     push!(blas_storage, BLASArrays(blas.nodes, blas.primitives))
 
     # Get isbits device pointers
-    isbits_nodes = _get_isbits_ptr(backend, blas.nodes)
-    isbits_prims = _get_isbits_ptr(backend, blas.primitives)
+    isbits_nodes = get_isbits_ptr(backend, blas.nodes)
+    isbits_prims = get_isbits_ptr(backend, blas.primitives)
 
     return BLAS(isbits_nodes, isbits_prims, blas.root_aabb)
 end
@@ -761,8 +775,8 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
 
     # Create isbits version and replace in blas_array
     isbits_blas = BLAS(
-        _get_isbits_ptr(tlas.backend, new_blas.nodes),
-        _get_isbits_ptr(tlas.backend, new_blas.primitives),
+        get_isbits_ptr(tlas.backend, new_blas.nodes),
+        get_isbits_ptr(tlas.backend, new_blas.primitives),
         new_blas.root_aabb
     )
     tlas.blas_array[blas_idx] = isbits_blas
@@ -778,14 +792,28 @@ end
 """
     sync!(tlas::TLAS) -> TLAS
 
-Rebuild the BVH structure if dirty. No-op if already up-to-date.
+Rebuild the BVH structure if dirty, then **wait for the GPU to finish**
+all work currently queued on `tlas.backend` (via `KA.synchronize`).
+No-op if already up-to-date AND no work is pending.
 
-If there are deleted handles, compacts the instances array first.
-Then rebuilds the BVH topology from the (compacted) instances.
+After `sync!(tlas)` returns:
+- The TLAS reflects all prior `push!`/`delete!` calls.
+- The GPU is idle for `tlas.backend`.
+- Any resource that is no longer reachable through the (new) accel is
+  safe to release synchronously: its `VkAccelerationStructureKHR` /
+  BDA captures in in-flight work have drained.
+
+Invariants for callers:
+- `update!` / `push!` / `delete!` on the TLAS do NOT wait and do NOT
+  perform cleanup; they mark state dirty and return immediately. Call
+  `sync!` to establish a safe boundary before freeing transitively-
+  owned resources.
 """
 function sync!(tlas::TLAS)
-    tlas.dirty || return tlas
-    _rebuild_bvh!(tlas)
+    if tlas.dirty
+        _rebuild_bvh!(tlas)
+    end
+    KA.synchronize(tlas.backend)
     return tlas
 end
 
@@ -2196,4 +2224,4 @@ export INVALID_NODE
 # TLAS Handle API
 export TLASHandle
 export n_instances, n_geometries, get_instance, get_instances
-export update_transform!, update_transforms!, is_valid
+export update_transform!, update_transforms!, update_transform_at!, is_valid

@@ -14,7 +14,8 @@ import Raycore: supports_indirect_dispatch, indirect_ndrange,
                 rt_ignore_intersection, rt_terminate_ray,
                 rt_payload_store!, rt_payload_load, rt_trace_ray!,
                 closest_hit, AbstractAdaptedAccel,
-                HWTLAS, HWAdaptedAccel, RTRay, RTHitResult
+                HWTLAS, HWAdaptedAccel, RTRay, RTHitResult,
+                release_hw_accel_state!
 import Adapt
 import KernelAbstractions
 using StaticArrays: SVector, SMatrix
@@ -49,7 +50,8 @@ function Raycore.build_hw_blas(::LavaBackend, vertices, indices)
 end
 
 function Raycore.build_hw_tlas(::LavaBackend, blas_refs, blas_triangles, blas_offsets;
-                                transforms, custom_indices, per_instance_tri_offsets)
+                                transforms, custom_indices, per_instance_tri_offsets,
+                                tri_gpu_prev=nothing, off_gpu_prev=nothing)
     hw_tlas = Lava.as_build() do ctx
         Lava.build_tlas(ctx, blas_refs; transforms, custom_indices)
     end
@@ -59,15 +61,43 @@ function Raycore.build_hw_tlas(::LavaBackend, blas_refs, blas_triangles, blas_of
     all_tris = T[t for t in all_tris_any]
     hw_accel = Lava.HardwareAccel(hw_tlas, all_tris, blas_offsets, per_instance_tri_offsets)
 
-    tri_gpu = LavaArray(all_tris)
+    # Grow-and-overwrite on the previous LavaArray when the eltype matches —
+    # steady-state per-frame rebuild allocates zero Vulkan memory once the
+    # triangle count peaks.  If types disagree (e.g. the scene gained its
+    # first emissive mesh, widening TriangleMeta), fall back to fresh alloc.
+    tri_gpu = _reuse_or_alloc(tri_gpu_prev, all_tris)
+
     # `off_gpu` is now keyed by `gl_InstanceID` (not BLAS index) — one entry
     # per instance, giving the offset into `tri_gpu` for that instance.
-    off_gpu = LavaArray(collect(per_instance_tri_offsets))
+    off_cpu = collect(per_instance_tri_offsets)
+    off_gpu = _reuse_or_alloc(off_gpu_prev, off_cpu)
 
     return (hw_tlas, hw_accel, tri_gpu, off_gpu)
 end
 
+# Try to reuse `prev` as the GPU sink for `data` via capacity-aware resize+copyto.
+# If `prev` has a matching element type, the in-place path keeps the same LavaArray
+# identity (and the same backing VkManagedBuffer whenever `data` still fits the
+# buffer's existing capacity).  Otherwise allocate fresh.
+function _reuse_or_alloc(prev, data::AbstractArray{T}) where T
+    if prev isa LavaArray{T}
+        resize!(prev, length(data))
+        copyto!(prev, data)
+        return prev
+    end
+    return LavaArray(data)
+end
+
 Raycore.mat4_to_transform_matrix(m::SMatrix{4,4,Float32,16}) = mat4_to_vk_transform(m)
+
+# Release hooks for the core `sync!(hwtlas)` rebuild: after the rebuild
+# fence has synced, the old LavaTLAS / LavaBLAS / LavaArrays that were just
+# replaced can be released immediately.  Without this, DataRefs sit pinned
+# to the old GPU buffers until GC runs — which in a tight render loop leaks
+# hundreds of MiB per frame (one full AS storage + tri_gpu + off_gpu set).
+Raycore.release_hw_accel_state!(x::LavaArray) = Lava.unsafe_free!(x)
+Raycore.release_hw_accel_state!(x::LavaTLAS)  = Lava.unsafe_free!(x)
+Raycore.release_hw_accel_state!(x::LavaBLAS)  = Lava.unsafe_free!(x)
 
 # ============================================================================
 # Batch trace dispatch

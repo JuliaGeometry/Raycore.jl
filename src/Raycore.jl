@@ -77,7 +77,7 @@ export closest_hit, any_hit, world_bound, trace_rays
 # Hardware RT types and stubs
 export HWTLAS, HWAdaptedAccel, RTRay, RTHitResult
 export supports_indirect_dispatch, indirect_ndrange
-export build_hw_blas, build_hw_tlas, trace_closest_hits!, trace_closest_hits_indirect!
+export build_hw_blas, build_hw_tlas, release_hw_accel_state!, trace_closest_hits!, trace_closest_hits_indirect!
 export batch_trace_indirect, set_custom_anyhit!, mat4_to_transform_matrix
 export rt_primitive_id, rt_instance_custom_index, rt_launch_id_x, rt_global_invocation_id_x
 export rt_ignore_intersection, rt_terminate_ray
@@ -104,7 +104,7 @@ export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, g
 # MultiTypeSet - type-stable heterogeneous collections
 export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
 export is_invalid, is_valid, with_index, n_slots, deref, get_static, to_tuple
-export maybe_convert_field, store_texture, rebuild_static!
+export maybe_convert_field, store_texture
 export free!
 
 end
