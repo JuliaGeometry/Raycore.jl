@@ -247,8 +247,11 @@ mutable struct TLAS{Backend} <: AbstractAccel
     _flat_blas_prims::Any    # concatenated triangles from all BLASes
     _flat_blas_descs::Any    # BLASDescriptor array on backend
 
-    # Whether BVH topology needs rebuild
+    # Whether BVH topology needs rebuild (geometry added/removed)
     dirty::Bool
+
+    # Whether instance transforms changed and the TLAS needs refit (leaf AABB update)
+    transforms_dirty::Bool
 
     # Counters
     next_handle_id::UInt32
@@ -290,7 +293,8 @@ function TLAS(backend)
         nothing,                                     # _flat_blas_nodes
         nothing,                                     # _flat_blas_prims
         nothing,                                     # _flat_blas_descs
-        true,                                        # dirty
+        true,                                        # dirty (topology)
+        false,                                       # transforms_dirty
         UInt32(1)                                    # next_handle_id
     )
 
@@ -812,6 +816,9 @@ Invariants for callers:
 function sync!(tlas::TLAS)
     if tlas.dirty
         _rebuild_bvh!(tlas)
+        tlas.transforms_dirty = false
+    elseif tlas.transforms_dirty
+        refit_tlas!(tlas)
     end
     KA.synchronize(tlas.backend)
     return tlas
@@ -1995,6 +2002,7 @@ function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform
             old_inst.flags
         )
     end
+    tlas.transforms_dirty = true
     return nothing
 end
 
@@ -2025,7 +2033,7 @@ function refit_tlas!(tlas::TLAS)
         refit_kernel!(tlas.nodes, update_flags, Int32(n), ndrange=n)
     end
 
-    tlas.dirty = false
+    tlas.transforms_dirty = false
     return tlas
 end
 
@@ -2048,6 +2056,7 @@ function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4
     kernel! = update_instance_transforms_kernel!(backend)
     kernel!(tlas.instances, transforms, Int32(n_to_update), ndrange=n_to_update)
     KA.synchronize(backend)
+    tlas.transforms_dirty = true
     return nothing
 end
 
@@ -2068,6 +2077,7 @@ function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4
     kernel! = update_instance_transforms_offset_kernel!(backend)
     kernel!(tlas.instances, transforms, Int32(n_to_update), Int32(first_idx), ndrange=n_to_update)
     KA.synchronize(backend)
+    tlas.transforms_dirty = true
     return nothing
 end
 
