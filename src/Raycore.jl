@@ -11,6 +11,40 @@ using GPUArraysCore: @allowscalar
 
 abstract type AbstractRay end
 abstract type Primitive end
+"""
+    AbstractAccel
+
+Mutable acceleration structure for ray/geometry intersection queries.
+
+Concrete implementations:
+- `Raycore.TLAS` — software BVH/TLAS, runs on any KernelAbstractions backend.
+- `Lava.HWTLAS` — hardware ray tracing via `VK_KHR_ray_tracing_pipeline`.
+
+# Mutation API
+- `push!(accel, mesh, transform)`: add geometry, return a `TLASHandle`.
+- `delete!(accel, handle)`, `update_transform!(accel, handle, transform)`,
+  `update_transform_at!(accel, handle, i, transform)`.
+
+# Lifecycle
+- `sync!(accel)` — sole owner of `accel.static_tlas`. Rebuilds in place
+  where possible; reassigns when a buffer had to grow. No-op on a clean
+  accel. Does NOT block the CPU on a GPU fence; backend-internal timeline
+  tracking handles the "still in flight" case.
+- `Adapt.adapt(backend, accel) === accel.static_tlas` between `sync!`s.
+  Consumers re-read `accel.static_tlas` (or call `Adapt.adapt`) **per
+  dispatch**. Caching the adapted form across mutations is a contract
+  violation.
+
+# Query
+- `closest_hit(adapted, ray) -> (hit, tri, t, bary, instance_override)`
+- `any_hit(adapted, ray) -> Bool`
+- `world_bound(accel)`, `n_instances(accel)`, `n_geometries(accel)`.
+
+# Flush
+- `wait_for_gpu!(accel)` — block CPU until all pending GPU work on this
+  accel's queue has completed. Convenience for tear-down and benchmark
+  isolation. Not part of the hot path.
+"""
 abstract type AbstractAccel end
 abstract type AbstractAdaptedAccel end
 const Maybe{T} = Union{T,Nothing}
@@ -51,13 +85,13 @@ include("collision.jl")
 include("soa.jl")
 include("multitypeset.jl")
 include("unrolled.jl")
-include("hw-accel.jl")
+include("rt_transport.jl")
 
 # Macros
 export @_inbounds
 
 # Core types
-export Ray, RayDifferentials, Triangle, Bounds3, Normal3f
+export Ray, RayDifferentials, Triangle, Bounds3, Normal3f, empty_triangle
 
 # Instanced BVH types
 export BLAS, BLASDescriptor, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
@@ -73,18 +107,15 @@ export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 # Ray intersection functions
 export AbstractAccel, AbstractAdaptedAccel
 export closest_hit, any_hit, world_bound, trace_rays
+export n_instances, n_geometries, wait_for_gpu!
 
-# Hardware RT types and stubs
-export HWTLAS, HWAdaptedAccel, RTRay, RTHitResult
-export supports_indirect_dispatch, indirect_ndrange
-export build_hw_blas, build_hw_tlas, release_hw_accel_state!, trace_closest_hits!, trace_closest_hits_indirect!
-export batch_trace_indirect, set_custom_anyhit!, mat4_to_transform_matrix
-export rt_primitive_id, rt_instance_custom_index, rt_launch_id_x, rt_global_invocation_id_x
-export rt_ignore_intersection, rt_terminate_ray
-export rt_payload_store!, rt_payload_load, rt_trace_ray!
+# RT transport types (used by Lava.HWTLAS and consumers)
+export RTRay, RTHitResult
 
-# Stub for Makie extension
+# Stubs for Lava/Makie extensions
 function trace_rays end
+function push_instances! end
+export push_instances!
 
 # Math utilities
 export reflect
