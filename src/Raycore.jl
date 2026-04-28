@@ -115,6 +115,20 @@ export RTRay, RTHitResult
 # Stubs for Lava/Makie extensions
 function trace_rays end
 
+"""
+    instance_buffer(tlas, handle::TLASHandle)
+
+Return the underlying GPU instance buffer (a `Lava.LavaArray{LavaInstanceRecord, 1}`)
+that the named batch is using. The caller can write into this buffer (e.g.,
+via a compute kernel) and then call `refit_tlas!(tlas)` to commit the changes.
+
+Errors loudly if the handle does not refer to an instance batch (e.g., it
+refers to a per-mesh push! instance, which has no GPU instance buffer).
+"""
+function instance_buffer end
+
+export instance_buffer
+
 # Math utilities
 export reflect
 
