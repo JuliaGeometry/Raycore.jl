@@ -114,8 +114,6 @@ export RTRay, RTHitResult
 
 # Stubs for Lava/Makie extensions
 function trace_rays end
-function push_instances! end
-export push_instances!
 
 # Math utilities
 export reflect
