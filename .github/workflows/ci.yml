@@ -21,19 +21,21 @@ jobs:
       matrix:
         backend: [cpu, lavapipe]
     env:
-      DISPLAY: ':0'
       RAYCORE_TEST_BACKEND: ${{ matrix.backend }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install xvfb (GLFW pulled in by Lava needs an X display at module __init__)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
       - name: Install lavapipe (mesa software Vulkan)
         if: matrix.backend == 'lavapipe'
         run: |
-          sudo apt-get update
           sudo apt-get install -y mesa-vulkan-drivers vulkan-tools spirv-tools
           echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
           # Confirm lavapipe is the active ICD
-          vulkaninfo --summary | grep -E "deviceName|driverName" | head -4 || true
+          xvfb-run --auto-servernum vulkaninfo --summary | grep -E "deviceName|driverName" | head -4 || true
       - uses: julia-actions/setup-julia@v2
         with:
           version: 1
@@ -45,3 +47,6 @@ jobs:
           # --check-bounds=yes because bounds checking injects error paths that
           # can't compile to SPIR-V.
           check_bounds: auto
+          # Wrap julia with xvfb-run so GLFW's __init__ (transitively loaded
+          # via Lava) can call glfwInit() on a headless runner.
+          prefix: xvfb-run --auto-servernum
