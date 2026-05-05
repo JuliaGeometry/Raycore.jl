@@ -10,7 +10,6 @@ GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 ImageShow = "4e3cecfd-b093-5904-9786-8bbb286a6a31"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 MeshIO = "7269a6da-0436-5bbc-96c2-40638cbb6118"
@@ -22,10 +21,6 @@ WGLMakie = "276b4fcb-3e11-5398-bf8b-a0c2d153d008"
 
 [sources]
 BonitoBook = {url = "https://github.com/SimonDanisch/BonitoBook.jl"}
-# Lava is unregistered; CI doc build pulls it from GitHub the same way the
-# test job does in the package's main Project.toml.  `path = "../../Lava"`
-# would only resolve in the local VulkanDev dev checkout, not on CI.
-Lava = {url = "https://github.com/SimonDanisch/Lava.jl"}
 Raycore = {path = ".."}
 
 [compat]
