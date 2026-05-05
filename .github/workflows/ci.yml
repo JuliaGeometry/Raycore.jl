@@ -6,15 +6,16 @@ on:
     tags: '*'
   pull_request:
 
-concurrency:
-  # Skip intermediate builds: always.
-  # Cancel intermediate builds: only if it is a pull request build.
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.backend }}
-  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
     name: Tests (${{ matrix.backend }})
     runs-on: ubuntu-latest
+    # Concurrency lives on the job (not the workflow) so it can reference
+    # `matrix.backend`, which is only in scope at the job level.  Skip /
+    # cancel intermediate builds per matrix entry independently.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.backend }}
+      cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
     strategy:
       fail-fast: false
       matrix:
