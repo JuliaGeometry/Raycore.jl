@@ -1,4 +1,4 @@
-# Hardware-Accelerated Ray Tracing
+# Hardware Ray Tracing with Lava
 
 Modern GPUs include dedicated ray tracing hardware (RT cores on NVIDIA, Ray Accelerators on AMD) that can traverse BVH structures and test ray-triangle intersections in fixed-function silicon. This tutorial shows how to use hardware acceleration with Raycore via the [Lava.jl](https://github.com/SimonDanisch/Lava.jl) Vulkan backend.
 
