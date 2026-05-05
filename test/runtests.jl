@@ -79,14 +79,11 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
     @testset "Intersection" begin
         include("test_intersection.jl")
     end
-    @testset "Type Stability" begin
-        # include("test_type_stability.jl")  # disabled: @allocated tests fail on Julia 1.12
-    end
     @testset "Bounds" begin
         include("bounds.jl")
     end
     @testset "Unrolled" begin
-        # include("test_unrolled.jl")  # requires BenchmarkTools (not in test deps)
+        include("test_unrolled.jl")
     end
 
     # Backend-using suites.  On lavapipe, the FIRST kernel dispatch in any

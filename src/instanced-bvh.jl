@@ -180,10 +180,15 @@ Per-BLAS backing GPU arrays.  Field ownership transitively keeps the
 `nodes` / `primitives` buffers alive while the TLAS holds them, so the
 isbits device pointers stored in `blas_array` (and the flat arrays used
 by StaticTLAS) remain valid.
+
+`primitives` is left at the bare `AbstractVector` bound rather than
+`AbstractVector{<:Triangle}` because differently-parameterized
+`Triangle{TMetadata}` subtypes need to coexist across BLASes; the tighter
+bound forces a UnionAll that doesn't help dispatch.
 """
 struct BLASArrays
-    nodes::Any        # AbstractVector{BVHNode2}
-    primitives::Any   # AbstractVector{Triangle}
+    nodes::AbstractVector{BVHNode2}
+    primitives::AbstractVector
 end
 
 """
@@ -245,10 +250,19 @@ static = adapt(backend, tlas)  # Reads tlas.static_tlas — cheap, call per disp
 mutable struct TLAS{Backend} <: AbstractAccel
     backend::Backend
 
-    # Backend arrays for kernel traversal (GPU from start)
-    nodes::Any       # AbstractVector{BVHNode2} - rebuilt on sync!
-    instances::Any   # AbstractVector{InstanceDescriptor} - direct GPU append
-    blas_array::Any  # Backend array of isbits BLASes
+    # Backend arrays for kernel traversal (GPU from start).  Field types are
+    # bounded by the abstract element type so `tlas.instances[i]` returns a
+    # concrete `InstanceDescriptor` without boxing, while still allowing the
+    # backing array to be reallocated to a different concrete container (e.g.
+    # `Vector` ↔ `LavaArray`) across `sync!`.  The container itself stays
+    # abstract because `KA.allocate` returns backend-specific types we don't
+    # want to fix at struct definition.
+    nodes::AbstractVector{BVHNode2}             # rebuilt on sync!
+    instances::AbstractVector{InstanceDescriptor}  # direct GPU append
+    # `blas_array` is a backend array of isbits `BLAS{NodeArr,TriArr}`.  Element
+    # type varies by mesh metadata, so no tighter bound; `nothing` until the
+    # first `push!` because the concrete BLAS type isn't known at construction.
+    blas_array::Union{Nothing, AbstractVector}
 
     root_aabb::Bounds3
 
@@ -262,16 +276,17 @@ mutable struct TLAS{Backend} <: AbstractAccel
     # long as the TLAS does.
     blas_storage::Vector{BLASArrays}
 
-    # Flat BLAS arrays for StaticTLAS traversal (built during sync!, kept alive for isbits pointers)
-    _flat_blas_nodes::Any    # concatenated BVH nodes from all BLASes
-    _flat_blas_prims::Any    # concatenated triangles from all BLASes
-    _flat_blas_descs::Any    # BLASDescriptor array on backend
+    # Flat BLAS arrays for StaticTLAS traversal (built during sync!, kept alive for isbits pointers).
+    # `nothing` before the first `build_flat_blas_arrays!`.
+    _flat_blas_nodes::Union{Nothing, AbstractVector{BVHNode2}}
+    _flat_blas_prims::Union{Nothing, AbstractVector}        # see blas_array note
+    _flat_blas_descs::Union{Nothing, AbstractVector{BLASDescriptor}}
 
     # GPU-adapted form, owned by sync!. Consumers read this via `tlas.static_tlas`
     # or `Adapt.adapt(backend, tlas)` per dispatch — do NOT cache across
     # mutations. See the TLAS docstring for the full invariant.
     # `nothing` until the first sync!.
-    static_tlas::Any   # Union{Nothing, StaticTLAS}
+    static_tlas::Union{Nothing, StaticTLAS}
 
     # Whether BVH topology needs rebuild (geometry added/removed)
     dirty::Bool
@@ -2307,9 +2322,22 @@ end
 """
     n_instances(tlas::TraversableTLAS)
 
-Return total number of instance descriptors in the TLAS.
+Return total number of *live* instance descriptors in the TLAS.
+
+For a `TLAS`, instances `delete!`d but not yet compacted by `sync!` are
+excluded; the count tracks what the next `sync!` will publish, not the
+backing buffer length. `StaticTLAS` has no pending state, so it returns
+`length(tlas.instances)` directly.
 """
-n_instances(tlas::TraversableTLAS) = length(tlas.instances)
+n_instances(tlas::StaticTLAS) = length(tlas.instances)
+function n_instances(tlas::TLAS)
+    pending = 0
+    for h in tlas.deleted_handles
+        r = get(tlas.handle_to_range, h, nothing)
+        r === nothing || (pending += length(r))
+    end
+    return length(tlas.instances) - pending
+end
 
 """
     n_geometries(tlas::TraversableTLAS)
