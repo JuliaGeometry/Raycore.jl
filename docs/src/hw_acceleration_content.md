@@ -2,6 +2,21 @@
 
 Modern GPUs include dedicated ray tracing hardware (RT cores on NVIDIA, Ray Accelerators on AMD) that can traverse BVH structures and test ray-triangle intersections in fixed-function silicon. This tutorial shows how to use hardware acceleration with Raycore via the [Lava.jl](https://github.com/SimonDanisch/Lava.jl) Vulkan backend.
 
+## When to pick `Raycore.TLAS` vs. `Lava.HWTLAS`
+
+| Aspect | `Raycore.TLAS` | `Lava.HWTLAS` |
+|---|---|---|
+| Backend | any KA backend (CUDA, AMDGPU, Metal, Lava) | Lava + Vulkan RT only |
+| BVH | software (BVH4 / instanced BVH) | `VkAccelerationStructureKHR` |
+| Closest-hit kernel | KA `@kernel` | `vkCmdTraceRaysKHR` shader |
+| Dispatch overhead | low, KA launch | very low, pre-baked SBT |
+| Use when | portability / non-Vulkan backend / no RT hardware | max perf on Vulkan RT hardware |
+
+Both types satisfy `Raycore.AbstractAccel` — `push!`, `delete!`,
+`update_transform!`, `sync!`, `closest_hit`, `n_instances`,
+`n_geometries`, `wait_for_gpu!` work identically. You can swap one for
+the other with minimal code changes.
+
 ## When to Use Hardware RT
 
 Hardware RT gives the biggest speedups on scenes with:
@@ -14,6 +29,8 @@ For scenes with few triangles or expensive volumetric shading (clouds, subsurfac
 ## Setup
 
 Hardware RT requires a Vulkan-capable GPU with the `VK_KHR_ray_tracing_pipeline` extension. All NVIDIA RTX (Turing+), AMD RDNA 2+, and Intel Arc GPUs support this.
+
+`HWTLAS` is the high-level entry point from `Lava`. It owns the Vulkan TLAS + BLAS lifecycle, supports incremental geometry updates via `push!` / `delete!` / `update_transform!`, and implements the `Raycore.AbstractAccel` contract so the same code works against software and hardware backends. `HardwareAccel` remains available as a lower-level handle for advanced users who need direct control of the pipeline/SBT.
 
 ```julia (editor=true, logging=false, output=true)
 using Raycore, GeometryBasics, Hikari
@@ -172,3 +189,48 @@ img = colorbuffer(scene; backend=RayMakie, integrator=integrator)
 ```
 
 The `hw_accel` flag is the only API difference. Scene construction, camera setup, materials, and all other parameters are identical.
+
+## Lifetime and memory management
+
+`sync!(hwtlas)` owns `hwtlas.static_tlas`. Consumers re-read it (or call
+`Adapt.adapt(backend, hwtlas)`) per dispatch — do NOT cache across
+mutations.
+
+`sync!` does not block the CPU. Backend-internal timeline tracking
+(Lava's `bq.deferred_as_frees`) handles the "still in flight" case when
+old acceleration-structure buffers are dropped. If you need a
+CPU-blocking drain — e.g. before tear-down or between benchmark phases
+— call `wait_for_gpu!(hwtlas)` explicitly.
+
+## Direct `HWTLAS` usage
+
+For code that wants to manage the acceleration structure directly (without going through Hikari/RayMakie), `Lava.HWTLAS` can be used standalone:
+
+```julia
+using Raycore, Lava, GeometryBasics, StaticArrays, LinearAlgebra
+using Raycore: RTRay, RTHitResult
+
+backend = Lava.LavaBackend()
+hwtlas = Lava.HWTLAS(backend)
+
+mesh = normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
+push!(hwtlas, mesh, SMatrix{4,4,Float32}(I); instance_id=UInt32(1))
+Raycore.sync!(hwtlas)
+
+rays = LavaArray([RTRay(0,0,5, 0, 0,0,-1, 1f3)])
+hits = LavaArray(fill(RTHitResult(0,0,0,0,0,0,0,0), 1))
+Lava.trace_closest_hits!(hits, rays, hwtlas.hw_accel, 1)
+```
+
+RT intrinsics inside shader functions use the `lava_rt_*` naming convention (no `accel` argument — the SBT wires up the hardware automatically):
+
+| Old (`Raycore.rt_*`) | New (`lava_rt_*`) |
+|---|---|
+| `Raycore.rt_primitive_id(accel)` | `lava_rt_primitive_id()` |
+| `Raycore.rt_instance_id(accel)` | `lava_rt_instance_id()` |
+| `Raycore.rt_instance_custom_index(accel)` | `lava_rt_instance_custom_index()` |
+| `Raycore.rt_launch_id_x(accel)` | `lava_rt_launch_id_x()` |
+| `Raycore.rt_trace_ray!(accel, ...)` | `lava_rt_trace_ray(...)` |
+| `Raycore.rt_ignore_intersection(accel)` | `lava_rt_ignore_intersection()` |
+| `Raycore.rt_payload_store!(accel, val, slot)` | `lava_rt_payload_store_f32_at(val, slot)` |
+| `Raycore.rt_payload_load(accel, slot)` | `lava_rt_payload_load_f32_at(slot)` |

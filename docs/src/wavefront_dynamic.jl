@@ -6,7 +6,6 @@
 
 using Revise
 using Raycore
-using Raycore: update_instance_transform!, refit_tlas!
 using KernelAbstractions
 using GeometryBasics, Colors, LinearAlgebra
 import Makie
@@ -57,76 +56,53 @@ end
 
 """
 Create a dynamic scene with objects that can be animated.
-Returns TLAS for efficient transform updates.
+Returns `(tlas, handles, ctx)` — `handles[i]` is the `TLASHandle` for geometry `i`.
 """
 function create_dynamic_scene()
-    # Create simple geometries
-    # Sphere that will orbit
-    sphere1 = Tesselation(Sphere(Point3f(0, 0, 0), 0.5f0), 32)
-
-    # Another sphere that will bounce
-    sphere2 = Tesselation(Sphere(Point3f(0, 0, 0), 0.4f0), 32)
-
-    # A cube that will rotate
-    cube = normal_mesh(Rect3f(Vec3f(-0.4f0), Vec3f(0.8f0)))
-
-    # Static floor
-    floor = normal_mesh(Rect3f(Vec3f(-4, -1, -4), Vec3f(8, 0.01, 8)))
-
-    # Back wall
+    sphere1  = Tesselation(Sphere(Point3f(0, 0, 0), 0.5f0), 32)
+    sphere2  = Tesselation(Sphere(Point3f(0, 0, 0), 0.4f0), 32)
+    cube     = normal_mesh(Rect3f(Vec3f(-0.4f0), Vec3f(0.8f0)))
+    floor    = normal_mesh(Rect3f(Vec3f(-4, -1, -4), Vec3f(8, 0.01, 8)))
     back_wall = normal_mesh(Rect3f(Vec3f(-4, -1, 4), Vec3f(8, 4, 0.01)))
 
-    # Materials
     materials = [
-        Material(RGB(0.9f0, 0.2f0, 0.2f0), 0.3f0, 0.4f0, 1.0f0, 0.0f0),  # Red sphere
-        Material(RGB(0.2f0, 0.9f0, 0.2f0), 0.5f0, 0.2f0, 1.0f0, 0.0f0),  # Green sphere
-        Material(RGB(0.2f0, 0.2f0, 0.9f0), 0.0f0, 0.6f0, 1.0f0, 0.0f0),  # Blue cube
-        Material(RGB(0.4f0, 0.4f0, 0.4f0), 0.0f0, 0.9f0, 1.0f0, 0.0f0),  # Gray floor
-        Material(RGB(0.8f0, 0.7f0, 0.6f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0),  # Beige wall
+        Material(RGB(0.9f0, 0.2f0, 0.2f0), 0.3f0, 0.4f0, 1.0f0, 0.0f0),
+        Material(RGB(0.2f0, 0.9f0, 0.2f0), 0.5f0, 0.2f0, 1.0f0, 0.0f0),
+        Material(RGB(0.2f0, 0.2f0, 0.9f0), 0.0f0, 0.6f0, 1.0f0, 0.0f0),
+        Material(RGB(0.4f0, 0.4f0, 0.4f0), 0.0f0, 0.9f0, 1.0f0, 0.0f0),
+        Material(RGB(0.8f0, 0.7f0, 0.6f0), 0.0f0, 0.8f0, 1.0f0, 0.0f0),
     ]
 
-    geometries = [sphere1, sphere2, cube, floor, back_wall]
-
-    # Build initial TLAS
     println("Building initial TLAS...")
-    tlas = Raycore.TLAS(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
-
-    println("TLAS created with $(length(tlas.instances)) instances")
+    tlas = Raycore.TLAS(KernelAbstractions.CPU())
+    handles = [push!(tlas, normal_mesh(g)) for g in [sphere1, sphere2, cube, floor, back_wall]]
+    Raycore.sync!(tlas)
+    println("TLAS created with $(Raycore.n_instances(tlas)) instances")
 
     lights = default_lights()
     ctx = RenderContext(lights, materials, 0.1f0)
 
-    return tlas, ctx
+    return tlas, handles, ctx
 end
 
 """
 Update transforms for frame t (0 to 1 for one animation cycle).
-Uses TLAS directly - no wrapper needed since TLAS has mutable arrays!
 """
-function update_scene!(tlas::Raycore.TLAS, t::Float32)
-    # Instance 1: Red sphere orbits around center
+function update_scene!(tlas::Raycore.TLAS, handles::Vector, t::Float32)
     orbit_radius = 1.5f0
-    orbit_angle = t * 2f0 * Float32(pi)
-    x1 = orbit_radius * cos(orbit_angle)
-    z1 = orbit_radius * sin(orbit_angle)
-    transform1 = translation(x1, 0.0f0, z1)
-    update_instance_transform!(tlas, 1, transform1)
+    orbit_angle  = t * 2f0 * Float32(pi)
+    Raycore.update_transform!(tlas, handles[1],
+        translation(orbit_radius * cos(orbit_angle), 0.0f0, orbit_radius * sin(orbit_angle)))
 
-    # Instance 2: Green sphere bounces up and down
     bounce_height = 0.5f0 + 0.8f0 * abs(sin(t * 4f0 * Float32(pi)))
-    transform2 = translation(-1.5f0, bounce_height, 0.0f0)
-    update_instance_transform!(tlas, 2, transform2)
+    Raycore.update_transform!(tlas, handles[2], translation(-1.5f0, bounce_height, 0.0f0))
 
-    # Instance 3: Blue cube rotates and moves
-    cube_angle = t * 3f0 * Float32(pi)
     cube_x = 1.0f0 * sin(t * 2f0 * Float32(pi))
-    transform3 = translation(cube_x, 0.0f0, -1.0f0) * rotation_y(cube_angle)
-    update_instance_transform!(tlas, 3, transform3)
+    Raycore.update_transform!(tlas, handles[3],
+        translation(cube_x, 0.0f0, -1.0f0) * rotation_y(t * 3f0 * Float32(pi)))
 
-    # Instance 4 & 5: Floor and wall are static (identity transform already set)
-
-    # Refit TLAS with updated transforms
-    refit_tlas!(tlas)
+    # handles[4] (floor) and handles[5] (wall) are static — no update needed
+    Raycore.sync!(tlas)
 end
 
 """

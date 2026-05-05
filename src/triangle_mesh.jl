@@ -36,6 +36,45 @@ object_bound(t::Triangle) = mapreduce(
 
 world_bound(t::Triangle) = reduce(∪, Bounds3.(vertices(t)))
 
+"""
+    empty_triangle(::Type{Triangle{TMeta}}) -> Triangle{TMeta}
+
+Zero-initialized `Triangle` suitable as a no-hit sentinel. All vertex, normal,
+tangent, and uv components are 0; metadata is field-wise zero-constructed
+(works for any POD struct whose primitive fields have `zero(T)` defined).
+
+Takes the full Triangle type (not just the metadata type) so callers can
+write `empty_triangle(eltype(triangles))` directly.
+"""
+function empty_triangle(::Type{Triangle{TMeta}}) where TMeta
+    Triangle{TMeta}(
+        SVector{3,Point3f}(Point3f(0,0,0), Point3f(0,0,0), Point3f(0,0,0)),
+        SVector{3,Normal3f}(Normal3f(0,0,0), Normal3f(0,0,0), Normal3f(0,0,0)),
+        SVector{3,Vec3f}(Vec3f(0,0,0), Vec3f(0,0,0), Vec3f(0,0,0)),
+        SVector{3,Point2f}(Point2f(0,0), Point2f(0,0), Point2f(0,0)),
+        _zero_struct(TMeta),
+    )
+end
+
+"""
+    _zero_struct(::Type{T}) -> T
+
+Field-wise zero-initialise a POD struct `T`.  Recursive over `fieldtype(T, i)`
+so nested structs (e.g. `Triangle{TriangleMeta}` where `TriangleMeta` has
+`UInt32` fields) work without requiring `zero(T)` to be defined on the outer
+type.  Falls back to `zero(T)` for primitive leaves.
+"""
+@generated function _zero_struct(::Type{T}) where T
+    nf = fieldcount(T)
+    if nf == 0
+        # Primitive leaf — use Base.zero.
+        return :(zero(T))
+    else
+        fields = [:(_zero_struct($(fieldtype(T, i)))) for i in 1:nf]
+        return Expr(:call, T, fields...)
+    end
+end
+
 function _argmax(vec::Vec3)
     max_val = vec[1]
     max_idx = Int32(1)

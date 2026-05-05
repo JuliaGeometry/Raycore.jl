@@ -409,6 +409,14 @@ this path — that would allocate a new GPU slot per update and leak hundreds
 of MB per frame for plots with per-vertex color textures.
 """
 function update!(dhv::MultiTypeSet, key::SetKey, new_item)
+    # Invalid-key sentinel ⇒ item was never stored in this set (e.g. the
+    # `SetKey()` returned by `push!(::MultiTypeSet, ::NullMaterial)` which is
+    # pbrt-v4's "Material interface"/nullptr equivalent and owns no slot, or
+    # a `MediumInterface` with `inside=nothing`/`outside=nothing` whose media
+    # side is likewise unpushed). Updating a slot that doesn't exist is a
+    # no-op, not an error — the caller's intent ("refresh what's stored")
+    # is vacuously satisfied.
+    is_invalid(key) && return nothing
     CT = dhv.data_order[key.type_idx]
     old_converted = dhv.data_vectors[CT][key.vec_idx]
     updated = update_item(dhv, old_converted, new_item)

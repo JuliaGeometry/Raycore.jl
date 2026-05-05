@@ -9,17 +9,30 @@ on:
 concurrency:
   # Skip intermediate builds: always.
   # Cancel intermediate builds: only if it is a pull request build.
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ matrix.backend }}
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 jobs:
   test:
-    name: Tests
+    name: Tests (${{ matrix.backend }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [cpu, lavapipe]
     env:
       DISPLAY: ':0'
+      RAYCORE_TEST_BACKEND: ${{ matrix.backend }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Install lavapipe (mesa software Vulkan)
+        if: matrix.backend == 'lavapipe'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools spirv-tools
+          echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          # Confirm lavapipe is the active ICD
+          vulkaninfo --summary | grep -E "deviceName|driverName" | head -4 || true
       - uses: julia-actions/setup-julia@v2
         with:
           version: 1
@@ -27,6 +40,7 @@ jobs:
       - uses: julia-actions/cache@v2
       - uses: julia-actions/julia-runtest@v1
         with:
-          # --check-bounds=auto: GPU kernels (OpenCL/pocl) crash with --check-bounds=yes
-          # because bounds-check code generates SPIR-V that pocl cannot handle
+          # --check-bounds=auto: GPU kernels (lavapipe / OpenCL / pocl) crash with
+          # --check-bounds=yes because bounds checking injects error paths that
+          # can't compile to SPIR-V.
           check_bounds: auto

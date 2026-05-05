@@ -23,7 +23,7 @@ Concrete implementations:
 # Mutation API
 - `push!(accel, mesh, transform)`: add geometry, return a `TLASHandle`.
 - `delete!(accel, handle)`, `update_transform!(accel, handle, transform)`,
-  `update_transform_at!(accel, handle, i, transform)`.
+  `update_transforms!(accel, handle, transforms)`.
 
 # Lifecycle
 - `sync!(accel)` — sole owner of `accel.static_tlas`. Rebuilds in place

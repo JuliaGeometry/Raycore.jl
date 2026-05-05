@@ -101,3 +101,42 @@ end
     @test hit
     @test tri isa Raycore.Triangle
 end
+
+@testset "empty_triangle" begin
+    e = Raycore.empty_triangle(Raycore.Triangle{UInt32})
+    @test e isa Raycore.Triangle{UInt32}
+    @test all(v -> all(iszero, v), e.vertices)
+    @test all(n -> all(iszero, n), e.normals)
+    @test all(t -> all(iszero, t), e.tangents)
+    @test all(u -> all(iszero, u), e.uv)
+    @test e.metadata == zero(UInt32)
+
+    # Works for arbitrary metadata types that have `zero(T)`.
+    e2 = Raycore.empty_triangle(Raycore.Triangle{Int32})
+    @test e2 isa Raycore.Triangle{Int32}
+    @test e2.metadata == zero(Int32)
+end
+
+@testset "closest_hit no-hit returns empty_triangle sentinel" begin
+    using GeometryBasics
+
+    function make_unit_mesh()
+        verts = [Point3f(0,0,0), Point3f(1,0,0), Point3f(0,1,0)]
+        faces = [GLTriangleFace(1,2,3)]
+        normals = [Raycore.Normal3f(0,0,1), Raycore.Normal3f(0,0,1), Raycore.Normal3f(0,0,1)]
+        GeometryBasics.mesh(verts, faces; normal=normals)
+    end
+
+    tlas = Raycore.TLAS([make_unit_mesh()], (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+
+    # Ray clearly misses: origin far away, direction pointing further away
+    ray = Raycore.Ray(o = Point3f(100, 100, 100), d = Vec3f(1, 0, 0))
+    hit, tri, _, _, _ = Raycore.closest_hit(tlas, ray)
+
+    @test !hit
+    @test tri isa Raycore.Triangle
+    # Returned sentinel must be the zero triangle, not a storage-indexed triangle
+    Tri = eltype(tlas.all_blas_prims)
+    @test tri == Raycore.empty_triangle(Tri)
+    @test all(v -> all(iszero, v), tri.vertices)
+end

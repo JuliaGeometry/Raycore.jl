@@ -11,7 +11,7 @@
 
 using Revise
 using Raycore
-using Raycore: update_instance_transform!, refit_tlas!, Mat4f
+using Raycore: Mat4f
 using KernelAbstractions
 using GeometryBasics, Colors, LinearAlgebra
 using FileIO, MeshIO
@@ -155,10 +155,15 @@ function create_lego_scene()
     push!(materials, Material(RGB(0.95f0, 0.95f0, 0.95f0), 0.0f0, 0.9f0, 1.0f0, 0.0f0))
 
     println("\nBuilding TLAS...")
-    tlas = Raycore.TLAS(geometries, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
-    println("  Instances: $(length(tlas.instances))")
+    tlas = Raycore.TLAS(KernelAbstractions.CPU())
+    handles = Dict{String, Raycore.TLASHandle}()
+    for (i, part_name) in enumerate(PART_ORDER[1:end-1])
+        handles[part_name] = push!(tlas, geometries[i])
+    end
+    handles["floor"] = push!(tlas, floor_mesh)
+    Raycore.sync!(tlas)
+    println("  Instances: $(Raycore.n_instances(tlas))")
 
-    # Create lights
     lights = [
         PointLight(Point3f(50, 0, 100), 8000.0f0, RGB(1.0f0, 0.95f0, 0.9f0)),
         PointLight(Point3f(-30, 40, 60), 3000.0f0, RGB(0.8f0, 0.85f0, 1.0f0)),
@@ -167,11 +172,8 @@ function create_lego_scene()
 
     ctx = RenderContext(lights, materials, 0.15f0)
 
-    return tlas, ctx
+    return tlas, handles, ctx
 end
-
-"""Get the instance index for a named part."""
-part_index(name::String) = findfirst(==(name), PART_ORDER)
 
 """
 Compute rotation around a joint pivot point.
@@ -188,50 +190,30 @@ Update all instance transforms for the walking animation.
 joint_angles: Dict mapping joint names to rotation angles
 figure_pos: Overall figure position (x translation for walking)
 """
-function update_walking_pose!(tlas, joint_angles::Dict{String, Float32}, figure_pos::Vec3f)
-    # Compute transforms for each part, respecting hierarchy
+function update_walking_pose!(tlas, handles::Dict{String, Raycore.TLASHandle},
+                              joint_angles::Dict{String, Float32}, figure_pos::Vec3f)
     transforms = Dict{String, Mat4f}()
 
-    # Base transform: lift figure by 20 units (matches RPRMakie example) and translate
     base_transform = translation(figure_pos + Vec3f(0, 0, 20))
-
-    # Torso gets base transform only
     transforms["torso"] = base_transform
 
-    # Process parts in order (parents before children due to PART_ORDER)
-    for part_name in PART_ORDER[1:end-1]  # Exclude floor
-        if part_name == "torso"
-            continue  # Already handled
-        end
-
-        # Get parent transform
+    for part_name in PART_ORDER[1:end-1]
+        part_name == "torso" && continue
         parent_name = get(PART_PARENTS, part_name, "torso")
-        parent_transform = get(transforms, parent_name, base_transform)
-
-        # Start with parent transform
-        transform = parent_transform
-
-        # Add joint rotation if this part has one
+        transform = get(transforms, parent_name, base_transform)
         if haskey(JOINT_ORIGINS, part_name) && haskey(joint_angles, part_name)
-            pivot = JOINT_ORIGINS[part_name]
-            axis = ROTATION_AXES[part_name]
-            angle = joint_angles[part_name]
-            transform = transform * joint_rotation(pivot, axis, angle)
+            transform = transform * joint_rotation(JOINT_ORIGINS[part_name],
+                                                   ROTATION_AXES[part_name],
+                                                   joint_angles[part_name])
         end
-
         transforms[part_name] = transform
     end
 
-    # Apply transforms to TLAS instances
-    for (i, part_name) in enumerate(PART_ORDER)
-        if part_name == "floor"
-            update_instance_transform!(tlas, i, IDENTITY)
-        else
-            update_instance_transform!(tlas, i, transforms[part_name])
-        end
+    for part_name in PART_ORDER
+        t = part_name == "floor" ? IDENTITY : transforms[part_name]
+        Raycore.update_transform!(tlas, handles[part_name], t)
     end
-
-    refit_tlas!(tlas)
+    Raycore.sync!(tlas)
 end
 
 """

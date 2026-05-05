@@ -658,12 +658,11 @@ end
 end # main testset "Instanced BVH"
 
 # ==============================================================================
-# KernelAbstractions Dynamic Scene Tests (OpenCL backend via pocl)
+# KernelAbstractions Dynamic Scene Tests (Lava backend)
 # ==============================================================================
 
 # Load packages at top-level (required for KA.@kernel macro)
-using pocl_jll
-using OpenCL
+using Lava
 import KernelAbstractions as KA
 using KernelAbstractions: @index, @Const
 import Adapt
@@ -746,16 +745,12 @@ end
 # because bounds checking injects error-throwing paths that can't compile to SPIR-V.
 # Use: Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
 if Base.JLOptions().check_bounds == 1  # 1 = --check-bounds=yes
-    @testset "KernelAbstractions Dynamic Scenes (OpenCL/pocl)" begin
+    @testset "KernelAbstractions Dynamic Scenes" begin
         @test_broken false  # skipped: --check-bounds=yes is incompatible with GPU kernel compilation
     end
 else
-@testset "KernelAbstractions Dynamic Scenes (OpenCL/pocl)" begin
-    # Must select pocl platform/device before creating the backend
-    pocl_platform = OpenCL.cl.platforms()[1]
-    pocl_device = OpenCL.cl.devices(pocl_platform)[1]
-    OpenCL.cl.device!(pocl_device)
-    cl_backend = OpenCL.OpenCLBackend()
+@testset "KernelAbstractions Dynamic Scenes" begin
+    cl_backend = test_backend()
 
     # Helper to create a simple GB.Mesh
     function make_triangle_mesh(offset::Vec3f=Vec3f(0, 0, 0))
@@ -769,18 +764,22 @@ else
         return GeometryBasics.mesh(verts, faces; normal=norms)
     end
 
-    @testset "TLAS adapt to CLArray" begin
+    @testset "TLAS adapt to LavaArray" begin
         mesh = make_triangle_mesh()
         tlas, handles = TLAS([mesh]; backend=cl_backend)
 
-        # Adapt TLAS to OpenCL arrays (GPU-first: backend must match)
+        # Adapt TLAS to Lava arrays (GPU-first: backend must match)
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         @test cl_tlas isa Raycore.StaticTLAS
-        # GPU arrays (CLArray) are not isbits on the host — KA handles
+        # GPU arrays (LavaArray) are not isbits on the host — KA handles
         # the device pointer conversion during kernel launch.
         # The kernel tests below verify that the TLAS works correctly on GPU.
-        @test cl_tlas.nodes isa CLArray
+        if cl_backend isa KA.CPU
+            @test cl_tlas.nodes isa Vector
+        else
+            @test cl_tlas.nodes isa LavaArray
+        end
     end
 
     @testset "TLAS sync with many instances" begin
@@ -1044,7 +1043,7 @@ else
 
         # Create mutable TLAS with backend for dynamic updates
         tlas = Raycore.TLAS(cl_backend)
-        push!(tlas, mesh)
+        handle = push!(tlas, mesh)
         Raycore.sync!(tlas)
 
         # Initial position: ray at origin should hit
@@ -1064,10 +1063,10 @@ else
         KA.synchronize(cl_backend)
         @test Array(hits)[1] == true
 
-        # Update transform: move to x=10 (use index-based API)
+        # Update transform: move to x=10
         new_transform = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 10, 0, 0, 1)
-        update_instance_transform!(tlas, 1, new_transform)
-        refit_tlas!(tlas)
+        Raycore.update_transform!(tlas, handle, new_transform)
+        Raycore.sync!(tlas)
 
         # Adapt again after update
         cl_tlas2 = Adapt.adapt(cl_backend, tlas)
@@ -1162,12 +1161,13 @@ else
 
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
-        # Verify fields are CLArrays after adapt (not plain Vector)
-        @test cl_tlas.nodes isa CLArray
-        @test cl_tlas.instances isa CLArray
-        @test cl_tlas.all_blas_nodes isa CLArray
-        @test cl_tlas.all_blas_prims isa CLArray
-        @test cl_tlas.blas_descriptors isa CLArray
+        # Verify fields land on the right backend after adapt.
+        ArrayType = cl_backend isa KA.CPU ? Vector : LavaArray
+        @test cl_tlas.nodes isa ArrayType
+        @test cl_tlas.instances isa ArrayType
+        @test cl_tlas.all_blas_nodes isa ArrayType
+        @test cl_tlas.all_blas_prims isa ArrayType
+        @test cl_tlas.blas_descriptors isa ArrayType
         # root_aabb stays isbits (not an array)
         @test isbitstype(typeof(cl_tlas.root_aabb))
     end

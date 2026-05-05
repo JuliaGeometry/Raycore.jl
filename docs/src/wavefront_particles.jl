@@ -4,15 +4,15 @@
 #
 # This example demonstrates massive instancing with TLAS:
 # - 10,000+ sphere particles sharing a single BLAS
-# - Dynamic transforms (position updates each frame)
+# - Dynamic transforms (position updates each frame) via the handle-based
+#   `update_transforms!` + `sync!` API
 # - Material changes based on particle velocity (heating effect)
 # - Efficient TLAS refit instead of full rebuild
 #
 
 using Revise
 using Raycore
-using Raycore: update_instance_transform!, refit_tlas!, Mat4f, TLAS, BLAS
-using Raycore: build_blas, build_tlas, InstanceDescriptor, Triangle
+using Raycore: Mat4f
 using KernelAbstractions
 using GeometryBasics, Colors, LinearAlgebra
 import Makie
@@ -89,8 +89,6 @@ function Raycore.to_gpu(ArrayType, ps::ParticleSystem)
     )
 end
 
-# CPU step! removed - we use GPU kernels for everything now
-
 # ==============================================================================
 # GPU Kernels for ParticleSystem
 # ==============================================================================
@@ -111,14 +109,10 @@ KA.@kernel function particle_physics_kernel!(
         vel = p.velocity
         r = p.radius
 
-        # Apply gravity and damping
         new_vel = (vel + gravity * dt) * damping
-
-        # Update position
         new_pos = pos + new_vel * dt
 
-        # Bounce off boundaries (unrolled for GPU efficiency)
-        # X axis
+        # Bounce off boundaries
         if new_pos[1] - r < bounds_min[1]
             new_pos = Vec3f(bounds_min[1] + r, new_pos[2], new_pos[3])
             new_vel = Vec3f(-new_vel[1] * 0.8f0, new_vel[2], new_vel[3])
@@ -127,7 +121,6 @@ KA.@kernel function particle_physics_kernel!(
             new_vel = Vec3f(-new_vel[1] * 0.8f0, new_vel[2], new_vel[3])
         end
 
-        # Y axis
         if new_pos[2] - r < bounds_min[2]
             new_pos = Vec3f(new_pos[1], bounds_min[2] + r, new_pos[3])
             new_vel = Vec3f(new_vel[1], -new_vel[2] * 0.8f0, new_vel[3])
@@ -136,7 +129,6 @@ KA.@kernel function particle_physics_kernel!(
             new_vel = Vec3f(new_vel[1], -new_vel[2] * 0.8f0, new_vel[3])
         end
 
-        # Z axis
         if new_pos[3] - r < bounds_min[3]
             new_pos = Vec3f(new_pos[1], new_pos[2], bounds_min[3] + r)
             new_vel = Vec3f(new_vel[1], new_vel[2], -new_vel[3] * 0.8f0)
@@ -169,42 +161,6 @@ KA.@kernel function build_transforms_kernel!(
     end
 end
 
-"""GPU kernel: Update materials based on particle velocities."""
-KA.@kernel function update_materials_kernel!(
-    materials,
-    @Const(particles),
-    max_speed::Float32
-)
-    i = @index(Global, Linear)
-    @inbounds begin
-        vel = particles[i].velocity
-        speed = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
-
-        # Velocity to heat color
-        t = clamp(speed / max_speed, 0.0f0, 1.0f0)
-        color = if t < 0.25f0
-            s = t / 0.25f0
-            RGB{Float32}(0.1f0, 0.2f0 + 0.5f0 * s, 0.8f0)
-        elseif t < 0.5f0
-            s = (t - 0.25f0) / 0.25f0
-            RGB{Float32}(0.1f0 + 0.6f0 * s, 0.7f0, 0.8f0 - 0.6f0 * s)
-        elseif t < 0.75f0
-            s = (t - 0.5f0) / 0.25f0
-            RGB{Float32}(0.7f0 + 0.3f0 * s, 0.7f0 - 0.4f0 * s, 0.2f0 - 0.1f0 * s)
-        else
-            s = (t - 0.75f0) / 0.25f0
-            RGB{Float32}(1.0f0, 0.3f0 + 0.7f0 * s, 0.1f0 + 0.9f0 * s)
-        end
-
-        # Noise for metallic/roughness variety
-        noise = sin(Float32(i) * 0.1f0) * 0.5f0 + 0.5f0
-        metallic = 0.3f0 + noise * 0.6f0
-        roughness = 0.2f0 + (1.0f0 - noise) * 0.4f0
-
-        materials[i] = Material(color, metallic, roughness, 1.0f0, 0.0f0)
-    end
-end
-
 """Step particle physics (works on CPU or GPU via KernelAbstractions)."""
 function step!(ps::ParticleSystem, dt::Float32)
     n = length(ps.particles)
@@ -223,35 +179,60 @@ function build_transforms!(ps::ParticleSystem)
     return nothing
 end
 
-"""Update materials based on particle velocities."""
-function update_materials!(materials, ps::ParticleSystem; max_speed::Float32=50.0f0)
-    n = length(ps.particles)
-    backend = KA.get_backend(ps.particles)
-    kernel! = update_materials_kernel!(backend)
-    kernel!(materials, ps.particles, max_speed, ndrange=n)
+"""
+Update sphere material color based on the average particle speed.
+Particles all share a single material slot (face_meta=1), so the
+heat-color effect drives a single material rather than per-particle.
+"""
+function update_sphere_material!(materials, ps::ParticleSystem; max_speed::Float32=50.0f0)
+    # Pull velocity of one representative particle from the GPU
+    p = Array(ps.particles[1:1])[1]
+    vel = p.velocity
+    speed = sqrt(vel[1]^2 + vel[2]^2 + vel[3]^2)
+    t = clamp(speed / max_speed, 0.0f0, 1.0f0)
+
+    color = if t < 0.25f0
+        s = t / 0.25f0
+        RGB{Float32}(0.1f0, 0.2f0 + 0.5f0 * s, 0.8f0)
+    elseif t < 0.5f0
+        s = (t - 0.25f0) / 0.25f0
+        RGB{Float32}(0.1f0 + 0.6f0 * s, 0.7f0, 0.8f0 - 0.6f0 * s)
+    elseif t < 0.75f0
+        s = (t - 0.5f0) / 0.25f0
+        RGB{Float32}(0.7f0 + 0.3f0 * s, 0.7f0 - 0.4f0 * s, 0.2f0 - 0.1f0 * s)
+    else
+        s = (t - 0.75f0) / 0.25f0
+        RGB{Float32}(1.0f0, 0.3f0 + 0.7f0 * s, 0.1f0 + 0.9f0 * s)
+    end
+
+    new_mat = Material(color, 0.6f0, 0.3f0, 1.0f0, 0.0f0)
+    # Slot 1 is the sphere material (see create_particle_scene)
+    materials[1:1] .= [new_mat]
     return nothing
 end
 
 """
-Full GPU update: physics -> transforms -> TLAS update -> materials.
-All operations stay on GPU with no CPU roundtrips.
+Full GPU update: physics -> transforms -> TLAS update -> sphere material refresh.
+
+`tlas`           — the mutable TLAS owning the sphere instances.
+`sphere_handle`  — the TLASHandle returned when the sphere was pushed.
 """
-function update_gpu!(renderer_gpu, ps::ParticleSystem, dt::Float32; backend, max_speed::Float32=50.0f0)
-    n = length(ps.particles)
+function update_gpu!(renderer_gpu, tlas, sphere_handle, ps::ParticleSystem,
+                     dt::Float32; max_speed::Float32=50.0f0)
     # 1. Physics step
     step!(ps, dt)
 
-    # 2. Build transforms from new positions
+    # 2. Build transforms from new positions (writes into ps.transforms)
     build_transforms!(ps)
 
-    # 3. Update TLAS instance transforms
-    Raycore.update_instance_transforms!(renderer_gpu.bvh, ps.transforms, n)
+    # 3. Stage new transforms for the sphere instance group
+    Raycore.update_transforms!(tlas, sphere_handle, ps.transforms)
 
-    # 4. Refit TLAS AABBs
-    Raycore.refit_tlas!(renderer_gpu.bvh; backend=backend)
+    # 4. Commit: refit the TLAS BVH in place (no topology change → fast refit path)
+    Raycore.sync!(tlas)
 
-    # 5. Update materials based on velocities
-    update_materials!(renderer_gpu.ctx.materials, ps; max_speed=max_speed)
+    # 5. Refresh the sphere's material to reflect speed
+    update_sphere_material!(renderer_gpu.ctx.materials, ps; max_speed=max_speed)
 
     return nothing
 end
@@ -283,168 +264,115 @@ end
 """Map velocity magnitude to a heat color (blue -> red -> yellow -> white)."""
 function velocity_to_color(speed::Float32, max_speed::Float32=50.0f0)::RGB{Float32}
     t = clamp(speed / max_speed, 0.0f0, 1.0f0)
-
     if t < 0.25f0
-        # Blue to cyan
         s = t / 0.25f0
         RGB{Float32}(0.1f0, 0.2f0 + 0.5f0 * s, 0.8f0)
     elseif t < 0.5f0
-        # Cyan to green-yellow
         s = (t - 0.25f0) / 0.25f0
         RGB{Float32}(0.1f0 + 0.6f0 * s, 0.7f0, 0.8f0 - 0.6f0 * s)
     elseif t < 0.75f0
-        # Yellow to orange-red
         s = (t - 0.5f0) / 0.25f0
         RGB{Float32}(0.7f0 + 0.3f0 * s, 0.7f0 - 0.4f0 * s, 0.2f0 - 0.1f0 * s)
     else
-        # Red to bright white-yellow (hot!)
         s = (t - 0.75f0) / 0.25f0
         RGB{Float32}(1.0f0, 0.3f0 + 0.7f0 * s, 0.1f0 + 0.9f0 * s)
     end
 end
 
-"""Convert a mesh to triangles with a given metadata value.
-Filters out degenerate (zero-area) triangles that can cause rendering artifacts.
-UV-sphere tessellations create degenerate triangles at poles where vertices coincide."""
-function mesh_to_triangles(mesh, metadata::UInt32; min_area::Float32=1.0f-7)
-    tri_mesh = Raycore.to_triangle_mesh(mesh)
-    triangles = Raycore.Triangle{UInt32}[]
-    vertices = tri_mesh.vertices
+"""
+Tag every face of `mesh` with the same metadata value `meta`.
 
-    for i in 1:div(length(tri_mesh.indices), 3)
-        # Get vertex positions for this triangle
-        i0 = tri_mesh.indices[3*(i-1) + 1]
-        i1 = tri_mesh.indices[3*(i-1) + 2]
-        i2 = tri_mesh.indices[3*(i-1) + 3]
-
-        v0 = vertices[i0]
-        v1 = vertices[i1]
-        v2 = vertices[i2]
-
-        # Check triangle area to filter degenerate triangles
-        edge1 = v1 - v0
-        edge2 = v2 - v0
-        area = norm(cross(Vec3f(edge1...), Vec3f(edge2...))) / 2
-
-        if area >= min_area
-            push!(triangles, Raycore.Triangle(tri_mesh, i, metadata))
-        end
-    end
-    return triangles
+Used so that all triangles of a given BLAS look up the same material slot
+(`materials[meta]`) inside the renderer's `tri.metadata` path.
+"""
+function mesh_with_const_meta(mesh::GeometryBasics.Mesh, meta::UInt32)
+    fs = decompose(TriangleFace{UInt32}, mesh)
+    n_faces = length(fs)
+    face_meta = fill(meta, n_faces)
+    return GeometryBasics.mesh(mesh; face_meta=GeometryBasics.per_face(face_meta, mesh))
 end
 
 """
 Create a TLAS with instanced spheres for the particle system.
-All particles share a single unit sphere BLAS.
+
+Architecture:
+- Single unit-sphere BLAS, instanced once per particle (one `push!` with all
+  initial transforms returns one `TLASHandle` covering the whole batch).
+- Three static wall BLASes (floor, back wall, left wall) at identity transform.
+- Each BLAS has `face_meta` set to a constant so the renderer's
+  `materials[tri.metadata]` lookup stays in-bounds:
+    1 → all sphere triangles
+    2 → floor
+    3 → back wall
+    4 → left wall
+
+Returns `(tlas, sphere_handle, ctx, materials)`. Hand `sphere_handle` to
+`update_transforms!` each frame.
 """
-function create_particle_scene(ps::ParticleSystem)
+function create_particle_scene(ps::ParticleSystem; backend=KA.CPU())
     n_particles = length(ps.particles)
     println("Creating particle scene with $n_particles particles...")
 
-    # Create a single unit sphere BLAS (shared by all particles)
+    # ----- Geometry -----
     unit_sphere = normal_mesh(Tesselation(Sphere(Point3f(0), 1.0f0), 16))
-    sphere_triangles = mesh_to_triangles(unit_sphere, UInt32(1))
-    sphere_blas = build_blas(sphere_triangles)
-    println("  Unit sphere BLAS: $(length(sphere_blas.primitives)) triangles")
+    sphere_tagged = mesh_with_const_meta(unit_sphere, UInt32(1))
 
-    # Box dimensions with some padding
     bmin = ps.bounds_min
     bmax = ps.bounds_max
     pad = 10.0f0
     wall_thickness = 1.0f0
 
-    # Create floor BLAS (bottom)
     floor_mesh = normal_mesh(Rect3f(
         Vec3f(bmin[1] - pad, bmin[2] - pad, bmin[3] - wall_thickness),
         Vec3f(bmax[1] - bmin[1] + 2pad, bmax[2] - bmin[2] + 2pad, wall_thickness)
     ))
-    floor_triangles = mesh_to_triangles(floor_mesh, UInt32(n_particles + 1))
-    floor_blas = build_blas(floor_triangles)
-
-    # Create back wall BLAS (negative Y side)
     back_wall_mesh = normal_mesh(Rect3f(
         Vec3f(bmin[1] - pad, bmin[2] - pad - wall_thickness, bmin[3]),
         Vec3f(bmax[1] - bmin[1] + 2pad, wall_thickness, bmax[3] - bmin[3] + pad)
     ))
-    back_wall_triangles = mesh_to_triangles(back_wall_mesh, UInt32(n_particles + 2))
-    back_wall_blas = build_blas(back_wall_triangles)
-
-    # Create left wall BLAS (negative X side)
     left_wall_mesh = normal_mesh(Rect3f(
         Vec3f(bmin[1] - pad - wall_thickness, bmin[2] - pad, bmin[3]),
         Vec3f(wall_thickness, bmax[2] - bmin[2] + 2pad, bmax[3] - bmin[3] + pad)
     ))
-    left_wall_triangles = mesh_to_triangles(left_wall_mesh, UInt32(n_particles + 3))
-    left_wall_blas = build_blas(left_wall_triangles)
+    floor_tagged    = mesh_with_const_meta(floor_mesh,    UInt32(2))
+    back_tagged     = mesh_with_const_meta(back_wall_mesh, UInt32(3))
+    left_tagged     = mesh_with_const_meta(left_wall_mesh, UInt32(4))
 
-    # BLAS array: [sphere, floor, back_wall, left_wall]
-    # Note: front and right walls omitted so camera can see inside the box
-    blas_array = [sphere_blas, floor_blas, back_wall_blas, left_wall_blas]
+    # ----- TLAS -----
+    println("Building TLAS on backend $backend...")
+    tlas = Raycore.TLAS(backend)
 
-    # Create instances for each particle
-    instances = InstanceDescriptor[]
-
-    # Particle instances (BLAS index 1 = sphere)
-    for (i, p) in enumerate(ps.particles)
-        transform = translation(Vec3f(p.position)) * scale(p.radius)
-        inv_transform = scale(1.0f0 / p.radius) * translation(-Vec3f(p.position))
-
-        inst = InstanceDescriptor(
-            UInt32(1),           # blas_index (1-indexed)
-            UInt32(i),           # instance_id (for material lookup)
-            transform,
-            inv_transform,
-            UInt32(0)            # flags
-        )
-        push!(instances, inst)
-    end
-
-    # Wall instances (BLAS indices 2-4: floor, back_wall, left_wall)
-    for wall_idx in 2:4
-        wall_inst = InstanceDescriptor(
-            UInt32(wall_idx),
-            UInt32(n_particles + wall_idx - 1),
-            Mat4f(I),
-            Mat4f(I),
-            UInt32(0)
-        )
-        push!(instances, wall_inst)
-    end
-
-    println("  Total instances: $(length(instances))")
-
-    # Build TLAS
-    tlas = build_tlas(blas_array, instances)
-    println("  TLAS nodes: $(length(tlas.nodes))")
-
-    # Create materials (one per particle + walls)
-    materials = Material[]
-    for (i, p) in enumerate(ps.particles)
-        speed = norm(p.velocity)
-        color = velocity_to_color(speed)
-        # Add noise to metallic based on particle index for variety
-        noise = sin(Float32(i) * 0.1f0) * 0.5f0 + 0.5f0  # 0 to 1
-        metallic = 0.3f0 + noise * 0.6f0  # Range 0.3 to 0.9
-        roughness = 0.2f0 + (1.0f0 - noise) * 0.4f0  # Inverse relationship with metallic
-        push!(materials, Material(color, metallic, roughness, 1.0f0, 0.0f0))
-    end
-    # Floor material - mirror-like
-    push!(materials, Material(RGB(0.9f0, 0.9f0, 0.92f0), 1.0f0, 0.05f0, 1.0f0, 0.0f0))
-    # Back wall - metallic with slight color
-    push!(materials, Material(RGB(0.8f0, 0.75f0, 0.7f0), 0.9f0, 0.1f0, 1.0f0, 0.0f0))
-    # Left wall - mirror
-    push!(materials, Material(RGB(0.95f0, 0.95f0, 0.95f0), 1.0f0, 0.02f0, 1.0f0, 0.0f0))
-
-    # Lights - key light from above, fill light from camera direction, soft rim light
-    lights = [
-        PointLight(Point3f(0, 0, 120), 3000.0f0, RGB(1.0f0, 0.98f0, 0.95f0)),    # Key light (softer)
-        PointLight(Point3f(80, 70, 50), 15000.0f0, RGB(1.0f0, 1.0f0, 1.0f0)),      # Fill from camera direction
-        PointLight(Point3f(-60, 40, 60), 8000.0f0, RGB(0.9f0, 0.92f0, 1.0f0)),     # Soft rim light
+    # Initial sphere transforms (CPU; push! adapts to backend internally)
+    initial_transforms = Mat4f[
+        translation(Vec3f(p.position)) * scale(p.radius)
+        for p in ps.particles
     ]
 
-    ctx = RenderContext(lights, materials, 0.25f0)  # Higher ambient for softer shadows
+    sphere_handle = push!(tlas, sphere_tagged, initial_transforms)
+    push!(tlas, floor_tagged)
+    push!(tlas, back_tagged)
+    push!(tlas, left_tagged)
 
-    return tlas, ctx, materials
+    Raycore.sync!(tlas)
+    println("  TLAS instances: $(Raycore.n_instances(tlas))  geometries: $(Raycore.n_geometries(tlas))")
+
+    # ----- Materials (one slot per face_meta tag) -----
+    p1 = ps.particles[1]
+    sphere_mat = Material(velocity_to_color(norm(p1.velocity)), 0.6f0, 0.3f0, 1.0f0, 0.0f0)
+    floor_mat  = Material(RGB(0.9f0, 0.9f0, 0.92f0), 1.0f0, 0.05f0, 1.0f0, 0.0f0)
+    back_mat   = Material(RGB(0.8f0, 0.75f0, 0.7f0), 0.9f0, 0.1f0,  1.0f0, 0.0f0)
+    left_mat   = Material(RGB(0.95f0, 0.95f0, 0.95f0), 1.0f0, 0.02f0, 1.0f0, 0.0f0)
+    materials  = [sphere_mat, floor_mat, back_mat, left_mat]
+
+    # ----- Lights -----
+    lights = [
+        PointLight(Point3f(0, 0, 120),    3000.0f0,  RGB(1.0f0, 0.98f0, 0.95f0)),
+        PointLight(Point3f(80, 70, 50),   15000.0f0, RGB(1.0f0, 1.0f0, 1.0f0)),
+        PointLight(Point3f(-60, 40, 60),  8000.0f0,  RGB(0.9f0, 0.92f0, 1.0f0)),
+    ]
+
+    ctx = RenderContext(lights, materials, 0.25f0)
+    return tlas, sphere_handle, ctx, materials
 end
 
 # ==============================================================================
@@ -463,8 +391,15 @@ ps = ParticleSystem(n_particles;
     bounds_max=Point3f(40, 40, 80)
 )
 
-# Create scene
-tlas, ctx, materials = create_particle_scene(ps)
+# Backend selection — TLAS arrays must live on the same backend the renderer
+# uses, otherwise refit kernels and intersect kernels would talk to different
+# memory spaces.
+using AMDGPU: ROCBackend
+backend = ROCBackend()
+
+# Create scene on the GPU backend so refits update arrays in place that the
+# renderer's StaticTLAS reads.
+tlas, sphere_handle, ctx, materials = create_particle_scene(ps; backend=backend)
 
 # Animation parameters
 num_frames = 120
@@ -472,7 +407,6 @@ dt = 1.0f0 / 30.0f0
 width, height = 1920, 1080
 frames_dir = "particle_frames"
 
-# Camera setup - closer to the action
 camera_pos = Point3f(70, 55, 45)
 camera_lookat = Point3f(0, 0, 30)
 
@@ -481,7 +415,6 @@ println("  Resolution: $(width)x$(height)")
 println("  Particles: $n_particles")
 println("  Output: $frames_dir/")
 
-# Create output directory
 isdir(frames_dir) && rm(frames_dir; recursive=true)
 mkpath(frames_dir)
 
@@ -492,38 +425,32 @@ renderer = WavefrontRenderer(img, tlas, ctx;
     camera_lookat=camera_lookat,
     camera_up=Vec3f(0, 0, 1),
     fov=50.0f0,
-    sky_color=RGB{Float32}(0.05f0, 0.05f0, 0.1f0),  # Dark sky
+    sky_color=RGB{Float32}(0.05f0, 0.05f0, 0.1f0),
     samples_per_pixel=8
 );
 renderer_gpu = to_gpu(ROCArray, renderer);
+
 # Warmup
 println("\nWarmup render...")
 Array(render!(renderer_gpu))
-# CPU  6.464 s (17243741 allocations: 2.01 GiB)
-# GPU 590.115 ms (1310 allocations: 52.91 KiB)
 
-# Create GPU particle system
-using AMDGPU: ROCBackend
+# GPU particle system
 ps_gpu = to_gpu(ROCArray, ps)
 println("GPU particle system created")
 
-# Animation loop (fully GPU-accelerated)
+# Animation loop
 println("\nRendering animation...")
 total_time = @elapsed begin
     for frame in 1:num_frames
-        # Full GPU update: physics -> transforms -> TLAS -> materials
-        update_gpu!(renderer_gpu, ps_gpu, dt; backend=ROCBackend())
+        update_gpu!(renderer_gpu, tlas, sphere_handle, ps_gpu, dt)
 
-        # Render
         fill!(renderer_gpu.framebuffer, RGBf(0, 0, 0))
         render!(renderer_gpu)
 
-        # Save frame (only GPU->CPU transfer is the framebuffer)
         filename = joinpath(frames_dir, "frame_$(lpad(frame, 4, '0')).png")
         save(filename, Array(map(clamp01nan, renderer_gpu.framebuffer)))
 
         if frame % 20 == 0 || frame == 1
-            # For progress reporting, we can skip velocity stats or do a quick GPU reduction
             println("  Frame $frame/$num_frames")
         end
     end
@@ -549,32 +476,30 @@ println("="^70)
 
 using BenchmarkTools
 
-# Benchmark GPU physics step
 gpu_physics_time = @belapsed step!($ps_gpu, $dt)
 println("  GPU Physics step: $(round(gpu_physics_time * 1000, digits=3)) ms")
 
-# Benchmark GPU transform building
 gpu_transform_time = @belapsed build_transforms!($ps_gpu)
 println("  GPU Transform build: $(round(gpu_transform_time * 1000, digits=3)) ms")
 
-# Benchmark full GPU update (physics + transforms + TLAS + materials)
-gpu_update_time = @belapsed update_gpu!($renderer_gpu, $ps_gpu, $dt; backend=ROCBackend())
+gpu_update_time = @belapsed update_gpu!($renderer_gpu, $tlas, $sphere_handle, $ps_gpu, $dt)
 println("  GPU Full update: $(round(gpu_update_time * 1000, digits=3)) ms")
 
-# Benchmark GPU render
 gpu_render_time = @belapsed begin
     fill!($renderer_gpu.framebuffer, RGBf(0, 0, 0))
     render!($renderer_gpu)
 end
 println("  GPU Render: $(round(gpu_render_time * 1000, digits=1)) ms")
 
-# Total frame time
 total_frame_time = gpu_update_time + gpu_render_time
 println("\n  Total frame time: $(round(total_frame_time * 1000, digits=1)) ms")
 println("  Theoretical max FPS: $(round(1.0 / total_frame_time, digits=1))")
 
-println("\n  Total triangles: $(n_particles * length(tlas.blas_array[1].primitives) + length(tlas.blas_array[2].primitives))")
-println("  Unique BLAS geometries: $(length(tlas.blas_array))")
-println("  Memory saved by instancing: ~$(round(n_particles * length(tlas.blas_array[1].primitives) * 48 / 1024 / 1024, digits=1)) MB")
+# Per-mesh stats from the mutable TLAS
+sphere_blas = tlas.blas_storage[1]
+floor_blas  = tlas.blas_storage[2]
+println("\n  Total triangles: $(n_particles * length(sphere_blas.primitives) + length(floor_blas.primitives))")
+println("  Unique BLAS geometries: $(length(tlas.blas_storage))")
+println("  Memory saved by instancing: ~$(round(n_particles * length(sphere_blas.primitives) * 48 / 1024 / 1024, digits=1)) MB")
 
 println("\nDone!")

@@ -1,15 +1,11 @@
 using Test
 using Raycore: MultiTypeSet, StaticMultiTypeSet, SetKey, TextureRef
-using Raycore: with_index, deref, is_valid, is_invalid, n_slots
+using Raycore: with_index, deref, is_valid, is_invalid, n_slots, update!
 using KernelAbstractions
 using Adapt
-using pocl_jll
-using OpenCL
+using Lava
 
-pocl_platform = OpenCL.cl.platforms()[1]
-pocl_device = OpenCL.cl.devices(pocl_platform)[1]
-OpenCL.cl.device!(pocl_device)
-backend = OpenCL.OpenCLBackend()
+backend = Lava.LavaBackend()
 
 # Test structs - used for both CPU and GPU tests
 struct SimpleMaterial{T}
@@ -46,6 +42,24 @@ end
     @test n_slots(dhv.static) == 2
 end
 
+@testset "MultiTypeSet update! with invalid SetKey is a no-op" begin
+    # Regression guard: `push!(set, item)` can return `SetKey()` (the (0,0)
+    # invalid sentinel) for types that own no slot in the set — e.g.
+    # Hikari's `NullMaterial` which pbrt-v4 uses as the "Material interface"
+    # /nullptr equivalent, or a `MediumInterface` side left as `nothing`.
+    # Callers that reuse that key on `update!` must get a silent no-op,
+    # NOT a BoundsError. Prior to the fix, `update!` indexed
+    # `dhv.data_order[0]` → `BoundsError: attempt to access 1-element
+    # Vector{DataType} at index [0]` — which crashed RayMakie's mesh-swap
+    # path for volumes built with `MediumInterface(NullMaterial(); inside=…)`.
+    dhv = MultiTypeSet(backend)
+    _ = push!(dhv, SimpleMaterial(0.5f0))   # something so data_order is non-empty
+    before = (n_slots(dhv.static), length(dhv.static))
+    @test update!(dhv, SetKey(), SimpleMaterial(0.9f0)) === nothing
+    @test update!(dhv, SetKey(), GlassMaterial(1.7f0)) === nothing  # wrong type, still no-op
+    @test (n_slots(dhv.static), length(dhv.static)) == before
+end
+
 @testset "Empty MultiTypeSet" begin
     dhv = MultiTypeSet(backend)
     @test isempty(dhv)
@@ -69,9 +83,9 @@ end
     smv = dhv.static
 
     # Check structure
-    @test smv.data[1] isa OpenCL.CLArray
-    @test smv.textures[1] isa OpenCL.CLArray
-    @test smv.textures[2] isa OpenCL.CLArray
+    @test smv.data[1] isa Lava.LavaArray
+    @test smv.textures[1] isa Lava.LavaArray
+    @test smv.textures[2] isa Lava.LavaArray
 
     # Kernel that accesses both texture fields via deref
     @kernel function mat2_kernel(out, smv, idxs)
@@ -84,8 +98,8 @@ end
         out[i] = with_index(get_sum, smv, idxs[i], smv)
     end
 
-    indices = OpenCL.CLArray([idx1, idx2])
-    output = OpenCL.CLArray(zeros(Float32, 2))
+    indices = LavaArray([idx1, idx2])
+    output = LavaArray(zeros(Float32, 2))
 
     kernel = mat2_kernel(backend)
     kernel(output, smv, indices; ndrange=2)
@@ -103,9 +117,9 @@ end
 
     smv = dhv.static
 
-    # Check that inner arrays are CLArrays
-    @test smv.data[1] isa OpenCL.CLArray
-    @test smv.data[2] isa OpenCL.CLArray
+    # Check that inner arrays are LavaArrays
+    @test smv.data[1] isa Lava.LavaArray
+    @test smv.data[2] isa Lava.LavaArray
 
     # Run kernel
     @kernel function simple_kernel(output, hvec, indices)
@@ -115,8 +129,8 @@ end
         output[i] = with_index(get_val, hvec, indices[i])
     end
 
-    indices = OpenCL.CLArray([idx1, idx2, idx3])
-    output = OpenCL.CLArray(zeros(Float32, 3))
+    indices = LavaArray([idx1, idx2, idx3])
+    output = LavaArray(zeros(Float32, 3))
 
     kernel = simple_kernel(backend)
     kernel(output, smv, indices; ndrange=3)

@@ -16,11 +16,9 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [weakdeps]
-Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 
 [extensions]
-RaycoreLavaExt = "Lava"
 RaycoreMakieExt = "Makie"
 
 [compat]
@@ -32,23 +30,27 @@ GPUArraysCore = "0.2.0"
 GeometryBasics = "0.5"
 JET = "0.11"
 KernelAbstractions = "0.9, 0.10"
+Lava = "0.1"
 LinearAlgebra = "1"
 Makie = "0.24"
-OpenCL = "0.10.8"
 Random = "1"
 StaticArrays = "1.9.7"
 Statistics = "1"
 Test = "1"
 julia = "1.10"
-pocl_jll = "7.1.0"
+
+[sources]
+# Lava is unregistered (developer package); pull from GitHub for CI test resolution.
+# Dropping this would leave `Lava` in [extras] unresolvable on a fresh runner and
+# break both matrix entries (cpu and lavapipe) at Pkg.test resolve time.
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl"}
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
-OpenCL = "08131aa3-fb12-5dee-8b74-c09406e224a2"
+Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-pocl_jll = "627d6b7a-bbe6-5189-83e7-98cc0a5aeadd"
 
 [targets]
-test = ["Test", "JET", "Aqua", "pocl_jll", "OpenCL", "StaticArrays"]
+test = ["Test", "JET", "Aqua", "Lava", "StaticArrays"]

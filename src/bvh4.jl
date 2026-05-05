@@ -682,7 +682,7 @@ Traverse BVH4 to find closest intersection.
         bary = SVector{3, Float32}(w, hit_u, hit_v)
         return (true, tri, ray_maxt, bary)
     else
-        dummy_tri = prims[1]
+        dummy_tri = empty_triangle(eltype(prims))
         bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
         return (false, dummy_tri, 0.0f0, bary)
     end

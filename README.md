@@ -57,6 +57,22 @@ illumination = get_illumination(tlas, viewdir)
 vf_matrix = view_factors(tlas; rays_per_triangle=1000)
 ```
 
+### Hardware ray tracing (Vulkan)
+
+For hardware-accelerated ray tracing, use `Lava.HWTLAS` as a drop-in replacement:
+
+```julia
+using Raycore, Lava, GeometryBasics, StaticArrays, LinearAlgebra
+
+backend = Lava.LavaBackend()
+hwtlas = Lava.HWTLAS(backend)
+mesh = normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
+push!(hwtlas, mesh, SMatrix{4,4,Float32}(I); instance_id=UInt32(1))
+Raycore.sync!(hwtlas)
+```
+
+See the [HW RT tutorial](https://juliageometry.github.io/Raycore.jl/dev/hw_acceleration.html) for the full setup.
+
 ## Testing
 
 Run tests with `--check-bounds=auto` (not the `Pkg.test` default of `--check-bounds=yes`), because GPU kernels compiled with bounds checking generate SPIR-V that crashes pocl:

@@ -194,22 +194,42 @@ Mutable Top-Level Acceleration Structure with direct GPU arrays.
 GPU-first design: instances are appended directly to GPU array using efficient
 GPU append. CPU-side dictionary provides O(1) handle lookups.
 
-`Adapt.adapt_structure` returns a `StaticTLAS` wrapping the backend arrays for
-kernel traversal.
+# Adapted-form invariant (READ THIS)
+
+`sync!(tlas)` is the single owner of the GPU-adapted form. It rebuilds as
+efficiently as possible — in place via `resize!`/`copyto!` where the backing
+buffer can be reused, freshly allocated only when a buffer grew — and stores
+the result in `tlas.static_tlas`. `sync!` MAY reassign `tlas.static_tlas =
+new_static_tlas` when a buffer was reallocated.
+
+Every consumer that hands an accel to a raytracing kernel MUST go through
+`tlas.static_tlas` or `Adapt.adapt(backend, tlas)` (which reads / refreshes
+`tlas.static_tlas`) per dispatch. Those are cheap; `sync!` did the heavy
+lifting. NEVER cache the `StaticTLAS` returned by `adapt` across mutations —
+after a reshape-driven reallocation the cached snapshot holds a stale device
+pointer.
+
+The same contract applies to `HWTLAS` — see its docstring.
 
 # Type Parameters
-- `Backend`: KernelAbstractions backend (CPU(), OpenCLBackend(), CUDABackend(), etc.)
+- `Backend`: KernelAbstractions backend (CPU(), LavaBackend(), CUDABackend(), etc.)
 
 # Fields
 - `backend`: KernelAbstractions backend for kernels
-- `nodes`: BVH nodes array (on backend, rebuilt on sync!)
+- `nodes`: BVH nodes array (on backend, grown in place on sync! where possible)
 - `instances`: Instance descriptors array (GPU array, direct append)
 - `blas_array`: BLAS objects array (GPU array with isbits pointers)
 - `root_aabb`: World-space bounding box
 - `handle_to_range`: Handle -> range in instances array (CPU-side)
 - `deleted_handles`: Handles deleted but not yet compacted (CPU-side)
 - `blas_storage`: Per-BLAS backing arrays; keeps GPU buffers alive for isbits pointers
+- `static_tlas`: GPU-adapted form, owned by `sync!`. Consumers read this, do
+   not cache it across mutations.
 - `dirty`: Whether BVH topology needs rebuild
+- `transforms_dirty`: Whether instance transforms changed and the TLAS needs refit
+- `revision`: Monotonic counter bumped by every mutation that reshapes
+   GPU-visible arrays. Intended purely as a diagnostic signal — consumers that
+   go through `tlas.static_tlas` don't need to check it.
 
 # Usage
 ```julia
@@ -218,8 +238,8 @@ h1 = push!(tlas, mesh)
 h2 = push!(tlas, mesh, transforms)
 update_transform!(tlas, h2, new_transform)
 delete!(tlas, h1)
-sync!(tlas)  # Rebuild BVH structure
-static = adapt(backend, tlas)  # Get StaticTLAS for kernels
+sync!(tlas)                    # Rebuild / refresh tlas.static_tlas
+static = adapt(backend, tlas)  # Reads tlas.static_tlas — cheap, call per dispatch
 ```
 """
 mutable struct TLAS{Backend} <: AbstractAccel
@@ -242,10 +262,16 @@ mutable struct TLAS{Backend} <: AbstractAccel
     # long as the TLAS does.
     blas_storage::Vector{BLASArrays}
 
-    # Flat BLAS arrays for StaticTLAS traversal (built during adapt, kept alive for isbits pointers)
+    # Flat BLAS arrays for StaticTLAS traversal (built during sync!, kept alive for isbits pointers)
     _flat_blas_nodes::Any    # concatenated BVH nodes from all BLASes
     _flat_blas_prims::Any    # concatenated triangles from all BLASes
     _flat_blas_descs::Any    # BLASDescriptor array on backend
+
+    # GPU-adapted form, owned by sync!. Consumers read this via `tlas.static_tlas`
+    # or `Adapt.adapt(backend, tlas)` per dispatch — do NOT cache across
+    # mutations. See the TLAS docstring for the full invariant.
+    # `nothing` until the first sync!.
+    static_tlas::Any   # Union{Nothing, StaticTLAS}
 
     # Whether BVH topology needs rebuild (geometry added/removed)
     dirty::Bool
@@ -285,7 +311,7 @@ function TLAS(backend)
         backend,
         KA.allocate(backend, BVHNode2, 0),           # nodes (empty, rebuilt on sync!)
         KA.allocate(backend, InstanceDescriptor, 0), # instances (direct GPU append)
-        _allocate_empty_blas_array(backend),         # blas_array (GPU array of isbits BLASes)
+        allocate_empty_blas_array(backend),         # blas_array (GPU array of isbits BLASes)
         Bounds3(),                                   # root_aabb
         Dict{TLASHandle, UnitRange{Int}}(),         # handle_to_range
         Set{TLASHandle}(),                          # deleted_handles
@@ -293,9 +319,10 @@ function TLAS(backend)
         nothing,                                     # _flat_blas_nodes
         nothing,                                     # _flat_blas_prims
         nothing,                                     # _flat_blas_descs
+        nothing,                                     # static_tlas (owned by sync!)
         true,                                        # dirty (topology)
         false,                                       # transforms_dirty
-        UInt32(1)                                    # next_handle_id
+        UInt32(1),                                   # next_handle_id
     )
 
     # Register finalizer to free GPU memory when TLAS is garbage collected
@@ -346,7 +373,7 @@ function free!(tlas::TLAS)
 end
 
 """Helper to create initial empty BLAS array placeholder."""
-function _allocate_empty_blas_array(_backend)
+function allocate_empty_blas_array(_backend)
     # Return nothing - the array will be created on first push with the correct type
     return nothing
 end
@@ -373,7 +400,7 @@ Note: The isbits BLAS is only used by management kernels that read root_aabb
 (inline data). For traversal, StaticTLAS uses flat arrays with offset-based
 indexing instead (see BLASDescriptor).
 """
-function _to_isbits_blas(backend, blas::BLAS, blas_storage::Vector{BLASArrays})
+function to_isbits_blas(backend, blas::BLAS, blas_storage::Vector{BLASArrays})
     push!(blas_storage, BLASArrays(blas.nodes, blas.primitives))
 
     # Get isbits device pointers
@@ -387,7 +414,7 @@ end
 Append a single isbits BLAS to blas_array using GPU-friendly append!.
 Returns the (possibly new) blas_array.
 """
-function _append_blas!(backend, blas_array, isbits_blas)
+function append_blas!(backend, blas_array, isbits_blas)
     # Create a single-element array on CPU with the isbits BLAS, then adapt to backend
     single_arr = [isbits_blas]
     backend_arr = Adapt.adapt(backend, single_arr)
@@ -403,7 +430,7 @@ function _append_blas!(backend, blas_array, isbits_blas)
 end
 
 """
-    _build_flat_blas_arrays!(tlas::TLAS)
+    build_flat_blas_arrays!(tlas::TLAS)
 
 Build concatenated flat arrays from individual BLAS GPU arrays and store them
 in `tlas._flat_blas_nodes`, `tlas._flat_blas_prims`, `tlas._flat_blas_descs`.
@@ -414,7 +441,7 @@ Instead, traversal kernels use BLASDescriptor offsets to index into the flat arr
 The flat arrays are MtlVector/CuVector etc., kept alive by the TLAS.
 During adapt, they are converted to isbits device pointers for kernels.
 """
-function _build_flat_blas_arrays!(tlas::TLAS)
+function build_flat_blas_arrays!(tlas::TLAS)
     n_blas = length(tlas.blas_storage)
     backend = tlas.backend
 
@@ -525,7 +552,7 @@ end
 
 """Internal: decompose a GB.Mesh, build a BLAS, append it to the TLAS, and
 return the new BLAS's 1-based index.  Shared by every `push!` variant."""
-function _build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
+function build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
     nmesh = GeometryBasics.expand_faceviews(mesh)
     fs = decompose(TriangleFace{UInt32}, nmesh)
     verts = decompose(Point3f, nmesh)
@@ -549,14 +576,14 @@ function _build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
 
     backend_triangles = Adapt.adapt(tlas.backend, cpu_triangles)
     blas = build_blas(backend_triangles)
-    isbits_blas = _to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
-    tlas.blas_array = _append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
+    isbits_blas = to_isbits_blas(tlas.backend, blas, tlas.blas_storage)
+    tlas.blas_array = append_blas!(tlas.backend, tlas.blas_array, isbits_blas)
     return UInt32(length(tlas.blas_array))
 end
 
 """Internal: append the given instance descriptors to `tlas.instances`, register
 a handle for the appended range, and return it."""
-function _append_instances_with_handle!(tlas::TLAS, cpu_descriptors::AbstractVector{InstanceDescriptor})
+function append_instances_with_handle!(tlas::TLAS, cpu_descriptors::AbstractVector{InstanceDescriptor})
     start_idx = length(tlas.instances) + 1
     backend_descriptors = Adapt.adapt(tlas.backend, collect(cpu_descriptors))
     append!(tlas.instances, backend_descriptors)
@@ -585,10 +612,10 @@ Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
                     instance_id::UInt32=UInt32(0))
-    blas_idx = _build_and_append_blas!(tlas, mesh)
+    blas_idx = build_and_append_blas!(tlas, mesh)
     inv_transform = Mat4f(inv(transform))
     cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
-    return _append_instances_with_handle!(tlas, cpu_descriptors)
+    return append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
 """
@@ -610,14 +637,14 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractV
         throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
     end
 
-    blas_idx = _build_and_append_blas!(tlas, mesh)
+    blas_idx = build_and_append_blas!(tlas, mesh)
 
     cpu_descriptors = map(enumerate(transforms)) do (i, transform)
         inv_transform = Mat4f(inv(transform))
         iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
         InstanceDescriptor(blas_idx, iid, transform, inv_transform, UInt32(0))
     end
-    return _append_instances_with_handle!(tlas, cpu_descriptors)
+    return append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
 # ------------------------------------------------------------------------------
@@ -800,8 +827,15 @@ Rebuild the BVH structure if dirty, then **wait for the GPU to finish**
 all work currently queued on `tlas.backend` (via `KA.synchronize`).
 No-op if already up-to-date AND no work is pending.
 
+`sync!` is the single owner of `tlas.static_tlas`. It rebuilds in place
+(`resize!`/`copyto!` on the same backing buffer) wherever possible so that a
+`StaticTLAS` returned by an earlier `Adapt.adapt(backend, tlas)` still sees
+the new geometry, and reallocates + reassigns `tlas.static_tlas` when a
+buffer needed to grow.
+
 After `sync!(tlas)` returns:
 - The TLAS reflects all prior `push!`/`delete!` calls.
+- `tlas.static_tlas` is the fresh adapted form.
 - The GPU is idle for `tlas.backend`.
 - Any resource that is no longer reachable through the (new) accel is
   safe to release synchronously: its `VkAccelerationStructureKHR` /
@@ -812,50 +846,114 @@ Invariants for callers:
   perform cleanup; they mark state dirty and return immediately. Call
   `sync!` to establish a safe boundary before freeing transitively-
   owned resources.
+- Consumers of the adapted form read `tlas.static_tlas` (or call
+  `Adapt.adapt(backend, tlas)`) per dispatch. They MUST NOT cache the
+  returned `StaticTLAS` across mutations — after a reshape-driven reassign
+  the cached snapshot holds a stale device pointer.
 """
 function sync!(tlas::TLAS)
+    # True no-op when nothing changed and static_tlas is already built.
+    # adapt(backend, tlas) calls this per dispatch — the fast path MUST be
+    # allocation-free and must not issue a GPU synchronize.
+    if !tlas.dirty && !tlas.transforms_dirty && tlas.static_tlas !== nothing
+        return tlas
+    end
+
     if tlas.dirty
-        _rebuild_bvh!(tlas)
+        rebuild_bvh!(tlas)
         tlas.transforms_dirty = false
+        rebuild_static_tlas!(tlas)
     elseif tlas.transforms_dirty
         refit_tlas!(tlas)
+        # refit updates AABBs in tlas.nodes in place — if static_tlas wraps the
+        # same backing buffer (normal case) it sees the new AABBs. If the field
+        # was never built yet, build it now.
+        tlas.static_tlas === nothing && rebuild_static_tlas!(tlas)
+    else
+        # Freshly-built TLAS, no mutations yet — still need a valid static_tlas
+        # so `adapt(backend, tlas)` returns something usable.
+        rebuild_static_tlas!(tlas)
     end
+    # Only synchronize when we actually touched the GPU. This keeps sync! cheap
+    # on the clean path (above), so callers can invoke it liberally.
     KA.synchronize(tlas.backend)
     return tlas
 end
 
+"""
+    rebuild_static_tlas!(tlas::TLAS)
+
+Build a fresh `StaticTLAS` from the current `tlas.nodes` / `tlas.instances` /
+flat-BLAS arrays and store it on `tlas.static_tlas`. Called by `sync!` — not a
+public API; consumers read `tlas.static_tlas` or `Adapt.adapt(backend, tlas)`.
+"""
+function rebuild_static_tlas!(tlas::TLAS)
+    backend = tlas.backend
+    if tlas._flat_blas_nodes === nothing
+        # Empty scene — use correctly-typed empty backing arrays so the
+        # StaticTLAS type parameters are still concrete.
+        prim_type = isempty(tlas.blas_storage) ? Triangle{UInt32} : eltype(tlas.blas_storage[1].primitives)
+        empty_nodes = KA.allocate(backend, BVHNode2, 0)
+        empty_prims = KA.allocate(backend, prim_type, 0)
+        empty_descs = Adapt.adapt(backend, BLASDescriptor[])
+        tlas.static_tlas = StaticTLAS(
+            Adapt.adapt(backend, tlas.nodes),
+            Adapt.adapt(backend, tlas.instances),
+            Adapt.adapt(backend, empty_nodes),
+            Adapt.adapt(backend, empty_prims),
+            Adapt.adapt(backend, empty_descs),
+            tlas.root_aabb,
+        )
+        return tlas
+    end
+
+    tlas.static_tlas = StaticTLAS(
+        Adapt.adapt(backend, tlas.nodes),
+        Adapt.adapt(backend, tlas.instances),
+        Adapt.adapt(backend, tlas._flat_blas_nodes),
+        Adapt.adapt(backend, tlas._flat_blas_prims),
+        Adapt.adapt(backend, tlas._flat_blas_descs),
+        tlas.root_aabb,
+    )
+    return tlas
+end
+
 """Internal: Compact deleted instances and rebuild TLAS BVH."""
-function _rebuild_bvh!(tlas::TLAS)
+function rebuild_bvh!(tlas::TLAS)
     # If there are deletions, compact the instances array
     if !isempty(tlas.deleted_handles)
-        _compact_instances!(tlas)
+        compact_instances!(tlas)
     end
 
     n = length(tlas.instances)
     if n == 0
         tlas.nodes = KA.allocate(tlas.backend, BVHNode2, 0)
         tlas.root_aabb = Bounds3()
+        # Drain any stale flat-BLAS arrays from a previous non-empty state so
+        # `length(tlas._flat_blas_*)` faithfully reports "no live geometry"
+        # and the next non-empty rebuild starts from a clean slate.
+        build_flat_blas_arrays!(tlas)
         tlas.dirty = false
         return
     end
 
     # Build TLAS BVH topology from existing GPU arrays
     # blas_array is only used for root_aabb (inline data, safe on Metal)
-    nodes, root_aabb = _build_tlas_topology(tlas.blas_array, tlas.instances, tlas.backend)
+    nodes, root_aabb = build_tlas_topology(tlas.blas_array, tlas.instances, tlas.backend)
 
     tlas.nodes = nodes
     tlas.root_aabb = root_aabb
 
     # Build flat BLAS arrays during sync (not during adapt_structure).
     # This ensures the data is ready before any kernel dispatch.
-    _build_flat_blas_arrays!(tlas)
+    build_flat_blas_arrays!(tlas)
 
     tlas.dirty = false
     return
 end
 
 """Internal: Compact instances array by removing deleted handles, and compact BLASes."""
-function _compact_instances!(tlas::TLAS)
+function compact_instances!(tlas::TLAS)
     # Copy valid ranges to new array and update handle mappings
     cpu_instances = Array(tlas.instances)
     new_instances = InstanceDescriptor[]
@@ -933,43 +1031,34 @@ end
 """
     Adapt.adapt_structure(to, tlas::TLAS) -> StaticTLAS
 
-Convert TLAS to StaticTLAS for GPU kernel usage.
-Syncs if dirty, then extracts isbits device pointers for kernels.
+Return `tlas.static_tlas` after a `sync!` to make sure it reflects any
+pending mutation. `sync!` is the single owner of that field; this function
+just reads it. On a clean TLAS, `sync!` is a true no-op — no GPU
+synchronize, no allocations — so this is cheap to call per dispatch. Do
+call it per dispatch, and do NOT cache the return.
 
-GPU-first: All arrays are already on the TLAS's backend.
-The target backend must match the TLAS backend.
-
-Note: The returned StaticTLAS references arrays owned by the TLAS.
-The TLAS must stay alive while the StaticTLAS is in use.
+`tlas.static_tlas` is in kernel-ready isbits form on `tlas.backend`. The
+`to` argument is checked: passing a `KA.Backend` other than `tlas.backend`
+errors loudly. Cross-backend conversion is not supported — build the TLAS
+on the same backend you intend to dispatch kernels against.
 """
 function Adapt.adapt_structure(to, tlas::TLAS)
-    sync!(tlas)
-    # Flat BLAS arrays are built during sync! -- no rebuild here.
-
-    if tlas._flat_blas_nodes === nothing
-        # Empty scene — need correct types for StaticTLAS type parameters
-        prim_type = isempty(tlas.blas_storage) ? Triangle{UInt32} : eltype(tlas.blas_storage[1].primitives)
-        empty_nodes = KA.allocate(tlas.backend, BVHNode2, 0)
-        empty_prims = KA.allocate(tlas.backend, prim_type, 0)
-        empty_descs = Adapt.adapt(tlas.backend, BLASDescriptor[])
-        return StaticTLAS(
-            adapt(to, tlas.nodes),
-            adapt(to, tlas.instances),
-            adapt(to, empty_nodes),
-            adapt(to, empty_prims),
-            adapt(to, empty_descs),
-            tlas.root_aabb
-        )
+    # Loud error on cross-backend adapt: silently returning a static_tlas
+    # whose arrays live on a different backend than the kernel expects
+    # surfaces later as a confusing GPUCompiler "non-bitstype argument" error.
+    # Catch it at the API boundary instead.
+    #
+    # Compare by type, not by `===`: two distinct `LavaBackend()` instances
+    # are semantically the same backend but not object-identical, so `!==`
+    # would falsely flag a same-backend adapt as cross-backend.
+    if to isa KA.Backend && typeof(to) !== typeof(tlas.backend)
+        error(
+            "Cross-backend Adapt.adapt(::$(typeof(to)), ::TLAS) is not supported. " *
+            "TLAS was built on $(typeof(tlas.backend)), but adapt was called with $(typeof(to)). " *
+            "Construct the TLAS on the matching backend (e.g. `Raycore.TLAS($(typeof(to))())`).")
     end
-
-    return StaticTLAS(
-        adapt(to, tlas.nodes),
-        adapt(to, tlas.instances),
-        adapt(to, tlas._flat_blas_nodes),
-        adapt(to, tlas._flat_blas_prims),
-        adapt(to, tlas._flat_blas_descs),
-        tlas.root_aabb
-    )
+    sync!(tlas)
+    return tlas.static_tlas
 end
 
 """
@@ -1346,14 +1435,14 @@ end
 end
 
 """
-    _build_tlas_topology(blas_array, instances, backend) -> (nodes, root_aabb)
+    build_tlas_topology(blas_array, instances, backend) -> (nodes, root_aabb)
 
 Internal: Build TLAS BVH topology (Morton codes, sorting, tree construction, refit).
 Returns (nodes, root_aabb). Only accesses blas_array for root_aabb (inline data).
 
 `instances` must already be on the backend.
 """
-function _build_tlas_topology(blas_array, instances, backend)
+function build_tlas_topology(blas_array, instances, backend)
     n = length(instances)
 
     # Compute scene AABB from transformed instance bounds using GPU kernel
@@ -1493,7 +1582,7 @@ function build_tlas(
     backend = KA.get_backend(blas_array)
     backend_instances = Adapt.adapt(backend, instances)
 
-    nodes, root_aabb = _build_tlas_topology(blas_array, backend_instances, backend)
+    nodes, root_aabb = build_tlas_topology(blas_array, backend_instances, backend)
 
     # Build flat arrays from BLAS data
     descriptors = Vector{BLASDescriptor}(undef, n_blas)
@@ -1837,8 +1926,8 @@ Algorithm:
         bary = SVector{3, Float32}(w, hit_u, hit_v)
         return (true, tri, ray_maxt, bary, inst_idx)
     else
-        # No hit - return dummy values
-        dummy_tri = tlas_blas_prims[1]
+        # No hit - return zero sentinel
+        dummy_tri = empty_triangle(eltype(tlas_blas_prims))
         bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
         return (false, dummy_tri, 0.0f0, bary, UInt32(0))
     end
@@ -2016,9 +2105,9 @@ This is much faster than rebuilding the TLAS from scratch when only transforms c
 Operates directly on the backend arrays stored in the TLAS.
 """
 function refit_tlas!(tlas::TLAS)
-    tlas.dirty || return tlas
+    tlas.transforms_dirty || return tlas
     n = length(tlas.instances)
-    n == 0 && return tlas
+    n == 0 && (tlas.transforms_dirty = false; return tlas)
     backend = tlas.backend
 
     # Update leaf node AABBs from new transforms (kernel)
@@ -2225,13 +2314,38 @@ Return number of unique BLAS geometries in the TLAS.
 n_geometries(tlas::TLAS) = tlas.blas_array === nothing ? 0 : length(tlas.blas_array)
 n_geometries(tlas::StaticTLAS) = length(tlas.blas_descriptors)
 
+"""
+    wait_for_gpu!(accel::AbstractAccel)
+
+Block the CPU until the GPU has completed all prior work that could be
+reading `accel` or its adapted form. Default implementation calls
+`KA.synchronize` on `accel.backend`. Concrete types that carry their own
+queue (e.g. `Lava.HWTLAS`) override this to wait on the specific timeline.
+
+Convenience only. The per-dispatch hot path does NOT call this; see `sync!`.
+"""
+function wait_for_gpu!(accel::AbstractAccel)
+    KA.synchronize(accel.backend)
+    return accel
+end
+
 # Export public API
 export BLAS, BLASDescriptor, TLAS, StaticTLAS, TraversableTLAS, InstanceDescriptor, BVHNode2
 export build_blas, build_tlas, closest_hit, any_hit, world_bound
-export update_instance_transform!, update_instance_transforms!, refit_tlas!
 export INVALID_NODE
 
-# TLAS Handle API
+# TLAS Handle API — the only user-facing mutation interface.
+#
+# Design contract: mutations write directly to the backing buffers
+# (`tlas.instances` / `tlas.nodes`), set `dirty` or `transforms_dirty`, and
+# return.  `sync!` is the single commit boundary that decides
+# rebuild-vs-refit and runs it.  No staging, no caches keyed on
+# `objectid(tlas)`, no global mutable state — every piece of mutable state
+# lives on a TLAS instance and dies with it.
+#
+# `refit_tlas!` / `update_instance_transform!` / `update_instance_transforms!`
+# are internal helpers used by the public methods; they must not be called
+# directly by user code.
 export TLASHandle
 export n_instances, n_geometries, get_instance, get_instances
-export update_transform!, update_transforms!, update_transform_at!, is_valid
+export update_transform!, update_transforms!, is_valid
