@@ -2,235 +2,276 @@
 
 Modern GPUs include dedicated ray tracing hardware (RT cores on NVIDIA, Ray Accelerators on AMD) that can traverse BVH structures and test ray-triangle intersections in fixed-function silicon. This tutorial shows how to use hardware acceleration with Raycore via the [Lava.jl](https://github.com/SimonDanisch/Lava.jl) Vulkan backend.
 
+The demo builds the same scene twice — once into a software `Raycore.TLAS`, once into a hardware `Lava.HWTLAS` — traces primary camera rays through both, and verifies the depth buffers agree.
+
 ## When to pick `Raycore.TLAS` vs. `Lava.HWTLAS`
 
-| Aspect | `Raycore.TLAS` | `Lava.HWTLAS` |
-|---|---|---|
-| Backend | any KA backend (CUDA, AMDGPU, Metal, Lava) | Lava + Vulkan RT only |
-| BVH | software (BVH4 / instanced BVH) | `VkAccelerationStructureKHR` |
-| Closest-hit kernel | KA `@kernel` | `vkCmdTraceRaysKHR` shader |
-| Dispatch overhead | low, KA launch | very low, pre-baked SBT |
-| Use when | portability / non-Vulkan backend / no RT hardware | max perf on Vulkan RT hardware |
+|             Aspect |                                        `Raycore.TLAS` |                        `Lava.HWTLAS` |
+| ------------------:| -----------------------------------------------------:| ------------------------------------:|
+|            Backend |            any KA backend (CUDA, AMDGPU, Metal, Lava) |                Lava + Vulkan RT only |
+|                BVH |                       software (BVH4 / instanced BVH) |         `VkAccelerationStructureKHR` |
+| Closest-hit kernel | KA `@kernel`, in-line `Raycore.closest_hit(bvh, ray)` | `vkCmdTraceRaysKHR` over a ray batch |
+|  Dispatch overhead |                                        low, KA launch |              very low, pre-baked SBT |
+|           Use when |     portability / non-Vulkan backend / no RT hardware |       max perf on Vulkan RT hardware |
 
-Both types satisfy `Raycore.AbstractAccel` — `push!`, `delete!`,
-`update_transform!`, `sync!`, `closest_hit`, `n_instances`,
-`n_geometries`, `wait_for_gpu!` work identically. You can swap one for
-the other with minimal code changes.
+Both types satisfy `Raycore.AbstractAccel` — `push!`, `delete!`, `update_transform!`, `sync!`, `n_instances`, `n_geometries`, `wait_for_gpu!` work identically. The HW path uses a batched dispatch (`Lava.trace_closest_hits!`) instead of a per-thread `closest_hit` call inside a KA kernel.
 
-## When to Use Hardware RT
+## When Hardware RT Helps
 
 Hardware RT gives the biggest speedups on scenes with:
-- **High triangle counts** (millions of triangles) — RT cores traverse the BVH in hardware
-- **Complex occlusion** (overlapping geometry, interior scenes) — more traversal steps per ray
-- **Simple shading** — when BVH traversal is the bottleneck, not material evaluation
 
-For scenes with few triangles or expensive volumetric shading (clouds, subsurface scattering), the software BVH can match or exceed hardware RT because the traversal is a small fraction of total render time.
+  * **High triangle counts** — RT cores traverse the BVH in fixed-function hardware
+  * **Complex occlusion** — interior scenes, overlapping geometry, more traversal steps per ray
+  * **Simple shading** — when BVH traversal dominates, not material evaluation
+
+For trivial scenes the software BVH already runs at GPU memory bandwidth, so the win is modest. The demo below uses ~48k triangles which is enough to see HW pull ahead but small enough to fit in a tutorial.
+
+Hardware RT requires a Vulkan-capable GPU with `VK_KHR_ray_tracing_pipeline`. NVIDIA RTX (Turing+), AMD RDNA 2+, and Intel Arc all support it.
 
 ## Setup
 
-Hardware RT requires a Vulkan-capable GPU with the `VK_KHR_ray_tracing_pipeline` extension. All NVIDIA RTX (Turing+), AMD RDNA 2+, and Intel Arc GPUs support this.
-
-`HWTLAS` is the high-level entry point from `Lava`. It owns the Vulkan TLAS + BLAS lifecycle, supports incremental geometry updates via `push!` / `delete!` / `update_transform!`, and implements the `Raycore.AbstractAccel` contract so the same code works against software and hardware backends. `HardwareAccel` remains available as a lower-level handle for advanced users who need direct control of the pipeline/SBT.
-
 ```julia (editor=true, logging=false, output=true)
-using Raycore, GeometryBasics, Hikari
-using RayMakie, Makie, Colors
+using Raycore, GeometryBasics, LinearAlgebra
 using Lava
+using WGLMakie
+using Adapt
+import KernelAbstractions as KA
+using KernelAbstractions: @kernel, @index, @Const
 
-# Activate RayMakie with the Lava GPU backend
-sensor = Hikari.FilmSensor(; iso=50, exposure_time=1.0)
 device = Lava.LavaBackend()
-RayMakie.activate!(device=device, exposure=0.6f0, tonemap=:aces, gamma=2.2f0, sensor=sensor)
-md"**Lava backend active** — using Vulkan for GPU compute + optional hardware RT"
+md"**Lava backend active** — Vulkan device with RT support"
 ```
+`LavaBackend` is a KernelAbstractions backend that compiles `@kernel` code through Lava's SPIR-V compiler. It's also the device that owns Vulkan acceleration structures, so SW and HW share the same GPU context.
 
-## Building a Scene
+## Building a scene twice — software and hardware
 
-Scene construction is identical regardless of whether you use software or hardware acceleration. The standard Makie `mesh!` API builds the acceleration structure automatically.
+Build a small scene of tessellated spheres on a floor — enough triangles for the BVH traversal cost to matter. Both `Raycore.TLAS` and `Lava.HWTLAS` ingest plain `GeometryBasics.Mesh` objects through `push!`, so the same meshes go into both.
 
 ```julia (editor=true, logging=false, output=true)
-function create_demo_scene(; resolution=(800, 600))
-    lights = [
-        PointLight(RGBf(60, 60, 60), Vec3f(8, 8, 10)),
-        PointLight(RGBf(20, 20, 20), Vec3f(-2, -6, 3)),
-    ]
-
-    scene = Scene(; size=resolution, lights=lights, ambient=RGBf(0.02, 0.02, 0.025))
-    cam3d!(scene)
-
-    # Floor
-    mesh!(scene, Rect3f(Vec3f(-10, -10, -0.001), Vec3f(20, 20, 0.001));
-          material=Hikari.Diffuse(Kd=(0.7, 0.7, 0.7)))
-
-    # A variety of materials
-    materials = [
-        Hikari.Gold(roughness=0.05),
-        Hikari.Silver(roughness=0.02),
-        Hikari.Copper(roughness=0.08),
-        Hikari.Dielectric(Kt=(1, 1, 1), index=1.5),
-        Hikari.Mirror(Kr=(0.95, 0.95, 0.95)),
-        Hikari.CoatedDiffuse(reflectance=(0.1, 0.2, 0.7), roughness=0.05),
-        Hikari.Plastic(Kd=(0.9, 0.9, 0.3), Ks=(0.5, 0.5, 0.5), roughness=0.1),
-        Hikari.Diffuse(Kd=(0.8, 0.2, 0.2)),
-    ]
-
-    # Place spheres in a grid
-    spacing = 0.7f0
-    radius = 0.25f0
-    nrows, ncols = 4, 5
-    for row in 1:nrows, col in 1:ncols
-        x = (col - (ncols + 1) / 2) * spacing
-        y = (row - (nrows + 1) / 2) * spacing
-        mat = materials[mod1(col + (row - 1) * ncols, length(materials))]
-        mesh!(scene, Sphere(Point3f(x, y, radius), radius); material=mat)
+function build_meshes()
+    floor = GeometryBasics.normal_mesh(Rect3f(Vec3f(-3, -3, -0.01), Vec3f(6, 6, 0.01)))
+    sphere_centers = Point3f[]
+    for i in -2:2, j in -2:2
+        push!(sphere_centers, Point3f(Float32(i)*0.9f0, Float32(j)*0.9f0, 0.4f0))
     end
-
-    update_cam!(scene, Vec3f(0, -5.5, 2), Vec3f(0, 0, 0), Vec3f(0, 0, 1))
-    return scene
+    spheres = [GeometryBasics.normal_mesh(Tesselation(Sphere(c, 0.3f0), 32))
+               for c in sphere_centers]
+    return [floor; spheres]
 end
 
-scene = create_demo_scene()
-md"**Scene ready** — 20 spheres with metals, glass, plastics, and diffuse materials"
+all_meshes = build_meshes()
+total_tris = sum(length(GeometryBasics.faces(m)) for m in all_meshes)
+
+sw_tlas = Raycore.TLAS(device)
+hwtlas  = Lava.HWTLAS(device)
+
+for (i, m) in enumerate(all_meshes)
+    push!(sw_tlas, m)
+    push!(hwtlas, m; instance_id=UInt32(i))
+end
+
+Raycore.sync!(sw_tlas)
+Raycore.sync!(hwtlas)
+
+md"""
+**Scene built**
+
+| | meshes | instances | triangles |
+|---|---|---|---|
+| `Raycore.TLAS` | $(Raycore.n_geometries(sw_tlas)) | $(Raycore.n_instances(sw_tlas)) | $total_tris |
+| `Lava.HWTLAS`  | $(Raycore.n_geometries(hwtlas)) | $(Raycore.n_instances(hwtlas)) | $total_tris |
+"""
 ```
+`sync!` uploads the meshes and builds the acceleration structures. For `Raycore.TLAS` that means GPU LBVH builds (one BLAS per mesh + a TLAS over instances). For `Lava.HWTLAS` it means `vkCmdBuildAccelerationStructuresKHR` calls plus instance-table allocation.
 
-## Software BVH (Default)
+## Tracing primary rays both ways
 
-By default, Raycore uses a GPU software BVH (LBVH with Morton codes, two-level TLAS/BLAS). This works on any GPU backend — Lava, AMDGPU, CUDA, Metal, OpenCL.
+Generate one camera ray per pixel. The SW path uses `Raycore.Ray` (origin + direction), the HW path uses `Raycore.RTRay` (origin + dir + tmin/tmax, 32-byte struct that matches Vulkan's `VkRayTracingShaderRecordKHR` layout).
 
 ```julia (editor=true, logging=false, output=true)
-# Software BVH (default)
-integrator_sw = Hikari.VolPath(samples=16, max_depth=20, hw_accel=false)
-img_sw = @time colorbuffer(scene; backend=RayMakie, integrator=integrator_sw)
-img_sw
+const W, H = 256, 192
+
+cam_pos    = Point3f(0, -3.5, 1.6)
+cam_target = Point3f(0, 0, 0.3)
+cam_up     = Point3f(0, 0, 1)
+
+forward = normalize(cam_target - cam_pos)
+right   = normalize(cross(forward, cam_up))
+up      = cross(right, forward)
+aspect  = Float32(W / H)
+focal   = 1.0f0 / tan(deg2rad(45.0f0 / 2))
+
+function build_rays(W, H, cam_pos, forward, right, up, aspect, focal)
+    rays_sw = Vector{Raycore.Ray}(undef, W*H)
+    rays_hw = Vector{Raycore.RTRay}(undef, W*H)
+    for y in 1:H, x in 1:W
+        u = (2.0f0 * (Float32(x) - 0.5f0) / Float32(W) - 1.0f0)
+        v = (1.0f0 - 2.0f0 * (Float32(y) - 0.5f0) / Float32(H))
+        d = normalize(forward * focal + right * (u * aspect) + up * v)
+        i = (y - 1) * W + x
+        rays_sw[i] = Raycore.Ray(o=cam_pos, d=Vec3f(d))
+        rays_hw[i] = Raycore.RTRay(cam_pos[1], cam_pos[2], cam_pos[3], 0f0,
+                                    d[1], d[2], d[3], 1f3)
+    end
+    rays_sw, rays_hw
+end
+
+rays_sw, rays_hw = build_rays(W, H, cam_pos, forward, right, up, aspect, focal)
+
+# ---- SW path: KA kernel calls Raycore.closest_hit per pixel
+@kernel function depth_kernel_sw!(depth, @Const(bvh), @Const(rays))
+    i = @index(Global, Linear)
+    @inbounds if i <= length(rays)
+        ray = rays[i]
+        hit_found, _, dist, _, _ = Raycore.closest_hit(bvh, ray)
+        depth[i] = hit_found ? dist : -1f0
+    end
+end
+
+sw_static    = Adapt.adapt(device, sw_tlas)              # StaticTLAS for kernels
+rays_sw_gpu  = Lava.LavaArray(rays_sw)
+depth_sw_gpu = Lava.LavaArray(zeros(Float32, W*H))
+
+sw_kernel = depth_kernel_sw!(device, 64)
+sw_kernel(depth_sw_gpu, sw_static, rays_sw_gpu, ndrange=W*H)
+KA.synchronize(device)
+depth_sw = Array(depth_sw_gpu)
+
+# ---- HW path: batched trace_closest_hits! dispatches vkCmdTraceRaysKHR
+rays_hw_gpu = Lava.LavaArray(rays_hw)
+hits_hw     = Lava.LavaArray(fill(Raycore.RTHitResult(0,0,0,0,0,0,0,0), W*H))
+
+Lava.trace_closest_hits!(hits_hw, rays_hw_gpu, hwtlas.hw_accel, length(rays_hw))
+Raycore.wait_for_gpu!(hwtlas)
+
+depth_hw = Float32[h.hit == UInt32(1) ? h.t : -1f0 for h in Array(hits_hw)]
+
+# ---- Compare
+hit_mask_sw  = depth_sw .> 0
+hit_mask_hw  = depth_hw .> 0
+disagree     = count(hit_mask_sw .!= hit_mask_hw)
+shared       = hit_mask_sw .& hit_mask_hw
+max_abs_diff = maximum(abs.(depth_sw[shared] .- depth_hw[shared]))
+
+md"""
+**Pixel-wise agreement**
+
+- hit-mask disagreement: **$disagree pixels** out of $(W*H)
+- max abs depth diff on shared hits: **$(round(max_abs_diff, sigdigits=3))**
+
+Sub-1e-4 tolerance is the expected noise floor — both paths use the same Möller–Trumbore-style intersection but with slightly different rounding (the HW path goes through Vulkan's intersection shader, the SW path through Raycore's kernel).
+"""
+```
+## How the two paths line up
+
+```
+Software BVH (SW):                Hardware RT (HW):
+┌──────────────────┐              ┌──────────────────┐
+│ KA @kernel       │              │ Build RTRay      │
+│  per pixel       │              │   batch          │
+│                  │              └────────┬─────────┘
+│ Raycore.         │                       │
+│   closest_hit(   │              ┌────────▼─────────┐
+│     bvh, ray)    │              │ trace_closest_   │
+│                  │              │   hits! (one     │
+│ writes depth[i]  │              │   vkCmdTraceRays │
+└──────────────────┘              │   call)          │
+                                  └────────┬─────────┘
+                                           │
+                                  ┌────────▼─────────┐
+                                  │ RTHitResult[]    │
+                                  │ — t, prim_id,    │
+                                  │   bary, ...      │
+                                  └──────────────────┘
 ```
 
-The software BVH traverses the acceleration structure in a compute kernel — each GPU thread walks the BVH tree, tests ray-AABB intersections at internal nodes, and ray-triangle intersections at leaves.
+In the SW path the kernel is fully programmable — anything you can write inside a `@kernel` function (shadow rays, multi-bounce, custom intersection) works the same way. In the HW path the traversal is fixed-function: rays go in as `RTRay`, hit results come out as `RTHitResult`. The raygen / closest-hit / miss shaders are pre-baked and dispatched as one Vulkan call per ray batch.
 
-## Hardware RT Acceleration
-
-Enable hardware RT by setting `hw_accel=true`. This builds a Vulkan acceleration structure from the same scene geometry and uses the GPU's dedicated RT hardware for BVH traversal and intersection testing.
+## Visualize and time
 
 ```julia (editor=true, logging=false, output=true)
-# Hardware RT — same scene, same API, just flip the flag
-integrator_hw = Hikari.VolPath(samples=16, max_depth=20, hw_accel=true)
-img_hw = @time colorbuffer(scene; backend=RayMakie, integrator=integrator_hw)
-img_hw
+to_disp(d) = d > 0 ? d : NaN32
+img_sw = reshape(depth_sw, W, H) |> permutedims |> x -> to_disp.(x)
+img_hw = reshape(depth_hw, W, H) |> permutedims |> x -> to_disp.(x)
+
+# Warm-up + 5-shot minimum timing
+function time_sw()
+    KA.synchronize(device)
+    t = @elapsed begin
+        sw_kernel(depth_sw_gpu, sw_static, rays_sw_gpu, ndrange=W*H)
+        KA.synchronize(device)
+    end
+    return t
+end
+
+function time_hw()
+    Raycore.wait_for_gpu!(hwtlas)
+    t = @elapsed begin
+        Lava.trace_closest_hits!(hits_hw, rays_hw_gpu, hwtlas.hw_accel, length(rays_hw))
+        Raycore.wait_for_gpu!(hwtlas)
+    end
+    return t
+end
+
+time_sw(); time_sw(); time_hw(); time_hw()  # warm
+t_sw = minimum(time_sw() for _ in 1:5)
+t_hw = minimum(time_hw() for _ in 1:5)
+
+fig = Figure(size=(900, 380))
+ax1 = Axis(fig[1, 1], title="SW (Raycore.TLAS)  $(round(t_sw*1000, digits=2)) ms",
+           aspect=DataAspect())
+ax2 = Axis(fig[1, 2], title="HW (Lava.HWTLAS)  $(round(t_hw*1000, digits=2)) ms",
+           aspect=DataAspect())
+hidedecorations!(ax1); hidedecorations!(ax2)
+heatmap!(ax1, img_sw, colormap=:viridis)
+heatmap!(ax2, img_hw, colormap=:viridis)
+fig
 ```
-
-The rendered images are identical — hardware RT is a transparent acceleration of the BVH traversal, not a different rendering algorithm. All materials, volumetrics, and lighting work exactly the same.
-
-## How It Works Under the Hood
-
-When `hw_accel=true`:
-
-1. **Build phase**: Scene geometry (from `mesh!` calls) is compiled into Vulkan acceleration structures (BLAS per mesh, TLAS over instances) using `VK_KHR_acceleration_structure`
-2. **Trace phase**: Instead of software BVH traversal, rays are batched and dispatched via `VK_KHR_ray_tracing_pipeline` with raygen/closest-hit/miss shaders
-3. **Result phase**: Hit results (distance, triangle ID, barycentrics) are written to a GPU buffer, then consumed by the shading kernels
-
-The key insight: only the **traversal** changes. Material evaluation, volumetric sampling, shadow rays, and film accumulation all run the same KernelAbstractions compute kernels regardless of SW/HW mode.
-
-```
-Software BVH:          Hardware RT:
-┌──────────────┐       ┌──────────────┐
-│ Ray Generation│       │ Ray Generation│
-│  (compute)   │       │  (compute)   │
-└──────┬───────┘       └──────┬───────┘
-       │                      │
-┌──────▼───────┐       ┌──────▼───────┐
-│ BVH Traversal│       │ Extract Rays │
-│ + Intersection│       │ to RT Buffer │
-│  (compute)   │       └──────┬───────┘
-└──────┬───────┘              │
-       │               ┌──────▼───────┐
-       │               │ HW RT Trace  │
-       │               │ (RT pipeline)│
-       │               └──────┬───────┘
-       │                      │
-┌──────▼───────┐       ┌──────▼───────┐
-│   Shading    │       │   Shading    │
-│  (compute)   │       │  (compute)   │
-└──────────────┘       └──────────────┘
-```
-
-## Performance Comparison
-
-On scenes with simple geometry (20 spheres), software and hardware RT perform similarly — the BVH traversal is a small fraction of total render time:
-
-![SW vs HW benchmark](hw-accel-benchmarks.png)
-
-Hardware RT gives larger speedups on complex scenes:
-
-| Scene | Triangles | SW BVH | HW RT | Speedup |
-|-------|-----------|--------|-------|---------|
-| Materials (20 spheres) | ~2K | 740ms | 760ms | 1.0x |
-| Crown (pbrt-v4) | 3.5M | 2.4s | 1.8s | 1.3x |
-
-**Why the modest speedup?** Hikari is a volumetric path tracer — most render time is spent on material evaluation, medium sampling, and shadow rays, not BVH traversal. For pure ray casting (no shading), hardware RT can be 10-20x faster than software BVH on large scenes.
-
-## Scaling to Complex Scenes
-
-Hardware RT shines on production scenes with millions of triangles. Here is the [pbrt-v4 Crown scene](https://pbrt.org/scenes-v4) (3.5M triangles, 786 meshes, volumetric gems):
-
-![Materials render](hw-accel-materials.png)
-
-The 20-material showcase above renders in **740ms at 10spp** on an AMD RX 7900 XTX — competitive with CUDA on an RTX 3070.
-
-## API Summary
-
-```julia
-# Software BVH (default, works on any KA backend)
-integrator = Hikari.VolPath(samples=N, hw_accel=false)
-
-# Hardware RT (requires Lava + VK_KHR_ray_tracing_pipeline)
-integrator = Hikari.VolPath(samples=N, hw_accel=true)
-
-# Both use the same scene and rendering API
-img = colorbuffer(scene; backend=RayMakie, integrator=integrator)
-```
-
-The `hw_accel` flag is the only API difference. Scene construction, camera setup, materials, and all other parameters are identical.
+The two heatmaps are visually indistinguishable — the depth comparison cell above quantifies that. The timing ratio depends on triangle count, ray coherence, and GPU; the only honest way to know what your scene needs is to measure both.
 
 ## Lifetime and memory management
 
-`sync!(hwtlas)` owns `hwtlas.static_tlas`. Consumers re-read it (or call
-`Adapt.adapt(backend, hwtlas)`) per dispatch — do NOT cache across
-mutations.
+`sync!(hwtlas)` owns `hwtlas.static_tlas`. Consumers re-read it (or call `Adapt.adapt(backend, hwtlas)`) per dispatch — do NOT cache across mutations.
 
-`sync!` does not block the CPU. Backend-internal timeline tracking
-(Lava's `bq.deferred_as_frees`) handles the "still in flight" case when
-old acceleration-structure buffers are dropped. If you need a
-CPU-blocking drain — e.g. before tear-down or between benchmark phases
-— call `wait_for_gpu!(hwtlas)` explicitly.
+`sync!` does not block the CPU. Backend-internal timeline tracking (Lava's `bq.deferred_as_frees`) handles the "still in flight" case when old acceleration-structure buffers are dropped. If you need a CPU-blocking drain — e.g. before tear-down or between benchmark phases — call `Raycore.wait_for_gpu!(hwtlas)` explicitly.
 
 ## Direct `HWTLAS` usage
 
-For code that wants to manage the acceleration structure directly (without going through Hikari/RayMakie), `Lava.HWTLAS` can be used standalone:
+The cells above already show the full direct-API path. The minimum is:
 
 ```julia
-using Raycore, Lava, GeometryBasics, StaticArrays, LinearAlgebra
+using Raycore, Lava, GeometryBasics, LinearAlgebra
 using Raycore: RTRay, RTHitResult
 
-backend = Lava.LavaBackend()
-hwtlas = Lava.HWTLAS(backend)
+device = Lava.LavaBackend()
+hwtlas = Lava.HWTLAS(device)
 
-mesh = normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
-push!(hwtlas, mesh, SMatrix{4,4,Float32}(I); instance_id=UInt32(1))
+mesh = GeometryBasics.normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
+push!(hwtlas, mesh; instance_id=UInt32(1))
 Raycore.sync!(hwtlas)
 
-rays = LavaArray([RTRay(0,0,5, 0, 0,0,-1, 1f3)])
-hits = LavaArray(fill(RTHitResult(0,0,0,0,0,0,0,0), 1))
+rays = Lava.LavaArray([RTRay(0,0,5, 0,  0,0,-1, 1f3)])
+hits = Lava.LavaArray(fill(RTHitResult(0,0,0,0,0,0,0,0), 1))
 Lava.trace_closest_hits!(hits, rays, hwtlas.hw_accel, 1)
+Raycore.wait_for_gpu!(hwtlas)
 ```
 
-RT intrinsics inside shader functions use the `lava_rt_*` naming convention (no `accel` argument — the SBT wires up the hardware automatically):
+`HardwareAccel` (`hwtlas.hw_accel`) is the lower-level handle if you need direct control of the pipeline / SBT or want to install a custom any-hit shader (`Lava.set_anyhit_pipeline!`).
 
-| Old (`Raycore.rt_*`) | New (`lava_rt_*`) |
-|---|---|
-| `Raycore.rt_primitive_id(accel)` | `lava_rt_primitive_id()` |
-| `Raycore.rt_instance_id(accel)` | `lava_rt_instance_id()` |
-| `Raycore.rt_instance_custom_index(accel)` | `lava_rt_instance_custom_index()` |
-| `Raycore.rt_launch_id_x(accel)` | `lava_rt_launch_id_x()` |
-| `Raycore.rt_trace_ray!(accel, ...)` | `lava_rt_trace_ray(...)` |
-| `Raycore.rt_ignore_intersection(accel)` | `lava_rt_ignore_intersection()` |
+## RT shader intrinsics
+
+If you write your own raygen / closest-hit / miss shaders in Lava, the RT intrinsics use the `lava_rt_*` naming convention — no `accel` argument since the SBT wires up the hardware automatically:
+
+|                      `Raycore.rt_*` (generic) |               `lava_rt_*` (Lava-specific) |
+| ---------------------------------------------:| -----------------------------------------:|
+|              `Raycore.rt_primitive_id(accel)` |                  `lava_rt_primitive_id()` |
+|               `Raycore.rt_instance_id(accel)` |                   `lava_rt_instance_id()` |
+|     `Raycore.rt_instance_custom_index(accel)` |         `lava_rt_instance_custom_index()` |
+|               `Raycore.rt_launch_id_x(accel)` |                   `lava_rt_launch_id_x()` |
+|           `Raycore.rt_trace_ray!(accel, ...)` |                  `lava_rt_trace_ray(...)` |
+|       `Raycore.rt_ignore_intersection(accel)` |           `lava_rt_ignore_intersection()` |
 | `Raycore.rt_payload_store!(accel, val, slot)` | `lava_rt_payload_store_f32_at(val, slot)` |
-| `Raycore.rt_payload_load(accel, slot)` | `lava_rt_payload_load_f32_at(slot)` |
+|        `Raycore.rt_payload_load(accel, slot)` |       `lava_rt_payload_load_f32_at(slot)` |
+
+The pre-baked shaders shipped with `Lava.HardwareAccel` (raygen / closest-hit / miss for `RTHitResult` payload) are defined in `Lava/src/raytracing/raycore_compat.jl` as a reference implementation.
+

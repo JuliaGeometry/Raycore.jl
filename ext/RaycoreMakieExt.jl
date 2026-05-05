@@ -175,16 +175,17 @@ function Makie.plot!(plot::RayPlot)
         end
     end
 
-    # Draw hit rays
+    # Draw hit rays.  Makie deprecated `arrows!` in favor of `arrows3d!` for
+    # 3-D inputs; both arrow batches here are Vec3f (rays in world space).
     if !isempty(hit_ray_starts)
-        arrows!(plot, hit_ray_starts, hit_ray_directions,
-            color=hit_ray_colors, arrowsize=Vec3f(0.1, 0.1, 0.15))
+        arrows3d!(plot, hit_ray_starts, hit_ray_directions,
+            color=hit_ray_colors, tipradius=0.05f0, tiplength=0.15f0, shaftradius=0.02f0)
     end
 
     # Draw miss rays
     if !isempty(miss_ray_starts)
-        arrows!(plot, miss_ray_starts, miss_ray_directions,
-            color=miss_color, arrowsize=Vec3f(0.1, 0.1, 0.15))
+        arrows3d!(plot, miss_ray_starts, miss_ray_directions,
+            color=miss_color, tipradius=0.05f0, tiplength=0.15f0, shaftradius=0.02f0)
     end
 
     # Draw hit points

@@ -44,7 +44,9 @@ function tlas_to_mesh(tlas)
         end
         push!(fs, GLTriangleFace(base + 1, base + 2, base + 3))
     end
-    GeometryBasics.Mesh(GeometryBasics.meta(verts; normals=norms), fs)
+    # GeometryBasics ≥ 0.5 dropped `meta(...)`; vertex normals go via the
+    # `normal` kwarg on `GeometryBasics.mesh`/`Mesh`.
+    GeometryBasics.mesh(verts, fs; normal=norms)
 end
 world_mesh = tlas_to_mesh(tlas)
 N = length(tlas.all_blas_prims)
@@ -110,3 +112,4 @@ meshscatter!(ax, [centroid], color=:red, markersize=0.05)
 f
 ```
 The red sphere marks the centroid - useful for camera placement and focus calculations.
+

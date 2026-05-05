@@ -61,7 +61,6 @@ rays = [Raycore.Ray(o=pos, d=Vec3f(0, 0, 1)) for pos in test_positions]
 result_multi = trace_rays(tlas, rays)
 plot(result_multi; axis=(;show_axis=false))
 ```
-
 ## Test 3: Complex Scene
 
 Demonstrate ray tracing through a complex scene with many overlapping objects.
@@ -171,3 +170,4 @@ This document demonstrated:
 6. `any_hit` is typically faster than `closest_hit` due to early termination
 
 All tests passed! ✓
+
