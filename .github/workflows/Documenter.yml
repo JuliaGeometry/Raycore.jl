@@ -36,16 +36,27 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+      - name: Install xvfb (GLFW pulled in by Lava needs an X display at module __init__)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+      - name: Install lavapipe (mesa software Vulkan, needed for HW-RT cells in tutorials)
+        run: |
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools spirv-tools
+          echo "VK_DRIVER_FILES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json" >> "$GITHUB_ENV"
+          xvfb-run --auto-servernum vulkaninfo --summary | grep -E "deviceName|driverName" | head -4 || true
       - name: Setup Julia
         uses: julia-actions/setup-julia@v2
       - name: Pull Julia cache
         uses: julia-actions/cache@v2
       - name: Install custom documentation dependencies
-        run: julia --project=docs -e 'using Pkg; Pkg.instantiate(); Pkg.precompile(); Pkg.status()'
+        # xvfb-run wraps `julia` so GLFW's __init__ (transitively loaded via Lava
+        # during precompilation of doc deps) can call glfwInit() on a headless runner.
+        run: xvfb-run --auto-servernum julia --project=docs -e 'using Pkg; Pkg.instantiate(); Pkg.precompile(); Pkg.status()'
       #- name: Creating new mds from src
       - name: Build and deploy
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # For authentication with GitHub Actions token
           DOCUMENTER_KEY: ${{ secrets.DOCUMENTER_KEY }} # For authentication with SSH deploy key
           JULIA_DEBUG: "Documenter"
-        run: julia --project=docs/ --color=yes docs/make.jl
+        run: xvfb-run --auto-servernum julia --project=docs/ --color=yes docs/make.jl
