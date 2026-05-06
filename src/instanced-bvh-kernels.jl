@@ -431,13 +431,6 @@ end
 # GPU Dynamic Update Kernels
 # ==============================================================================
 
-"""
-GPU kernel: Batch update instance transforms.
-
-Updates both transform and inv_transform for each instance from the provided
-transform array. The transforms array should contain the new local-to-world
-transforms for instances 1:n (in particle order, NOT Morton order).
-"""
 KA.@kernel function update_instance_transforms_kernel!(
     instances,
     @Const(transforms),
@@ -448,27 +441,17 @@ KA.@kernel function update_instance_transforms_kernel!(
         @inbounds begin
             old_inst = instances[i]
             transform = transforms[i]
-            # Compute inverse transform
-            inv_transform = Mat4f(inv(transform))
-            # Update instance (preserve blas_index, instance_id, flags)
             instances[i] = InstanceDescriptor(
                 old_inst.blas_index,
                 old_inst.instance_id,
                 transform,
-                inv_transform,
+                mat3x4_inverse(transform),
                 old_inst.flags
             )
         end
     end
 end
 
-"""
-GPU kernel: Update instance transforms with offset.
-
-Same as update_instance_transforms_kernel! but updates instances starting at
-`first_idx` instead of 1. This is needed for TLAS with multiple meshscatter
-plots where each plot's instances are at different offsets.
-"""
 KA.@kernel function update_instance_transforms_offset_kernel!(
     instances,
     @Const(transforms),
@@ -481,14 +464,11 @@ KA.@kernel function update_instance_transforms_offset_kernel!(
             inst_idx = first_idx + i - Int32(1)
             old_inst = instances[inst_idx]
             transform = transforms[i]
-            # Compute inverse transform
-            inv_transform = Mat4f(inv(transform))
-            # Update instance (preserve blas_index, instance_id, flags)
             instances[inst_idx] = InstanceDescriptor(
                 old_inst.blas_index,
                 old_inst.instance_id,
                 transform,
-                inv_transform,
+                mat3x4_inverse(transform),
                 old_inst.flags
             )
         end

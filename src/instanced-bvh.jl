@@ -25,6 +25,11 @@ using LinearAlgebra: I
 import KernelAbstractions as KA
 import AcceleratedKernels as AK
 
+# Vulkan-compatible 3×4 transform (row-major). SMatrix{4,3} is column-major and
+# byte-identical to a Vulkan row-major 3×4, so the two conventions share the
+# same memory layout without any reinterpret.
+const Mat3x4f = SMatrix{4, 3, Float32, 12}
+
 # ==============================================================================
 # Core Data Structures
 # ==============================================================================
@@ -78,16 +83,16 @@ Fields:
   uses it as a `medium_interface_idx` override so N instances of one BLAS
   can have distinct materials / media / emission without duplicating the
   BLAS geometry.  Matches Vulkan's `gl_InstanceCustomIndexEXT`.
-- `transform`: World-to-local transformation matrix (4x4)
-- `inv_transform`: Local-to-world transformation matrix (4x4)
+- `transform`: Local-to-world transform (Vulkan row-major 3×4, `Mat3x4f`)
+- `inv_transform`: World-to-local transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `flags`: Instance flags (reserved for future use)
 """
 struct InstanceDescriptor
-    blas_index::UInt32          # Which BLAS to instance
-    instance_id::UInt32         # Interface override (0 = inherit from triangle metadata)
-    transform::Mat4f            # Local-to-world
-    inv_transform::Mat4f        # World-to-local
-    flags::UInt32               # Reserved
+    blas_index::UInt32
+    instance_id::UInt32
+    transform::Mat3x4f
+    inv_transform::Mat3x4f
+    flags::UInt32
 end
 
 """
@@ -628,8 +633,8 @@ Returns a stable handle for later reference.
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
                     instance_id::UInt32=UInt32(0))
     blas_idx = build_and_append_blas!(tlas, mesh)
-    inv_transform = Mat4f(inv(transform))
-    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, transform, inv_transform, UInt32(0))]
+    t = mat4_to_mat3x4(transform)
+    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), UInt32(0))]
     return append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
@@ -655,9 +660,9 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractV
     blas_idx = build_and_append_blas!(tlas, mesh)
 
     cpu_descriptors = map(enumerate(transforms)) do (i, transform)
-        inv_transform = Mat4f(inv(transform))
+        t = mat4_to_mat3x4(transform)
         iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
-        InstanceDescriptor(blas_idx, iid, transform, inv_transform, UInt32(0))
+        InstanceDescriptor(blas_idx, iid, t, mat3x4_inverse(t), UInt32(0))
     end
     return append_instances_with_handle!(tlas, cpu_descriptors)
 end
@@ -736,13 +741,12 @@ For handles with multiple instances, use `update_transforms!`.
 
 After calling this, use `refit_tlas!` to update the BVH AABBs.
 """
-function update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat4f)
+function update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat3x4f)
     haskey(tlas.handle_to_range, handle) || error("Invalid handle")
     handle in tlas.deleted_handles && error("Handle has been deleted")
     range = tlas.handle_to_range[handle]
     length(range) == 1 || error("Handle has $(length(range)) instances, use update_transforms! for multiple")
 
-    # Update single instance using kernel
     transforms = Adapt.adapt(tlas.backend, [transform])
     update_instance_transforms!(tlas, transforms, 1, first(range))
 
@@ -758,13 +762,12 @@ Length must match the number of instances in the handle.
 The transforms array can be CPU or GPU - will be adapted to backend.
 After calling this, use `refit_tlas!` to update the BVH AABBs.
 """
-function update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::AbstractVector{Mat4f})
+function update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::AbstractVector{Mat3x4f})
     haskey(tlas.handle_to_range, handle) || error("Invalid handle")
     handle in tlas.deleted_handles && error("Handle has been deleted")
     range = tlas.handle_to_range[handle]
     length(transforms) == length(range) || error("Transform count ($(length(transforms))) != instance count ($(length(range)))")
 
-    # Adapt transforms to backend if needed
     backend_transforms = Adapt.adapt(tlas.backend, transforms)
     update_instance_transforms!(tlas, backend_transforms, length(range), first(range))
 
@@ -1633,20 +1636,70 @@ const TraversableTLAS = Union{TLAS, StaticTLAS}
 # Transform Utilities
 # ==============================================================================
 
-"""Transform point by 4x4 matrix."""
-@inline function transform_point(m::Mat4f, p::Point3f)::Point3f
-    ph = SVector{4, Float32}(p[1], p[2], p[3], 1.0f0)
-    pt = m * ph
-    w = pt[4]
-    Point3f(pt[1] / w, pt[2] / w, pt[3] / w)
+# Mat4f (column-major 4×4) → Mat3x4f (Vulkan row-major 3×4).
+# The upper three rows of the 4×4 become the three Vulkan rows.
+@inline function mat4_to_mat3x4(m)::Mat3x4f
+    Mat3x4f(
+        Float32(m[1,1]), Float32(m[1,2]), Float32(m[1,3]), Float32(m[1,4]),
+        Float32(m[2,1]), Float32(m[2,2]), Float32(m[2,3]), Float32(m[2,4]),
+        Float32(m[3,1]), Float32(m[3,2]), Float32(m[3,3]), Float32(m[3,4]),
+    )
 end
 
-"""Transform direction by 4x4 matrix (ignoring translation)."""
+# Affine inverse of a Mat3x4f.
+# SMatrix{4,3} stores columns: col k = [Vk_row0_colK, Vk_row1_colK, Vk_row2_colK, tx/ty/tz].
+# The upper-left SMatrix{3,3} equals inv(A_vulkan) in row-major terms; translation inverts as
+# -(inv(A_vulkan)^T * t) which reduces to -(B^T * t) with B = inv(upper-left 3×3).
+@inline function mat3x4_inverse(m::Mat3x4f)::Mat3x4f
+    R = m[SOneTo(3), SOneTo(3)]
+    B = inv(R)
+    tx, ty, tz = m[4,1], m[4,2], m[4,3]
+    t_inv_x = -(B[1,1]*tx + B[2,1]*ty + B[3,1]*tz)
+    t_inv_y = -(B[1,2]*tx + B[2,2]*ty + B[3,2]*tz)
+    t_inv_z = -(B[1,3]*tx + B[2,3]*ty + B[3,3]*tz)
+    return Mat3x4f(
+        B[1,1], B[2,1], B[3,1], t_inv_x,
+        B[1,2], B[2,2], B[3,2], t_inv_y,
+        B[1,3], B[2,3], B[3,3], t_inv_z,
+    )
+end
+
+# Transform point by a Mat3x4f (Vulkan row-major 3×4 affine transform).
+# m[j+1, i+1] = Vulkan element (row i, col j), so each result component is
+# a dot of one Julia column with (p..., 1).
+@inline function transform_point(m::Mat3x4f, p::Point3f)::Point3f
+    Point3f(
+        m[1,1] * p[1] + m[2,1] * p[2] + m[3,1] * p[3] + m[4,1],
+        m[1,2] * p[1] + m[2,2] * p[2] + m[3,2] * p[3] + m[4,2],
+        m[1,3] * p[1] + m[2,3] * p[2] + m[3,3] * p[3] + m[4,3],
+    )
+end
+
+# Transform point by a homogeneous Mat4f (Julia column-major; translation in column 4).
+# Standard graphics convention: out_i = sum_j m[i,j]*p[j] + m[i,4].
+@inline function transform_point(m::Mat4f, p::Point3f)::Point3f
+    Point3f(
+        m[1,1] * p[1] + m[1,2] * p[2] + m[1,3] * p[3] + m[1,4],
+        m[2,1] * p[1] + m[2,2] * p[2] + m[2,3] * p[3] + m[2,4],
+        m[3,1] * p[1] + m[3,2] * p[2] + m[3,3] * p[3] + m[3,4],
+    )
+end
+
+# Transform direction (ignoring translation).
+@inline function transform_direction(m::Mat3x4f, v::Vec3f)::Vec3f
+    Vec3f(
+        m[1,1] * v[1] + m[2,1] * v[2] + m[3,1] * v[3],
+        m[1,2] * v[1] + m[2,2] * v[2] + m[3,2] * v[3],
+        m[1,3] * v[1] + m[2,3] * v[2] + m[3,3] * v[3],
+    )
+end
+
+# Mat4f variant — translation column ignored for direction transforms.
 @inline function transform_direction(m::Mat4f, v::Vec3f)::Vec3f
     Vec3f(
         m[1,1] * v[1] + m[1,2] * v[2] + m[1,3] * v[3],
         m[2,1] * v[1] + m[2,2] * v[2] + m[2,3] * v[3],
-        m[3,1] * v[1] + m[3,2] * v[2] + m[3,3] * v[3]
+        m[3,1] * v[1] + m[3,2] * v[2] + m[3,3] * v[3],
     )
 end
 
@@ -2092,17 +2145,14 @@ Update the transform of a single instance. Call `refit_tlas!` after updating tra
 - `instance_idx`: 1-based index of the instance to update
 - `transform`: New local-to-world transformation matrix
 """
-function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat4f)
-    inv_transform = Mat4f(inv(transform))
-
-    # Use scalar indexing to update single element directly on GPU
+function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat3x4f)
     @allowscalar begin
         old_inst = tlas.instances[instance_idx]
         tlas.instances[instance_idx] = InstanceDescriptor(
             old_inst.blas_index,
             old_inst.instance_id,
             transform,
-            inv_transform,
+            mat3x4_inverse(transform),
             old_inst.flags
         )
     end
@@ -2146,21 +2196,7 @@ function refit_tlas!(tlas::TLAS)
     return tlas
 end
 
-"""
-    update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer)
-
-Batch update instance transforms. Updates the first `n_to_update` instances
-with the provided transforms array.
-
-This is more efficient than calling `update_instance_transform!` in a loop,
-especially on GPU where we can parallelize the updates.
-
-The backend is inferred from the `transforms` array type, so for GPU updates
-pass a GPU array (e.g., `ROCArray{Mat4f}`).
-
-Call `refit_tlas!(tlas)` after this to update the BVH AABBs.
-"""
-function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer)
+function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3x4f}, n_to_update::Integer)
     backend = KA.get_backend(transforms)
     kernel! = update_instance_transforms_kernel!(backend)
     kernel!(tlas.instances, transforms, Int32(n_to_update), ndrange=n_to_update)
@@ -2169,19 +2205,7 @@ function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4
     return nothing
 end
 
-"""
-    update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer, first_idx::Integer)
-
-Batch update instance transforms starting at a specific index.
-
-This variant updates instances starting at `first_idx` instead of 1, which is
-needed for scenes with multiple meshscatter plots where each plot's instances
-are at different offsets in the TLAS.
-
-The backend is inferred from the `transforms` array type.
-Call `refit_tlas!(tlas)` after this to update the BVH AABBs.
-"""
-function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer, first_idx::Integer)
+function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3x4f}, n_to_update::Integer, first_idx::Integer)
     backend = KA.get_backend(transforms)
     kernel! = update_instance_transforms_offset_kernel!(backend)
     kernel!(tlas.instances, transforms, Int32(n_to_update), Int32(first_idx), ndrange=n_to_update)
