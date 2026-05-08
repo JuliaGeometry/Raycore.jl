@@ -504,7 +504,10 @@ end
     )
     update_transform!(tlas, handles[1], new_transform)
 
-    @test get_instance(tlas, handles[1]).transform ≈ new_transform
+    # TLAS stores transforms as Mat3x4f (Vulkan row-major 3×4); compare in
+    # that form, since `≈` between SMatrix{4,3} and SMatrix{4,4} would
+    # throw on size mismatch.
+    @test get_instance(tlas, handles[1]).transform ≈ Raycore.mat4_to_mat3x4(new_transform)
 end
 
 @testset "update_transforms! (multiple instances)" begin
@@ -530,7 +533,7 @@ end
 
     instances = get_instances(tlas, handles[1])
     for (i, inst) in enumerate(instances)
-        @test inst.transform ≈ new_transforms[i]
+        @test inst.transform ≈ Raycore.mat4_to_mat3x4(new_transforms[i])
     end
 end
 

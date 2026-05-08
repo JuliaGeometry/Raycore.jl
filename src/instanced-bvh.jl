@@ -95,6 +95,12 @@ struct InstanceDescriptor
     flags::UInt32
 end
 
+# Mat4f convenience: `convert(Mat3x4f, ::Mat4f)` fails (different SMatrix
+# shape), so an explicit outer constructor lets callers pass the natural
+# homogeneous 4×4 form. Mirrors push!(tlas, mesh, ::Mat4f).
+InstanceDescriptor(blas_index, instance_id, transform::Mat4f, inv_transform::Mat4f, flags) =
+    InstanceDescriptor(blas_index, instance_id, mat4_to_mat3x4(transform), mat4_to_mat3x4(inv_transform), flags)
+
 """
     BLAS{NodeArray, TriArray}
 
@@ -734,12 +740,15 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat4f)
+    update_transform!(tlas::TLAS, handle::TLASHandle, transform)
 
 Update the transform of a single-instance handle directly on GPU.
 For handles with multiple instances, use `update_transforms!`.
 
-After calling this, use `refit_tlas!` to update the BVH AABBs.
+`transform` may be a `Mat4f` (homogeneous 4×4) or the canonical Vulkan
+row-major 3×4 (`Mat3x4f`); the `Mat4f` form is converted internally via
+`mat4_to_mat3x4`. After calling this, use `refit_tlas!` to update the
+BVH AABBs.
 """
 function update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat3x4f)
     haskey(tlas.handle_to_range, handle) || error("Invalid handle")
@@ -753,14 +762,22 @@ function update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat3x4f)
     return nothing
 end
 
+# Mat4f convenience: mirrors push!(tlas, mesh, ::Mat4f) which also accepts
+# the homogeneous 4×4 form and converts to Mat3x4f at the boundary.
+update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat4f) =
+    update_transform!(tlas, handle, mat4_to_mat3x4(transform))
+
 """
-    update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::AbstractVector{Mat4f})
+    update_transforms!(tlas::TLAS, handle::TLASHandle, transforms)
 
 Update all instances' transforms in a group directly on GPU.
 Length must match the number of instances in the handle.
 
-The transforms array can be CPU or GPU - will be adapted to backend.
-After calling this, use `refit_tlas!` to update the BVH AABBs.
+Transforms may be `Mat4f` or the canonical Vulkan row-major 3×4
+(`Mat3x4f`); `Mat4f` arrays are converted element-wise via
+`mat4_to_mat3x4`. The array can be CPU or GPU — it'll be adapted to the
+TLAS backend. After calling this, use `refit_tlas!` to update the BVH
+AABBs.
 """
 function update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::AbstractVector{Mat3x4f})
     haskey(tlas.handle_to_range, handle) || error("Invalid handle")
@@ -773,6 +790,9 @@ function update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::Abstract
 
     return nothing
 end
+
+update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::AbstractVector{Mat4f}) =
+    update_transforms!(tlas, handle, map(mat4_to_mat3x4, transforms))
 
 # ------------------------------------------------------------------------------
 # TLAS: update! for geometry replacement
@@ -2136,14 +2156,14 @@ end
 # ==============================================================================
 
 """
-    update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat4f)
+    update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform)
 
 Update the transform of a single instance. Call `refit_tlas!` after updating transforms.
 
 # Arguments
 - `tlas`: The TLAS to update
 - `instance_idx`: 1-based index of the instance to update
-- `transform`: New local-to-world transformation matrix
+- `transform`: New local-to-world transform — `Mat4f` or canonical Vulkan row-major 3×4 (`Mat3x4f`)
 """
 function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat3x4f)
     @allowscalar begin
@@ -2159,6 +2179,9 @@ function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform
     tlas.transforms_dirty = true
     return nothing
 end
+
+update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat4f) =
+    update_instance_transform!(tlas, instance_idx, mat4_to_mat3x4(transform))
 
 """
     refit_tlas!(tlas::TLAS)
@@ -2205,6 +2228,12 @@ function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3
     return nothing
 end
 
+# Mat4f convenience: convert host-side and re-dispatch.  GPU-resident Mat4f
+# arrays are converted via a CPU map; that's fine for the only known caller
+# (RayMakie's mesh.jl, which builds a 1-element CPU array per update).
+update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer) =
+    update_instance_transforms!(tlas, map(mat4_to_mat3x4, transforms), n_to_update)
+
 function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3x4f}, n_to_update::Integer, first_idx::Integer)
     backend = KA.get_backend(transforms)
     kernel! = update_instance_transforms_offset_kernel!(backend)
@@ -2213,6 +2242,9 @@ function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3
     tlas.transforms_dirty = true
     return nothing
 end
+
+update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer, first_idx::Integer) =
+    update_instance_transforms!(tlas, map(mat4_to_mat3x4, transforms), n_to_update, first_idx)
 
 
 # ==============================================================================
@@ -2247,7 +2279,7 @@ function TLAS(
     first_metadata = metadata_fn(1, 1)
     TMetadata = typeof(first_metadata)
 
-    identity = Mat4f(I)
+    identity = mat4_to_mat3x4(Mat4f(I))
     blas_array = BLAS[]
     instances = InstanceDescriptor[]
 
