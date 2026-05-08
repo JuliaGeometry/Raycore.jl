@@ -4,6 +4,10 @@ version = "0.1.1"
 authors = ["Anton Smirnov <tonysmn97@gmail.com>", "Simon Danisch <sdanisch@protonmail.com"]
 
 [deps]
+AcceleratedKernels = "6a4ca0a5-0e36-4168-a932-d9be78d558f1"
+Adapt = "79e6a3ab-5dfb-504d-930d-738a2a938a0e"
+Atomix = "a9b6321e-bd34-4604-b9c9-b65b8de01458"
+GPUArraysCore = "46192b85-c4d5-4398-a991-12ede77f4527"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
@@ -18,22 +22,37 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 RaycoreMakieExt = "Makie"
 
 [compat]
-julia = "1.10"
+AcceleratedKernels = "0.4.3"
+Adapt = "4.4.0"
+Aqua = "0.8"
+Atomix = "1.1.2"
+GPUArraysCore = "0.2.0"
 GeometryBasics = "0.5"
+JET = "0.11"
 KernelAbstractions = "0.9, 0.10"
+Lava = "0.1"
 LinearAlgebra = "1"
+Makie = "0.24"
 Random = "1"
 StaticArrays = "1.9.7"
 Statistics = "1"
-Makie = "0.24"
-Aqua = "0.8"
-JET = "0.11"
 Test = "1"
+julia = "1.12"
+
+[sources]
+# Lava is unregistered (developer package); pull from GitHub for CI test resolution.
+# Dropping this would leave `Lava` in [extras] unresolvable on a fresh runner and
+# break both matrix entries (cpu and lavapipe) at Pkg.test resolve time.
+# Pinned `rev` so a Raycore commit is reproducible — bumping this is an
+# explicit, reviewed action, not "whatever Lava main happens to be today".
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "418af9148dc1aba0ed8c730f04143e8c74242802"}
 
 [extras]
-JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "JET", "Aqua"]
+test = ["Test", "JET", "Aqua", "Lava", "StaticArrays"]

@@ -140,9 +140,9 @@ end
 function (t::Transformation)(p::Point3f)::Point3f
     ph = Point4f(p..., 1f0)
     pt = t.m * ph
-    pr = Point3f(pt[Vec(1, 2, 3)])
-    pt[4] == 1 && return pr
-    pr ./ pt[4]
+    # Always divide by w - avoids branch that causes SPIR-V structured control flow errors
+    # Division by 1.0 is essentially free on GPU
+    Point3f(pt[Vec(1, 2, 3)]) ./ pt[4]
 end
 
 (t::Transformation)(v::Vec3f)::Vec3f = t.m[Vec(1, 2, 3), Vec(1, 2, 3)] * v

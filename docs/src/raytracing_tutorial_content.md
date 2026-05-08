@@ -1,6 +1,6 @@
 # Ray Tracing in one Hour
 
-Analougus to the famous [Ray Tracing in one Weekend](https://raytracing.github.io/), this tutorial uses Raycore to do the hard work of performant ray triangle intersection and therefore get a high performing ray tracer in a much shorter time. We'll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows, materials, and reflections.
+Analogous to the famous [Ray Tracing in one Weekend](https://raytracing.github.io/), this tutorial uses Raycore to do the hard work of performant ray triangle intersection and therefore get a high performing ray tracer in a much shorter time. We'll start with the absolute basics and progressively add features until we have a ray tracer that produces beautiful images with shadows, materials, and reflections.
 
 ## Setup
 
@@ -47,10 +47,11 @@ left_wall = normal_mesh(Rect3f(Vec3f(-5, -1.5, -2), Vec3f(0.01, 5, 10)))
 sphere1 = Tesselation(Sphere(Point3f(-2, -1.5 + 0.8, 2), 0.8f0), 64)
 sphere2 = Tesselation(Sphere(Point3f(2, -1.5 + 0.6, 1), 0.6f0), 64)
 
-# Build our BVH acceleration structure
-scene_geometry = [cat_mesh, floor, back_wall, left_wall, sphere1, sphere2]
-bvh = Raycore.BVH(scene_geometry)
-md"**BVH built with $(length(bvh.primitives)) triangles**"
+# Build our TLAS acceleration structure
+scene_geometry = [cat_mesh, floor, back_wall, left_wall,
+    normal_mesh(sphere1), normal_mesh(sphere2)]
+bvh = Raycore.TLAS(scene_geometry, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+md"**TLAS built**"
 ```
 ## Part 2: Helper Functions - Building Blocks
 
@@ -96,7 +97,7 @@ function trace(f, bvh; width=700, height=300,
                 jitter = samples > 1 ? rand(Vec2f) : Vec2f(0)
                 # Calculate the ray shooting from the camera pixel into the scene
                 ray = camera_ray(x, y, width, height, camera_pos, focal_length, aspect; jitter)
-                hit_found, triangle, distance, bary_coords = Raycore.closest_hit(bvh, ray)
+                hit_found, triangle, distance, bary_coords, _ = Raycore.closest_hit(bvh, ray)
                 color = if hit_found
                     to_vec3f(f(bvh, ctx, triangle, distance, bary_coords, ray))
                 else
@@ -155,7 +156,7 @@ function compute_light(
         shadow_dir = normalize(shadow_vec)
 
         shadow_ray = Raycore.Ray(o=point + normal * 0.001f0, d=shadow_dir)
-        shadow_hit, _, hit_dist, _ = Raycore.any_hit(bvh, shadow_ray)
+        shadow_hit, _, hit_dist, _, _ = Raycore.any_hit(bvh, shadow_ray)
 
         if !shadow_hit || hit_dist >= shadow_dist
             shadow_factor += 1.0f0
@@ -201,11 +202,11 @@ trace((args...)-> shadow_kernel(args...; shadow_samples=8), bvh, samples=8)
 
 ## Part 7: Materials and Multiple Lights
 
-Time to add color and multiple lights! To associate materials with geometry, we need to rebuild the BVH with **metadata** that links each triangle to its material.
+Time to add color and multiple lights! To associate materials with geometry, we need to rebuild the TLAS with **metadata** that links each triangle to its material.
 
 ### Triangle Metadata
 
-When building a BVH, you can pass a `metadata_fn(mesh_idx, tri_idx)` that assigns custom data to each triangle. This metadata is stored in `triangle.metadata` and returned with every ray hit. For materials, we use the mesh index as metadata:
+When building a TLAS, you can pass a `metadata_fn(mesh_idx, tri_idx)` that assigns custom data to each triangle. This metadata is stored in `triangle.metadata` and returned with every ray hit. For materials, we use the mesh index as metadata:
 
 ```julia (editor=true, logging=false, output=true)
 struct PointLight
@@ -236,9 +237,9 @@ materials = [
     Material(RGB(0.3f0, 0.6f0, 0.9f0), 0.5f0, 0.3f0),  # 6: sphere2 - semi-metallic
 ]
 
-# Rebuild BVH with material indices as metadata
+# Rebuild TLAS with material indices as metadata
 # The metadata_fn receives (mesh_idx, tri_idx) and returns data stored per-triangle
-bvh = Raycore.BVH(scene_geometry, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+bvh = Raycore.TLAS(scene_geometry, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
 
 # Create lights
 lights = [
@@ -310,7 +311,7 @@ function reflective_kernel(bvh, ctx, tri, dist, bary, ray, sky_color)
 
         # Cast reflection ray
         reflect_ray = Raycore.Ray(o=hit_point + normal * 0.001f0, d=reflect_dir)
-        refl_hit, refl_tri, refl_dist, refl_bary = Raycore.closest_hit(bvh, reflect_ray)
+        refl_hit, refl_tri, refl_dist, refl_bary, _ = Raycore.closest_hit(bvh, reflect_ray)
 
         reflection_color = if refl_hit
             refl_point = reflect_ray.o + reflect_ray.d * refl_dist
@@ -374,7 +375,7 @@ We built a complete ray tracer with:
 
 **Core Features:**
 
-  * BVH acceleration for fast ray-scene intersections
+  * TLAS acceleration for fast ray-scene intersections
   * Perspective camera with configurable FOV
   * Smooth shading from interpolated normals
   * Multi-light system with distance attenuation
@@ -392,11 +393,11 @@ We built a complete ray tracer with:
 
 **Key Raycore Functions:**
 
-  * `Raycore.BVH(meshes)` - Build acceleration structure (default metadata = primitive index)
-  * `Raycore.BVH(meshes, metadata_fn)` - Build with custom per-triangle metadata
+  * `Raycore.TLAS(meshes)` - Build acceleration structure
+  * `Raycore.TLAS(meshes, metadata_fn)` - Build with custom per-triangle metadata
   * `Raycore.Ray(o=origin, d=direction)` - Create ray
-  * `Raycore.closest_hit(bvh, ray)` - Find nearest intersection, returns `(hit, triangle, distance, bary_coords)`
-  * `Raycore.any_hit(bvh, ray)` - Test for any intersection (fast shadow test)
+  * `Raycore.closest_hit(tlas, ray)` - Find nearest intersection, returns `(hit, triangle, distance, bary_coords, instance_id)`
+  * `Raycore.any_hit(tlas, ray)` - Test for any intersection (fast shadow test)
   * `Raycore.reflect(wo, normal)` - Compute reflection direction
   * `triangle.metadata` - Access custom data stored per-triangle
 
@@ -405,8 +406,8 @@ We built a complete ray tracer with:
 1. **Material Scene Pattern** - Associate materials with geometry using metadata:
 
 ```julia
-# Build BVH with mesh index as metadata
-bvh = Raycore.BVH(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+# Build TLAS with mesh index as metadata
+tlas = Raycore.TLAS(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
 
 # In your shader, look up material from hit triangle
 mat = materials[triangle.metadata]

@@ -191,9 +191,9 @@ end
 
 @testset "Bounding sphere" begin
     b = Raycore.Bounds3(Point3f(0, 0, 0), Point3f(2, 2, 2))
-    center, radius = Raycore.bounding_sphere(b)
-    @test center == Point3f(1, 1, 1)
-    @test radius ≈ sqrt(3.0f0)
+    sphere = Raycore.bounding_sphere(b)
+    @test sphere.center == Point3f(1, 1, 1)
+    @test sphere.r ≈ sqrt(3.0f0)
 end
 
 @testset "Ray-Bounds intersection" begin

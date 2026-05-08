@@ -148,10 +148,10 @@ function offset(b::Bounds3, p::Point3f)
     )
 end
 
-function bounding_sphere(b::Bounds3)::Tuple{Point3f,Float32}
+function bounding_sphere(b::Bounds3)::Sphere{Float32}
     center = (b.p_min + b.p_max) / 2f0
     radius = inside(b, center) ? distance(center, b.p_max) : 0f0
-    center, radius
+    Sphere(center, radius)
 end
 
 function intersect(b::Bounds3, ray::AbstractRay)::Tuple{Bool,Float32,Float32}

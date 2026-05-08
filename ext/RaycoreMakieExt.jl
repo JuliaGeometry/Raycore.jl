@@ -3,53 +3,110 @@ module RaycoreMakieExt
 using Raycore
 using Makie
 using GeometryBasics
+using Adapt
 import Makie: plot, plot!
 
+# ============================================================================
+# TLAS → Mesh conversion (plot geometry directly)
+# ============================================================================
+
+Makie.plottype(::Raycore.TLAS) = Makie.Mesh
+Makie.plottype(::Raycore.TLAS4) = Makie.Mesh
+
+function Makie.convert_arguments(::Type{Makie.Mesh}, tlas::Union{Raycore.TLAS, Raycore.TLAS4})
+    vertices = Point3f[]
+    faces = GeometryBasics.TriangleFace{Int}[]
+    colors = Float32[]
+    normals = Vec3f[]
+
+    metadata_to_color = Dict{Any, Float32}()
+    next_color_idx = Ref(0f0)
+
+    function get_color_for_metadata(meta)
+        get!(metadata_to_color, meta) do
+            next_color_idx[] += 1f0
+            next_color_idx[]
+        end
+    end
+
+    for blas in tlas.blas_array
+        for prim in blas.primitives
+            start_idx = length(vertices)
+            color_val = get_color_for_metadata(prim.metadata)
+            for (v, n) in zip(prim.vertices, prim.normals)
+                push!(vertices, v)
+                push!(colors, color_val)
+                push!(normals, Vec3f(n))
+            end
+            push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
+        end
+    end
+    return (GeometryBasics.Mesh(vertices, faces; normal=normals, color=colors), )
+end
+
+# ============================================================================
+# RayPlot recipe — visualize rays traced through a TLAS
+# ============================================================================
+
 """
-    plot(session::RayIntersectionSession; kwargs...)
+    RayIntersectionResult
 
-Makie recipe for visualizing a RayIntersectionSession.
+Stores rays and their intersection results for visualization.
+Created by [`trace_rays`](@ref).
+"""
+struct RayIntersectionResult
+    rays::Vector{Raycore.Ray}
+    hits::Vector{Tuple{Bool, Raycore.Triangle, Float32, GeometryBasics.Vec{3,Float32}, UInt32}}
+    tlas::Raycore.TLAS
+end
 
-# Keyword Arguments
-- `show_bvh::Bool = true`: Whether to show the BVH geometry
-- `bvh_alpha::Float64 = 0.4`: Transparency for BVH meshes
-- `bvh_colors = [:red, :yellow, :blue]`: Colors to cycle through for different meshes
-- `ray_colors = nothing`: Colors for rays. If `nothing`, uses a gradient based on hit distance
-- `ray_color::Symbol = :black`: Default color for all rays if `ray_colors` is `nothing`
-- `hit_color::Symbol = :green`: Color for hit point markers
-- `miss_color::Symbol = :gray`: Color for rays that missed
-- `ray_length::Float32 = 15.0f0`: Length to draw rays that miss
-- `show_hit_points::Bool = true`: Whether to show markers at hit points
-- `hit_markersize::Float64 = 0.2`: Size of hit point markers
-- `show_labels::Bool = false`: Whether to show text labels at hit points
-- `axis = nothing`: Optional axis to draw on (if not provided, creates new figure)
+"""
+    trace_rays(tlas::Raycore.TLAS, rays::AbstractVector{Raycore.Ray})
+
+Trace rays against a TLAS and return a `RayIntersectionResult` for visualization.
 
 # Example
 ```julia
-using Raycore, GeometryBasics, GLMakie
+using Raycore, RayMakie
 
-# Create geometry
-sphere1 = Tesselation(Sphere(Point3f(0, 0, 1), 1.0f0), 20)
-sphere2 = Tesselation(Sphere(Point3f(0, 0, 3), 1.0f0), 20)
-bvh = Raycore.BVH([sphere1, sphere2])
+tlas = TLAS(KA.CPU())
+push!(tlas, mesh)
+sync!(tlas)
 
-# Create rays
-rays = [
-    Raycore.Ray(Point3f(0, 0, -5), Vec3f(0, 0, 1)),
-    Raycore.Ray(Point3f(1, 0, -5), Vec3f(0, 0, 1)),
-]
-
-# Create and visualize session
-session = RayIntersectionSession(rays, bvh, Raycore.closest_hit)
-plot(session)
+rays = [Raycore.Ray(o=Point3f(0,0,-5), d=Vec3f(0,0,1))]
+result = trace_rays(tlas, rays)
+plot(result)
 ```
 """
-@recipe(RayPlot, session) do scene
+function Raycore.trace_rays(tlas::Raycore.TLAS, rays::AbstractVector{<:Raycore.AbstractRay})
+    static_tlas = Adapt.adapt(tlas.backend, tlas)
+    hits = map(rays) do ray
+        Raycore.closest_hit(static_tlas, ray)
+    end
+    RayIntersectionResult(collect(rays), collect(hits), tlas)
+end
+
+"""
+    plot(result::RayIntersectionResult; kwargs...)
+
+Makie recipe for visualizing ray intersection results.
+
+# Keyword Arguments
+- `show_geometry::Bool = true`: Whether to show the TLAS geometry
+- `geometry_alpha::Float64 = 0.4`: Transparency for geometry meshes
+- `ray_color::Symbol = :green`: Default color for hit rays
+- `hit_color::Symbol = :green`: Color for hit point markers
+- `miss_color = (:gray, 0.5)`: Color for rays that missed
+- `ray_length::Float32 = 15.0f0`: Length to draw rays that miss
+- `show_hit_points::Bool = true`: Whether to show markers at hit points
+- `hit_markersize::Float64 = 0.1`: Size of hit point markers
+- `show_labels::Bool = false`: Whether to show text labels at hit points
+"""
+@recipe(RayPlot, result) do scene
     Attributes(
-        show_bvh = true,
-        bvh_alpha = 1.0,
-        bvh_colors = Makie.wong_colors(),
-        ray_colors = nothing,
+        show_geometry = true,
+        geometry_alpha = 0.4,
+        geometry_colors = Makie.wong_colors(),
         ray_color = :green,
         hit_color = :green,
         miss_color = (:gray, 0.5),
@@ -60,17 +117,14 @@ plot(session)
     )
 end
 
-Makie.plottype(::Raycore.RayIntersectionSession) = RayPlot
+Makie.plottype(::RayIntersectionResult) = RayPlot
 Makie.preferred_axis_type(::RayPlot) = LScene
 
 function Makie.plot!(plot::RayPlot)
-    session = plot[:session][]
+    result = plot[:result][]
 
-    # Extract attributes
-    show_bvh = plot[:show_bvh][]
-    bvh_alpha = plot[:bvh_alpha][]
-    bvh_colors = plot[:bvh_colors][]
-    ray_colors = plot[:ray_colors][]
+    show_geometry = plot[:show_geometry][]
+    geometry_alpha = plot[:geometry_alpha][]
     ray_color = plot[:ray_color][]
     hit_color = plot[:hit_color][]
     miss_color = plot[:miss_color][]
@@ -79,18 +133,13 @@ function Makie.plot!(plot::RayPlot)
     hit_markersize = plot[:hit_markersize][]
     show_labels = plot[:show_labels][]
 
-    # Draw BVH if requested
-    if show_bvh
-        draw_bvh!(plot, session.bvh, bvh_colors, bvh_alpha)
+    # Draw geometry
+    if show_geometry
+        geo_mesh = Makie.convert_arguments(Makie.Mesh, result.tlas)[1]
+        mesh!(plot, geo_mesh; alpha=geometry_alpha)
     end
 
-    # Determine ray colors if not provided
-    if isnothing(ray_colors)
-        # Use single color for all rays
-        ray_colors = fill(ray_color, length(session.rays))
-    end
-
-    # Collect all data for batch rendering
+    # Classify rays into hits and misses
     hit_ray_starts = Point3f[]
     hit_ray_directions = Vec3f[]
     hit_ray_colors = []
@@ -102,110 +151,54 @@ function Makie.plot!(plot::RayPlot)
     hit_labels_pos = Point3f[]
     hit_labels_text = String[]
 
-    for (i, (ray, hit)) in enumerate(zip(session.rays, session.hits))
-        hit_found, hit_primitive, distance, bary_coords = hit
-
-        # Get color for this ray
-        color = i <= length(ray_colors) ? ray_colors[i] : ray_color
+    for (i, (ray, hit)) in enumerate(zip(result.rays, result.hits))
+        hit_found, hit_triangle, distance, bary_coords, instance_id = hit
 
         if hit_found
-            # Calculate hit point
-            hit_point = Raycore.sum_mul(bary_coords, hit_primitive.vertices)
+            hit_point = sum(bary_coords .* hit_triangle.vertices)
 
-            # Collect ray data
             push!(hit_ray_starts, ray.o)
             push!(hit_ray_directions, hit_point - ray.o)
-            push!(hit_ray_colors, color)
+            push!(hit_ray_colors, ray_color)
 
-            # Collect hit point data
             if show_hit_points
                 push!(hit_points_pos, hit_point)
 
-                # Collect label data
                 if show_labels
                     push!(hit_labels_pos, hit_point .+ Vec3f(0.2, 0.2, 0.2))
                     push!(hit_labels_text, "Hit $i\nd=$(round(distance, digits=2))")
                 end
             end
         else
-            # Ray missed - collect miss ray data
             push!(miss_ray_starts, ray.o)
             push!(miss_ray_directions, ray.d * ray_length)
         end
     end
 
-    # Draw all hit rays in one call
+    # Draw hit rays.  Makie deprecated `arrows!` in favor of `arrows3d!` for
+    # 3-D inputs; both arrow batches here are Vec3f (rays in world space).
     if !isempty(hit_ray_starts)
-        arrows3d!(
-            plot,
-            hit_ray_starts,
-            hit_ray_directions,
-            color = hit_ray_colors,
-            markerscale = 0.3
-        )
+        arrows3d!(plot, hit_ray_starts, hit_ray_directions,
+            color=hit_ray_colors, tipradius=0.05f0, tiplength=0.15f0, shaftradius=0.02f0)
     end
 
-    # Draw all miss rays in one call
+    # Draw miss rays
     if !isempty(miss_ray_starts)
-        arrows3d!(
-            plot,
-            miss_ray_starts,
-            miss_ray_directions,
-            color = miss_color,
-            markerscale = 0.3
-        )
+        arrows3d!(plot, miss_ray_starts, miss_ray_directions,
+            color=miss_color, tipradius=0.05f0, tiplength=0.15f0, shaftradius=0.02f0)
     end
 
-    # Draw all hit points in one call
+    # Draw hit points
     if show_hit_points && !isempty(hit_points_pos)
-        meshscatter!(
-            plot,
-            hit_points_pos,
-            color = hit_color,
-            markersize = hit_markersize
-        )
+        meshscatter!(plot, hit_points_pos, color=hit_color, markersize=hit_markersize)
     end
 
-    # Draw all labels in one call
+    # Draw labels
     if show_labels && !isempty(hit_labels_pos)
-        text!(
-            plot,
-            hit_labels_pos,
-            text = hit_labels_text,
-            color = hit_color,
-            fontsize = 12
-        )
+        text!(plot, hit_labels_pos, text=hit_labels_text, color=hit_color, fontsize=12)
     end
 
     return plot
-end
-
-"""
-Helper function to draw BVH geometry
-"""
-function draw_bvh!(plot, bvh::Raycore.BVH, colors, alpha)
-    # Group primitives by their metadata
-    mesh!(plot, convert_arguments(Makie.Mesh, bvh)[1])
-end
-
-Makie.plottype(::Raycore.BVH) = Makie.Mesh
-
-function Makie.convert_arguments(::Type{Makie.Mesh}, bvh::Raycore.BVH)
-    # Convert BVH to a Mesh for plotting
-    vertices = Point3f[]
-    faces = GeometryBasics.TriangleFace{Int}[]
-    colors = Float32[]
-    normals = Vec3f[]
-    for (i, prim) in enumerate(bvh.primitives)
-        start_idx = length(vertices)
-        for (v, n) in zip(prim.vertices, prim.normals)
-            push!(vertices, v)
-            push!(colors, Float32(prim.metadata))
-            push!(normals, Vec3f(n))
-        end
-        push!(faces, GeometryBasics.TriangleFace(start_idx + 1, start_idx + 2, start_idx + 3))
-    end
-    return (GeometryBasics.Mesh(vertices, faces; normal=normals, color=colors), )
 end
 
 end # module

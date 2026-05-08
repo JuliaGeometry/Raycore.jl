@@ -4,12 +4,14 @@
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://juliageometry.github.io/Raycore.jl/stable/)
 [![](https://img.shields.io/badge/docs-dev-blue.svg)](https://juliageometry.github.io/Raycore.jl/dev/)
 
-High-performance ray-triangle intersection engine with BVH acceleration for CPU and GPU.
+High-performance ray-triangle intersection engine with TLAS/BLAS acceleration for CPU and GPU.
 
 ## Features
 
-- **Fast BVH acceleration** for ray-triangle intersection
+- **Fast TLAS/BLAS acceleration** for ray-triangle intersection
 - **CPU and GPU support** via KernelAbstractions.jl
+- **MultiTypeSet**: GPU-safe heterogeneous collections with compile-time type-stable dispatch for materials, textures, lights, etc.
+- **GPU TLAS**: Two-level acceleration structure (BLAS/TLAS) with instanced geometry, per-instance transforms, and GPU-first design
 - **Analysis tools**: centroid calculation, illumination analysis, view factors for radiosity
 - **Makie integration** for visualization
 
@@ -26,14 +28,14 @@ Pkg.add(url="https://github.com/JuliaGeometry/Raycore.jl")
 using Raycore, GeometryBasics, LinearAlgebra
 
 # Create geometry
-sphere = Tesselation(Sphere(Point3f(0, 0, 2), 1.0f0), 20)
+mesh = normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
 
-# Build BVH acceleration structure
-bvh = BVH([sphere])
+# Build TLAS acceleration structure
+tlas = TLAS([mesh], (mi, ti) -> UInt32(mi))
 
 # Cast rays and find intersections
 ray = Ray(o=Point3f(0, 0, 0), d=Vec3f(0, 0, 1))
-hit_found, triangle, distance, bary_coords = closest_hit(bvh, ray)
+hit_found, triangle, distance, bary_coords, instance_id = closest_hit(tlas, ray)
 
 if hit_found
     hit_point = ray.o + ray.d * distance
@@ -46,13 +48,38 @@ end
 ```julia
 # Calculate scene centroid from a viewing direction
 viewdir = normalize(Vec3f(0, 0, -1))
-hitpoints, centroid = get_centroid(bvh, viewdir)
+hitpoints, centroid = get_centroid(tlas, viewdir)
 
 # Analyze illumination
-illumination = get_illumination(bvh, viewdir)
+illumination = get_illumination(tlas, viewdir)
 
 # Compute view factors for radiosity
-vf_matrix = view_factors(bvh; rays_per_triangle=1000)
+vf_matrix = view_factors(tlas; rays_per_triangle=1000)
+```
+
+### Hardware ray tracing (Vulkan)
+
+For hardware-accelerated ray tracing, use `Lava.HWTLAS` as a drop-in replacement:
+
+```julia
+using Raycore, Lava, GeometryBasics, StaticArrays, LinearAlgebra
+
+backend = Lava.LavaBackend()
+hwtlas = Lava.HWTLAS(backend)
+mesh = normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
+push!(hwtlas, mesh, SMatrix{4,4,Float32}(I); instance_id=UInt32(1))
+Raycore.sync!(hwtlas)
+```
+
+See the [HW RT tutorial](https://juliageometry.github.io/Raycore.jl/dev/hw_acceleration.html) for the full setup.
+
+## Testing
+
+Run tests with `--check-bounds=auto` (not the `Pkg.test` default of `--check-bounds=yes`), because GPU kernels compiled with bounds checking generate SPIR-V that crashes pocl:
+
+```julia
+using Pkg
+Pkg.test("Raycore"; julia_args=`--check-bounds=auto`)
 ```
 
 ## Documentation

@@ -1,76 +1,9 @@
-struct TriangleMesh{VT<:AbstractVector{Point3f}, IT<:AbstractVector{UInt32}, NT<:AbstractVector{Normal3f}, TT<:AbstractVector{Vec3f}, UT<:AbstractVector{Point2f}} <: AbstractShape
-    vertices::VT
-    # For the i-th triangle, its 3 vertex positions are:
-    # [vertices[indices[3 * i + j]] for j in 0:2].
-    indices::IT
-    # Optional normal vectors, one per vertex.
-    normals::NT
-    # Optional tangent vectors, one per vertex.
-    tangents::TT
-    # Optional parametric (u, v) values, one for each vertex.
-    uv::UT
-
-    function TriangleMesh(
-            vertices::VT,
-            indices::IT,
-            normals::NT = Normal3f[],
-            tangents::TT = Vec3f[],
-            uv::UT = Point2f[],
-        ) where {VT, IT, NT, TT, UT}
-
-        return new{VT, IT, NT, TT, UT}(
-            vertices,
-            copy(indices), copy(normals),
-            copy(tangents), copy(uv),
-        )
-    end
-end
-
-struct Triangle{TMetadata} <: AbstractShape
+struct Triangle{TMetadata} <: AbstractGeometry{3, Float32}
     vertices::SVector{3,Point3f}
     normals::SVector{3,Normal3f}
     tangents::SVector{3,Vec3f}
     uv::SVector{3,Point2f}
     metadata::TMetadata
-end
-
-# Constructor with metadata
-function Triangle(m::TriangleMesh, face_indx, metadata)
-    f_idx = 1 + (3 * (face_indx - 1))
-    vs = @SVector [m.vertices[m.indices[f_idx + i]] for i in 0:2]
-    ns = @SVector [m.normals[m.indices[f_idx + i]] for i in 0:2] # Every mesh should have normals!?
-    if !isempty(m.tangents)
-        ts = @SVector [m.tangents[m.indices[f_idx + i]] for i in 0:2]
-    else
-        ts = @SVector [Vec3f(NaN) for _ in 1:3]
-    end
-    if !isempty(m.uv)
-        uv = @SVector [m.uv[m.indices[f_idx + i]] for i in 0:2]
-    else
-        uv = SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
-    end
-    return Triangle(vs, ns, ts, uv, metadata)
-end
-
-# Convenience constructor without metadata (uses Nothing)
-function Triangle(m::TriangleMesh, face_indx)
-    return Triangle(m, face_indx, nothing)
-end
-
-function TriangleMesh(mesh::GeometryBasics.Mesh)
-    nmesh = GeometryBasics.expand_faceviews(mesh)
-    fs = decompose(TriangleFace{UInt32}, nmesh)
-    vertices = decompose(Point3f, nmesh)
-    normals = Normal3f.(decompose_normals(nmesh))
-    uvs = GeometryBasics.decompose_uv(nmesh)
-    if isnothing(uvs)
-        uvs = Point2f[]
-    end
-    indices = collect(reinterpret(UInt32, fs))
-    return TriangleMesh(
-        vertices, indices,
-        normals, Vec3f[], Point2f.(uvs),
-    )
 end
 
 function area(t::Triangle)
@@ -102,6 +35,45 @@ object_bound(t::Triangle) = mapreduce(
 )
 
 world_bound(t::Triangle) = reduce(∪, Bounds3.(vertices(t)))
+
+"""
+    empty_triangle(::Type{Triangle{TMeta}}) -> Triangle{TMeta}
+
+Zero-initialized `Triangle` suitable as a no-hit sentinel. All vertex, normal,
+tangent, and uv components are 0; metadata is field-wise zero-constructed
+(works for any POD struct whose primitive fields have `zero(T)` defined).
+
+Takes the full Triangle type (not just the metadata type) so callers can
+write `empty_triangle(eltype(triangles))` directly.
+"""
+function empty_triangle(::Type{Triangle{TMeta}}) where TMeta
+    Triangle{TMeta}(
+        SVector{3,Point3f}(Point3f(0,0,0), Point3f(0,0,0), Point3f(0,0,0)),
+        SVector{3,Normal3f}(Normal3f(0,0,0), Normal3f(0,0,0), Normal3f(0,0,0)),
+        SVector{3,Vec3f}(Vec3f(0,0,0), Vec3f(0,0,0), Vec3f(0,0,0)),
+        SVector{3,Point2f}(Point2f(0,0), Point2f(0,0), Point2f(0,0)),
+        _zero_struct(TMeta),
+    )
+end
+
+"""
+    _zero_struct(::Type{T}) -> T
+
+Field-wise zero-initialise a POD struct `T`.  Recursive over `fieldtype(T, i)`
+so nested structs (e.g. `Triangle{TriangleMeta}` where `TriangleMeta` has
+`UInt32` fields) work without requiring `zero(T)` to be defined on the outer
+type.  Falls back to `zero(T)` for primitive leaves.
+"""
+@generated function _zero_struct(::Type{T}) where T
+    nf = fieldcount(T)
+    if nf == 0
+        # Primitive leaf — use Base.zero.
+        return :(zero(T))
+    else
+        fields = [:(_zero_struct($(fieldtype(T, i)))) for i in 1:nf]
+        return Expr(:call, T, fields...)
+    end
+end
 
 function _argmax(vec::Vec3)
     max_val = vec[1]
@@ -184,13 +156,9 @@ end
     ∂n∂u, ∂n∂v
 end
 
-# Note: surface_interaction and init_triangle_shading_geometry have been removed
-# These functions are now handled by Trace.jl's triangle_to_surface_interaction
-# Raycore only provides low-level ray-triangle intersection via intersect_triangle
-
 @inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
-    verts = vertices(triangle)  # Get triangle vertices
-    return intersect_triangle(verts, ray)  # Check if ray hits triangle
+    verts = vertices(triangle)
+    return intersect_triangle(verts, ray)
 end
 
 @inline function intersect_p(t::Triangle, ray::Union{Ray,RayDifferentials}, ::Bool=false)
@@ -225,7 +193,6 @@ end
     # Test against t_max range.
     det < 0f0 && (t_scaled >= 0f0 || t_scaled < ray.t_max * det) && return false, t_hit, barycentric
     det > 0f0 && (t_scaled <= 0f0 || t_scaled > ray.t_max * det) && return false, t_hit, barycentric
-    # TODO test against alpha texture if present.
     # Compute barycentric coordinates and t value for triangle intersection.
     inv_det = 1.0f0 / det
     barycentric = edges .* inv_det

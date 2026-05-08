@@ -8,17 +8,16 @@ import Makie
 using Makie: RGBf
 import KernelAbstractions as KA
 using ImageShow
-using BenchmarkTools
 
-# Load helper functions
-include("raytracing-core.jl")
-include("wavefront-renderer.jl")
+# Load the Hikari wavefront renderer
+# Create the example scene with Hikari materials
+material_scene, lights = hikari_example_scene()
 
-bvh, ctx = example_scene()
-# ibvh = Raycore.InstancedBVH(geom)
+# Create and render
 begin
     img = fill(RGBf(0, 0, 0), 400, 720)
-    renderer = WavefrontRenderer(img, bvh, ctx)
-    @btime render!(renderer)
+    renderer = HikariWavefrontRenderer(img, material_scene, lights)
+    render!(renderer)
     nothing
 end
+img
