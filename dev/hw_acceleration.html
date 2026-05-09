@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Hardware RT Acceleration · Raycore</title><meta name="title" content="Hardware RT Acceleration · Raycore"/><meta property="og:title" content="Hardware RT Acceleration · Raycore"/><meta property="twitter:title" content="Hardware RT Acceleration · Raycore"/><meta name="description" content="Documentation for Raycore."/><meta property="og:description" content="Documentation for Raycore."/><meta property="twitter:description" content="Documentation for Raycore."/><script data-outdated-warner src="assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="assets/documenter.js"></script><script src="search_index.js"></script><script src="siteinfo.js"></script><script src="../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="index.html">Raycore</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="index.html">Home</a></li><li><span class="tocitem">Examples</span><ul><li><a class="tocitem" href="bvh_hit_tests.html">BVH Hit Tests</a></li><li><a class="tocitem" href="raytracing_tutorial.html">Ray Tracing Tutorial</a></li><li><a class="tocitem" href="gpu_raytracing.html">GPU Ray Tracing Tutorial</a></li><li class="is-active"><a class="tocitem" href="hw_acceleration.html">Hardware RT Acceleration</a><ul class="internal"><li><a class="tocitem" href="#When-to-pick-Raycore.TLAS-vs.-Lava.HWTLAS"><span>When to pick <code>Raycore.TLAS</code> vs. <code>Lava.HWTLAS</code></span></a></li><li><a class="tocitem" href="#When-Hardware-RT-Helps"><span>When Hardware RT Helps</span></a></li><li><a class="tocitem" href="#Setup"><span>Setup</span></a></li><li><a class="tocitem" href="#Building-a-scene-twice-—-software-and-hardware"><span>Building a scene twice — software and hardware</span></a></li><li><a class="tocitem" href="#Tracing-primary-rays-both-ways"><span>Tracing primary rays both ways</span></a></li><li><a class="tocitem" href="#How-the-two-paths-line-up"><span>How the two paths line up</span></a></li><li><a class="tocitem" href="#Visualize-and-time"><span>Visualize and time</span></a></li><li><a class="tocitem" href="#Lifetime-and-memory-management"><span>Lifetime and memory management</span></a></li><li><a class="tocitem" href="#Direct-HWTLAS-usage"><span>Direct <code>HWTLAS</code> usage</span></a></li><li><a class="tocitem" href="#RT-shader-intrinsics"><span>RT shader intrinsics</span></a></li></ul></li><li><a class="tocitem" href="viewfactors.html">View Factors and More</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Examples</a></li><li class="is-active"><a href="hw_acceleration.html">Hardware RT Acceleration</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href="hw_acceleration.html">Hardware RT Acceleration</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/JuliaGeometry/Raycore.jl/blob/master/docs/src/hw_acceleration.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Hardware-Ray-Tracing-with-Lava"><a class="docs-heading-anchor" href="#Hardware-Ray-Tracing-with-Lava">Hardware Ray Tracing with Lava</a><a id="Hardware-Ray-Tracing-with-Lava-1"></a><a class="docs-heading-anchor-permalink" href="#Hardware-Ray-Tracing-with-Lava" title="Permalink"></a></h1><p>Modern GPUs include dedicated ray tracing hardware (RT cores on NVIDIA, Ray Accelerators on AMD) that can traverse BVH structures and test ray-triangle intersections in fixed-function silicon. This tutorial shows how to use hardware acceleration with Raycore via the <a href="https://github.com/SimonDanisch/Lava.jl">Lava.jl</a> Vulkan backend.</p><p>The demo builds the same scene twice — once into a software <code>Raycore.TLAS</code>, once into a hardware <code>Lava.HWTLAS</code> — traces primary camera rays through both, and verifies the depth buffers agree.</p><h2 id="When-to-pick-Raycore.TLAS-vs.-Lava.HWTLAS"><a class="docs-heading-anchor" href="#When-to-pick-Raycore.TLAS-vs.-Lava.HWTLAS">When to pick <code>Raycore.TLAS</code> vs. <code>Lava.HWTLAS</code></a><a id="When-to-pick-Raycore.TLAS-vs.-Lava.HWTLAS-1"></a><a class="docs-heading-anchor-permalink" href="#When-to-pick-Raycore.TLAS-vs.-Lava.HWTLAS" title="Permalink"></a></h2><table><tr><th style="text-align: right">Aspect</th><th style="text-align: right"><code>Raycore.TLAS</code></th><th style="text-align: right"><code>Lava.HWTLAS</code></th></tr><tr><td style="text-align: right">Backend</td><td style="text-align: right">any KA backend (CUDA, AMDGPU, Metal, Lava)</td><td style="text-align: right">Lava + Vulkan RT only</td></tr><tr><td style="text-align: right">BVH</td><td style="text-align: right">software (BVH4 / instanced BVH)</td><td style="text-align: right"><code>VkAccelerationStructureKHR</code></td></tr><tr><td style="text-align: right">Closest-hit kernel</td><td style="text-align: right">KA <code>@kernel</code>, in-line <code>Raycore.closest_hit(bvh, ray)</code></td><td style="text-align: right"><code>vkCmdTraceRaysKHR</code> over a ray batch</td></tr><tr><td style="text-align: right">Dispatch overhead</td><td style="text-align: right">low, KA launch</td><td style="text-align: right">very low, pre-baked SBT</td></tr><tr><td style="text-align: right">Use when</td><td style="text-align: right">portability / non-Vulkan backend / no RT hardware</td><td style="text-align: right">max perf on Vulkan RT hardware</td></tr></table><p>Both types satisfy <code>Raycore.AbstractAccel</code> — <code>push!</code>, <code>delete!</code>, <code>update_transform!</code>, <code>sync!</code>, <code>n_instances</code>, <code>n_geometries</code>, <code>wait_for_gpu!</code> work identically. The HW path uses a batched dispatch (<code>Lava.trace_closest_hits!</code>) instead of a per-thread <code>closest_hit</code> call inside a KA kernel.</p><h2 id="When-Hardware-RT-Helps"><a class="docs-heading-anchor" href="#When-Hardware-RT-Helps">When Hardware RT Helps</a><a id="When-Hardware-RT-Helps-1"></a><a class="docs-heading-anchor-permalink" href="#When-Hardware-RT-Helps" title="Permalink"></a></h2><p>Hardware RT gives the biggest speedups on scenes with:</p><ul><li><strong>High triangle counts</strong> — RT cores traverse the BVH in fixed-function hardware</li><li><strong>Complex occlusion</strong> — interior scenes, overlapping geometry, more traversal steps per ray</li><li><strong>Simple shading</strong> — when BVH traversal dominates, not material evaluation</li></ul><p>For trivial scenes the software BVH already runs at GPU memory bandwidth, so the win is modest. The demo below uses ~48k triangles which is enough to see HW pull ahead but small enough to fit in a tutorial.</p><p>Hardware RT requires a Vulkan-capable GPU with <code>VK_KHR_ray_tracing_pipeline</code>. NVIDIA RTX (Turing+), AMD RDNA 2+, and Intel Arc all support it.</p><h2 id="Setup"><a class="docs-heading-anchor" href="#Setup">Setup</a><a id="Setup-1"></a><a class="docs-heading-anchor-permalink" href="#Setup" title="Permalink"></a></h2><pre><code class="language-julia hljs">using Raycore, GeometryBasics, LinearAlgebra
+using Lava
+using WGLMakie
+using Adapt
+import KernelAbstractions as KA
+using KernelAbstractions: @kernel, @index, @Const
+
+device = Lava.LavaBackend()</code></pre><p><strong>Lava backend active</strong> — Vulkan device with RT support.</p><p><code>LavaBackend</code> is a KernelAbstractions backend that compiles <code>@kernel</code> code through Lava&#39;s SPIR-V compiler. It&#39;s also the device that owns Vulkan acceleration structures, so SW and HW share the same GPU context.</p><h2 id="Building-a-scene-twice-—-software-and-hardware"><a class="docs-heading-anchor" href="#Building-a-scene-twice-—-software-and-hardware">Building a scene twice — software and hardware</a><a id="Building-a-scene-twice-—-software-and-hardware-1"></a><a class="docs-heading-anchor-permalink" href="#Building-a-scene-twice-—-software-and-hardware" title="Permalink"></a></h2><p>Build a small scene of tessellated spheres on a floor — enough triangles for the BVH traversal cost to matter. Both <code>Raycore.TLAS</code> and <code>Lava.HWTLAS</code> ingest plain <code>GeometryBasics.Mesh</code> objects through <code>push!</code>, so the same meshes go into both.</p><pre><code class="language-julia hljs">function build_meshes()
+    floor = GeometryBasics.normal_mesh(Rect3f(Vec3f(-3, -3, -0.01), Vec3f(6, 6, 0.01)))
+    sphere_centers = Point3f[]
+    for i in -2:2, j in -2:2
+        push!(sphere_centers, Point3f(Float32(i)*0.9f0, Float32(j)*0.9f0, 0.4f0))
+    end
+    spheres = [GeometryBasics.normal_mesh(Tesselation(Sphere(c, 0.3f0), 32))
+               for c in sphere_centers]
+    return [floor; spheres]
+end
+
+all_meshes = build_meshes()
+total_tris = sum(length(GeometryBasics.faces(m)) for m in all_meshes)
+
+sw_tlas = Raycore.TLAS(device)
+hwtlas  = Lava.HWTLAS(device)
+
+for (i, m) in enumerate(all_meshes)
+    push!(sw_tlas, m)
+    push!(hwtlas, m; instance_id=UInt32(i))
+end
+
+Raycore.sync!(sw_tlas)
+Raycore.sync!(hwtlas)</code></pre><p><strong>Scene built</strong></p><table><tr><th style="text-align: right"></th><th style="text-align: right">meshes</th><th style="text-align: right">instances</th><th style="text-align: right">triangles</th></tr><tr><td style="text-align: right"><code>Raycore.TLAS</code></td><td style="text-align: right">26</td><td style="text-align: right">26</td><td style="text-align: right">48 062</td></tr><tr><td style="text-align: right"><code>Lava.HWTLAS</code></td><td style="text-align: right">26</td><td style="text-align: right">26</td><td style="text-align: right">48 062</td></tr></table><p><code>sync!</code> uploads the meshes and builds the acceleration structures. For <code>Raycore.TLAS</code> that means GPU LBVH builds (one BLAS per mesh + a TLAS over instances). For <code>Lava.HWTLAS</code> it means <code>vkCmdBuildAccelerationStructuresKHR</code> calls plus instance-table allocation.</p><h2 id="Tracing-primary-rays-both-ways"><a class="docs-heading-anchor" href="#Tracing-primary-rays-both-ways">Tracing primary rays both ways</a><a id="Tracing-primary-rays-both-ways-1"></a><a class="docs-heading-anchor-permalink" href="#Tracing-primary-rays-both-ways" title="Permalink"></a></h2><p>Generate one camera ray per pixel. The SW path uses <code>Raycore.Ray</code> (origin + direction), the HW path uses <code>Raycore.RTRay</code> (origin + dir + tmin/tmax, 32-byte struct that matches Vulkan&#39;s <code>VkRayTracingShaderRecordKHR</code> layout).</p><pre><code class="language-julia hljs">const W, H = 256, 192
+
+cam_pos    = Point3f(0, -3.5, 1.6)
+cam_target = Point3f(0, 0, 0.3)
+cam_up     = Point3f(0, 0, 1)
+
+forward = normalize(cam_target - cam_pos)
+right   = normalize(cross(forward, cam_up))
+up      = cross(right, forward)
+aspect  = Float32(W / H)
+focal   = 1.0f0 / tan(deg2rad(45.0f0 / 2))
+
+function build_rays(W, H, cam_pos, forward, right, up, aspect, focal)
+    rays_sw = Vector{Raycore.Ray}(undef, W*H)
+    rays_hw = Vector{Raycore.RTRay}(undef, W*H)
+    for y in 1:H, x in 1:W
+        u = (2.0f0 * (Float32(x) - 0.5f0) / Float32(W) - 1.0f0)
+        v = (1.0f0 - 2.0f0 * (Float32(y) - 0.5f0) / Float32(H))
+        d = normalize(forward * focal + right * (u * aspect) + up * v)
+        i = (y - 1) * W + x
+        rays_sw[i] = Raycore.Ray(o=cam_pos, d=Vec3f(d))
+        rays_hw[i] = Raycore.RTRay(cam_pos[1], cam_pos[2], cam_pos[3], 0f0,
+                                    d[1], d[2], d[3], 1f3)
+    end
+    rays_sw, rays_hw
+end
+
+rays_sw, rays_hw = build_rays(W, H, cam_pos, forward, right, up, aspect, focal)
+
+# ---- SW path: KA kernel calls Raycore.closest_hit per pixel
+@kernel function depth_kernel_sw!(depth, @Const(bvh), @Const(rays))
+    i = @index(Global, Linear)
+    @inbounds if i &lt;= length(rays)
+        ray = rays[i]
+        hit_found, _, dist, _, _ = Raycore.closest_hit(bvh, ray)
+        depth[i] = hit_found ? dist : -1f0
+    end
+end
+
+sw_static    = Adapt.adapt(device, sw_tlas)              # StaticTLAS for kernels
+rays_sw_gpu  = Lava.LavaArray(rays_sw)
+depth_sw_gpu = Lava.LavaArray(zeros(Float32, W*H))
+
+sw_kernel = depth_kernel_sw!(device, 64)
+sw_kernel(depth_sw_gpu, sw_static, rays_sw_gpu, ndrange=W*H)
+KA.synchronize(device)
+depth_sw = Array(depth_sw_gpu)
+
+# ---- HW path: batched trace_closest_hits! dispatches vkCmdTraceRaysKHR
+rays_hw_gpu = Lava.LavaArray(rays_hw)
+hits_hw     = Lava.LavaArray(fill(Raycore.RTHitResult(0,0,0,0,0,0,0,0), W*H))
+
+Lava.trace_closest_hits!(hits_hw, rays_hw_gpu, hwtlas.hw_accel, length(rays_hw))
+Raycore.wait_for_gpu!(hwtlas)
+
+depth_hw = Float32[h.hit == UInt32(1) ? h.t : -1f0 for h in Array(hits_hw)]
+
+# ---- Compare
+hit_mask_sw  = depth_sw .&gt; 0
+hit_mask_hw  = depth_hw .&gt; 0
+disagree     = count(hit_mask_sw .!= hit_mask_hw)
+shared       = hit_mask_sw .&amp; hit_mask_hw
+max_abs_diff = maximum(abs.(depth_sw[shared] .- depth_hw[shared]))</code></pre><p><strong>Pixel-wise agreement</strong></p><ul><li>hit-mask disagreement: <strong>0 pixels</strong> out of 49 152</li><li>max abs depth diff on shared hits: <strong>1.29e-5</strong></li></ul><p>Sub-1e-4 tolerance is the expected noise floor — both paths use the same Möller–Trumbore-style intersection but with slightly different rounding (the HW path goes through Vulkan&#39;s intersection shader, the SW path through Raycore&#39;s kernel).</p><h2 id="How-the-two-paths-line-up"><a class="docs-heading-anchor" href="#How-the-two-paths-line-up">How the two paths line up</a><a id="How-the-two-paths-line-up-1"></a><a class="docs-heading-anchor-permalink" href="#How-the-two-paths-line-up" title="Permalink"></a></h2><pre><code class="nohighlight hljs">Software BVH (SW):                Hardware RT (HW):
+┌──────────────────┐              ┌──────────────────┐
+│ KA @kernel       │              │ Build RTRay      │
+│  per pixel       │              │   batch          │
+│                  │              └────────┬─────────┘
+│ Raycore.         │                       │
+│   closest_hit(   │              ┌────────▼─────────┐
+│     bvh, ray)    │              │ trace_closest_   │
+│                  │              │   hits! (one     │
+│ writes depth[i]  │              │   vkCmdTraceRays │
+└──────────────────┘              │   call)          │
+                                  └────────┬─────────┘
+                                           │
+                                  ┌────────▼─────────┐
+                                  │ RTHitResult[]    │
+                                  │ — t, prim_id,    │
+                                  │   bary, ...      │
+                                  └──────────────────┘</code></pre><p>In the SW path the kernel is fully programmable — anything you can write inside a <code>@kernel</code> function (shadow rays, multi-bounce, custom intersection) works the same way. In the HW path the traversal is fixed-function: rays go in as <code>RTRay</code>, hit results come out as <code>RTHitResult</code>. The raygen / closest-hit / miss shaders are pre-baked and dispatched as one Vulkan call per ray batch.</p><h2 id="Visualize-and-time"><a class="docs-heading-anchor" href="#Visualize-and-time">Visualize and time</a><a id="Visualize-and-time-1"></a><a class="docs-heading-anchor-permalink" href="#Visualize-and-time" title="Permalink"></a></h2><pre><code class="language-julia hljs">to_disp(d) = d &gt; 0 ? d : NaN32
+img_sw = reshape(depth_sw, W, H) |&gt; permutedims |&gt; x -&gt; to_disp.(x)
+img_hw = reshape(depth_hw, W, H) |&gt; permutedims |&gt; x -&gt; to_disp.(x)
+
+# Warm-up + 5-shot minimum timing
+function time_sw()
+    KA.synchronize(device)
+    t = @elapsed begin
+        sw_kernel(depth_sw_gpu, sw_static, rays_sw_gpu, ndrange=W*H)
+        KA.synchronize(device)
+    end
+    return t
+end
+
+function time_hw()
+    Raycore.wait_for_gpu!(hwtlas)
+    t = @elapsed begin
+        Lava.trace_closest_hits!(hits_hw, rays_hw_gpu, hwtlas.hw_accel, length(rays_hw))
+        Raycore.wait_for_gpu!(hwtlas)
+    end
+    return t
+end
+
+time_sw(); time_sw(); time_hw(); time_hw()  # warm
+t_sw = minimum(time_sw() for _ in 1:5)
+t_hw = minimum(time_hw() for _ in 1:5)
+
+fig = Figure(size=(900, 380))
+ax1 = Axis(fig[1, 1], title=&quot;SW (Raycore.TLAS)  $(round(t_sw*1000, digits=2)) ms&quot;,
+           aspect=DataAspect())
+ax2 = Axis(fig[1, 2], title=&quot;HW (Lava.HWTLAS)  $(round(t_hw*1000, digits=2)) ms&quot;,
+           aspect=DataAspect())
+hidedecorations!(ax1); hidedecorations!(ax2)
+heatmap!(ax1, img_sw, colormap=:viridis)
+heatmap!(ax2, img_hw, colormap=:viridis)
+fig</code></pre><p><img src="assets/hw_acceleration_compare.png" alt="SW vs HW depth heatmaps"/></p><p>The two heatmaps are visually indistinguishable — the depth comparison cell above quantifies that. The timing ratio depends on triangle count, ray coherence, and GPU; the only honest way to know what your scene needs is to measure both.</p><h2 id="Lifetime-and-memory-management"><a class="docs-heading-anchor" href="#Lifetime-and-memory-management">Lifetime and memory management</a><a id="Lifetime-and-memory-management-1"></a><a class="docs-heading-anchor-permalink" href="#Lifetime-and-memory-management" title="Permalink"></a></h2><p><code>sync!(hwtlas)</code> owns <code>hwtlas.static_tlas</code>. Consumers re-read it (or call <code>Adapt.adapt(backend, hwtlas)</code>) per dispatch — do NOT cache across mutations.</p><p><code>sync!</code> does not block the CPU. Backend-internal timeline tracking (Lava&#39;s <code>bq.deferred_as_frees</code>) handles the &quot;still in flight&quot; case when old acceleration-structure buffers are dropped. If you need a CPU-blocking drain — e.g. before tear-down or between benchmark phases — call <code>Raycore.wait_for_gpu!(hwtlas)</code> explicitly.</p><h2 id="Direct-HWTLAS-usage"><a class="docs-heading-anchor" href="#Direct-HWTLAS-usage">Direct <code>HWTLAS</code> usage</a><a id="Direct-HWTLAS-usage-1"></a><a class="docs-heading-anchor-permalink" href="#Direct-HWTLAS-usage" title="Permalink"></a></h2><p>The cells above already show the full direct-API path. The minimum is:</p><pre><code class="language-julia hljs">using Raycore, Lava, GeometryBasics, LinearAlgebra
+using Raycore: RTRay, RTHitResult
+
+device = Lava.LavaBackend()
+hwtlas = Lava.HWTLAS(device)
+
+mesh = GeometryBasics.normal_mesh(Sphere(Point3f(0, 0, 2), 1.0f0))
+push!(hwtlas, mesh; instance_id=UInt32(1))
+Raycore.sync!(hwtlas)
+
+rays = Lava.LavaArray([RTRay(0,0,5, 0,  0,0,-1, 1f3)])
+hits = Lava.LavaArray(fill(RTHitResult(0,0,0,0,0,0,0,0), 1))
+Lava.trace_closest_hits!(hits, rays, hwtlas.hw_accel, 1)
+Raycore.wait_for_gpu!(hwtlas)</code></pre><p><code>HardwareAccel</code> (<code>hwtlas.hw_accel</code>) is the lower-level handle if you need direct control of the pipeline / SBT or want to install a custom any-hit shader (<code>Lava.set_anyhit_pipeline!</code>).</p><h2 id="RT-shader-intrinsics"><a class="docs-heading-anchor" href="#RT-shader-intrinsics">RT shader intrinsics</a><a id="RT-shader-intrinsics-1"></a><a class="docs-heading-anchor-permalink" href="#RT-shader-intrinsics" title="Permalink"></a></h2><p>If you write your own raygen / closest-hit / miss shaders in Lava, the RT intrinsics use the <code>lava_rt_*</code> naming convention — no <code>accel</code> argument since the SBT wires up the hardware automatically:</p><table><tr><th style="text-align: right"><code>Raycore.rt_*</code> (generic)</th><th style="text-align: right"><code>lava_rt_*</code> (Lava-specific)</th></tr><tr><td style="text-align: right"><code>Raycore.rt_primitive_id(accel)</code></td><td style="text-align: right"><code>lava_rt_primitive_id()</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_instance_id(accel)</code></td><td style="text-align: right"><code>lava_rt_instance_id()</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_instance_custom_index(accel)</code></td><td style="text-align: right"><code>lava_rt_instance_custom_index()</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_launch_id_x(accel)</code></td><td style="text-align: right"><code>lava_rt_launch_id_x()</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_trace_ray!(accel, ...)</code></td><td style="text-align: right"><code>lava_rt_trace_ray(...)</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_ignore_intersection(accel)</code></td><td style="text-align: right"><code>lava_rt_ignore_intersection()</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_payload_store!(accel, val, slot)</code></td><td style="text-align: right"><code>lava_rt_payload_store_f32_at(val, slot)</code></td></tr><tr><td style="text-align: right"><code>Raycore.rt_payload_load(accel, slot)</code></td><td style="text-align: right"><code>lava_rt_payload_load_f32_at(slot)</code></td></tr></table><p>The pre-baked shaders shipped with <code>Lava.HardwareAccel</code> (raygen / closest-hit / miss for <code>RTHitResult</code> payload) are defined in <code>Lava/src/raytracing/raycore_compat.jl</code> as a reference implementation.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="gpu_raytracing.html">« GPU Ray Tracing Tutorial</a><a class="docs-footer-nextpage" href="viewfactors.html">View Factors and More »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 8 May 2026 20:40">Friday 8 May 2026</span>. Using Julia version 1.12.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
