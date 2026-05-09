@@ -1,0 +1,19 @@
+[deps]
+Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
+JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
+Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
+StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[sources]
+# Lava is unregistered. Pinning to a branch (not a sha) so Lava CI fixes flow
+# through without a Raycore commit, but isolated from main so a flaky Lava
+# main can't break Raycore CI.
+Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "sd/ci"}
+
+[compat]
+Aqua = "0.8"
+JET = "0.11"
+Lava = "0.1"
+StaticArrays = "1.9.7"
+Test = "1"
