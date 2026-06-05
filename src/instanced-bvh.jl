@@ -637,7 +637,8 @@ per-triangle interface — see `InstanceDescriptor` for semantics.
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
-                    instance_id::UInt32=UInt32(0))
+                    instance_id::UInt32=UInt32(0),
+                    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
     blas_idx = build_and_append_blas!(tlas, mesh)
     t = mat4_to_mat3x4(transform)
     cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), UInt32(0))]
@@ -658,7 +659,8 @@ per-instance interface override.  When `nothing`, every instance gets `0`
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
-                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing)
+                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing,
+                    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
     if instance_ids !== nothing && length(instance_ids) != length(transforms)
         throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
     end
