@@ -2034,10 +2034,12 @@ end
     duplicate_epsilon::Float32,
 ) where {TMetadata}
     count_int = Int(count)
-    @inbounds for i in 1:count_int
-        out_idx = out_base + i
-        if metadata_out[out_idx] == metadata && abs(distances_out[out_idx] - distance) <= duplicate_epsilon
-            return count, false
+    if duplicate_epsilon >= 0.0f0
+        @inbounds for i in 1:count_int
+            out_idx = out_base + i
+            if metadata_out[out_idx] == metadata && abs(distances_out[out_idx] - distance) <= duplicate_epsilon
+                return count, false
+            end
         end
     end
 
@@ -2089,7 +2091,8 @@ retained and `overflow` is set.
 
 Hits with the same triangle metadata and a distance difference no larger than
 `duplicate_epsilon` are collapsed. This keeps coplanar duplicate triangles from
-using extra stack slots while remaining GPU-kernel friendly.
+using extra stack slots while remaining GPU-kernel friendly. Pass a negative
+`duplicate_epsilon` to disable duplicate suppression and retain raw hits.
 """
 @inline function all_hits!(
     metadata_out,

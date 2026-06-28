@@ -459,6 +459,15 @@ end
         @test overflow == false
         @test metadata[1] == UInt32(9)
         @test distances[1] ≈ 1.0f0
+
+        raw_metadata = fill(UInt32(0), 4)
+        raw_distances = fill(0.0f0, 4)
+        raw_count, raw_overflow = all_hits!(raw_metadata, raw_distances, tlas, ray, 0, 4, -1.0f0)
+
+        @test raw_count == Int32(2)
+        @test raw_overflow == false
+        @test raw_metadata[1:2] == UInt32[9, 9]
+        @test raw_distances[1:2] ≈ Float32[1.0, 1.0]
     end
 
     @testset "TLAS all_hits! - Generic Metadata" begin
