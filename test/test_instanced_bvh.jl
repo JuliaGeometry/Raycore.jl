@@ -8,12 +8,26 @@ using GeometryBasics
 using StaticArrays
 using LinearAlgebra
 using KernelAbstractions
+import KernelAbstractions as KA
+using KernelAbstractions: @index
 
 # Use qualified names to avoid conflicts with other packages
 const RTriangle = Raycore.Triangle   # Conflicts with GeometryBasics.Triangle
 const RBLAS = Raycore.BLAS           # Conflicts with LinearAlgebra.BLAS
 const is_leaf = Raycore.is_leaf
 const is_interior = Raycore.is_interior
+
+# Kernel: all_hits! writes sorted hit stacks into caller-provided buffers
+KA.@kernel function all_hits_kernel!(metadata_out, distances_out, counts_out, overflow_out, tlas, origins, directions, max_hits::Int, duplicate_epsilon::Float32)
+    i = @index(Global, Linear)
+    @inbounds begin
+        ray = Ray(o=origins[i], d=directions[i])
+        out_base = (i - 1) * max_hits
+        count, overflow = all_hits!(metadata_out, distances_out, tlas, ray, out_base, max_hits, duplicate_epsilon)
+        counts_out[i] = count
+        overflow_out[i] = overflow
+    end
+end
 
 @testset "Instanced BVH" begin
 
@@ -491,6 +505,69 @@ end
     @test metadata == UInt32[11, 11]
     @test distances[1] ≈ 1.0f0
     @test distances[2] ≈ 3.0f0
+end
+
+@testset "TLAS all_hits! - KernelAbstractions Kernel" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(13)
+    )
+
+    blas = build_blas([tri])
+    identity = Mat4f(I)
+    translate_back = Mat4f(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, -5, 1
+    )
+    tlas = build_tlas(
+        [blas],
+        [
+            InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0)),
+            InstanceDescriptor(UInt32(1), UInt32(2), translate_back, Mat4f(inv(translate_back)), UInt32(0)),
+        ],
+    )
+
+    backend = KernelAbstractions.CPU()
+    n = 2
+    origins = KA.allocate(backend, Point3f, n)
+    directions = KA.allocate(backend, Vec3f, n)
+    KA.copyto!(backend, origins, [Point3f(0.25, 0.25, 1.0), Point3f(5.0, 5.0, 1.0)])
+    KA.copyto!(backend, directions, fill(Vec3f(0, 0, -1), n))
+
+    max_hits = 2
+    metadata = KA.allocate(backend, UInt32, n * max_hits)
+    distances = KA.allocate(backend, Float32, n * max_hits)
+    counts = KA.allocate(backend, Int32, n)
+    overflow = KA.allocate(backend, Bool, n)
+
+    kernel = all_hits_kernel!(backend)
+    kernel(metadata, distances, counts, overflow, tlas, origins, directions, max_hits, 0.0f0; ndrange=n)
+    KA.synchronize(backend)
+
+    @test Array(counts) == Int32[2, 0]
+    @test Array(overflow) == Bool[false, false]
+    distances_cpu = Array(distances)
+    @test distances_cpu[1] ≈ 1.0f0
+    @test distances_cpu[2] ≈ 6.0f0
+    @test Array(metadata)[1:2] == UInt32[13, 13]
+
+    limited_metadata = KA.allocate(backend, UInt32, n)
+    limited_distances = KA.allocate(backend, Float32, n)
+    limited_counts = KA.allocate(backend, Int32, n)
+    limited_overflow = KA.allocate(backend, Bool, n)
+    kernel(limited_metadata, limited_distances, limited_counts, limited_overflow, tlas, origins, directions, 1, 0.0f0; ndrange=n)
+    KA.synchronize(backend)
+
+    @test Array(limited_counts) == Int32[1, 0]
+    @test Array(limited_overflow) == Bool[true, false]
+    @test Array(limited_distances)[1] ≈ 1.0f0
+    @test Array(limited_metadata)[1] == UInt32(13)
 end
 
 @testset "TLAS any_hit - Basic" begin
