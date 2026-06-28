@@ -423,6 +423,76 @@ end
     @test limited_distances[1] ≈ 1.0f0
 end
 
+@testset "TLAS all_hits! - Duplicate Suppression" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(9)
+    )
+
+    blas = build_blas([tri, tri])
+    identity = Mat4f(I)
+    instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
+    tlas = build_tlas([blas], instances)
+
+    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+    metadata = fill(UInt32(0), 4)
+    distances = fill(0.0f0, 4)
+    count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 4, 1.0f-5)
+
+    @test count == Int32(1)
+    @test overflow == false
+    @test metadata[1] == UInt32(9)
+    @test distances[1] ≈ 1.0f0
+end
+
+@testset "TLAS all_hits! - Overflow Keeps Closest Hits" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(11)
+    )
+
+    blas = build_blas([tri])
+    identity = Mat4f(I)
+    translate_back_2 = Mat4f(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, -2, 1
+    )
+    translate_back_5 = Mat4f(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, -5, 1
+    )
+
+    instances = [
+        InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0)),
+        InstanceDescriptor(UInt32(1), UInt32(2), translate_back_2, Mat4f(inv(translate_back_2)), UInt32(0)),
+        InstanceDescriptor(UInt32(1), UInt32(3), translate_back_5, Mat4f(inv(translate_back_5)), UInt32(0))
+    ]
+    tlas = build_tlas([blas], instances)
+
+    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+    metadata = fill(UInt32(0), 2)
+    distances = fill(0.0f0, 2)
+    count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 2, 0.0f0)
+
+    @test count == Int32(2)
+    @test overflow == true
+    @test metadata == UInt32[11, 11]
+    @test distances[1] ≈ 1.0f0
+    @test distances[2] ≈ 3.0f0
+end
+
 @testset "TLAS any_hit - Basic" begin
     # Create a unit triangle
     v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
