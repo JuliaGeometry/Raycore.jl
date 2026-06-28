@@ -2029,10 +2029,10 @@ end
     out_base::Int,
     count::Int32,
     max_hits::Int,
-    metadata::UInt32,
+    metadata::TMetadata,
     distance::Float32,
     duplicate_epsilon::Float32,
-)
+) where {TMetadata}
     count_int = Int(count)
     @inbounds for i in 1:count_int
         out_idx = out_base + i
