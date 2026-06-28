@@ -1032,6 +1032,58 @@ else
         @test distances_cpu[2] ≈ 1.0f0
     end
 
+    @testset "all_hits_kernel! - sorted stacks and overflow" begin
+        mesh = make_triangle_mesh()
+        translate_back = Mat4f(
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, -5, 1
+        )
+        tlas = Raycore.TLAS(cl_backend)
+        push!(tlas, mesh, [Mat4f(I), translate_back])
+        sync!(tlas)
+        cl_tlas = Adapt.adapt(cl_backend, tlas)
+
+        n = 2
+        origins = KA.allocate(cl_backend, Point3f, n)
+        directions = KA.allocate(cl_backend, Vec3f, n)
+        KA.copyto!(cl_backend, origins, [
+            Point3f(0.25, 0.25, 1.0),
+            Point3f(5.0, 5.0, 1.0),
+        ])
+        KA.copyto!(cl_backend, directions, fill(Vec3f(0, 0, -1), n))
+
+        max_hits = 2
+        metadata = KA.allocate(cl_backend, UInt32, n * max_hits)
+        distances = KA.allocate(cl_backend, Float32, n * max_hits)
+        counts = KA.allocate(cl_backend, Int32, n)
+        overflow = KA.allocate(cl_backend, Bool, n)
+
+        kernel = all_hits_kernel!(cl_backend)
+        kernel(metadata, distances, counts, overflow, cl_tlas, origins, directions, max_hits, 0.0f0; ndrange=n)
+        KA.synchronize(cl_backend)
+
+        counts_cpu = Array(counts)
+        overflow_cpu = Array(overflow)
+        distances_cpu = Array(distances)
+        @test counts_cpu == Int32[2, 0]
+        @test overflow_cpu == Bool[false, false]
+        @test distances_cpu[1] ≈ 1.0f0
+        @test distances_cpu[2] ≈ 6.0f0
+
+        limited_metadata = KA.allocate(cl_backend, UInt32, n)
+        limited_distances = KA.allocate(cl_backend, Float32, n)
+        limited_counts = KA.allocate(cl_backend, Int32, n)
+        limited_overflow = KA.allocate(cl_backend, Bool, n)
+        kernel(limited_metadata, limited_distances, limited_counts, limited_overflow, cl_tlas, origins, directions, 1, 0.0f0; ndrange=n)
+        KA.synchronize(cl_backend)
+
+        @test Array(limited_counts) == Int32[1, 0]
+        @test Array(limited_overflow) == Bool[true, false]
+        @test Array(limited_distances)[1] ≈ 1.0f0
+    end
+
     @testset "any_hit_kernel! - shadow/occlusion test" begin
         mesh = make_triangle_mesh()
         tlas, _ = TLAS([mesh]; backend=cl_backend)
