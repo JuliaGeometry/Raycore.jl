@@ -8,8 +8,6 @@ using GeometryBasics
 using StaticArrays
 using LinearAlgebra
 using KernelAbstractions
-import KernelAbstractions as KA
-using KernelAbstractions: @index
 
 # Use qualified names to avoid conflicts with other packages
 const RTriangle = Raycore.Triangle   # Conflicts with GeometryBasics.Triangle
@@ -18,7 +16,7 @@ const is_leaf = Raycore.is_leaf
 const is_interior = Raycore.is_interior
 
 # Kernel: all_hits! writes sorted hit stacks into caller-provided buffers
-KA.@kernel function all_hits_kernel!(metadata_out, distances_out, counts_out, overflow_out, tlas, origins, directions, max_hits::Int, duplicate_epsilon::Float32)
+KernelAbstractions.@kernel function all_hits_kernel!(metadata_out, distances_out, counts_out, overflow_out, tlas, origins, directions, max_hits::Int, duplicate_epsilon::Float32)
     i = @index(Global, Linear)
     @inbounds begin
         ray = Ray(o=origins[i], d=directions[i])
