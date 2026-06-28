@@ -377,6 +377,52 @@ end
     @test inst_id == UInt32(1)  # First instance
 end
 
+@testset "TLAS all_hits! - Sorted Multiple Hits" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(7)
+    )
+
+    blas = build_blas([tri])
+    identity = Mat4f(I)
+    translate_back = Mat4f(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        0, 0, -5, 1
+    )
+    inv_translate_back = Mat4f(inv(translate_back))
+
+    instances = [
+        InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0)),
+        InstanceDescriptor(UInt32(1), UInt32(2), translate_back, inv_translate_back, UInt32(0))
+    ]
+    tlas = build_tlas([blas], instances)
+
+    metadata = fill(UInt32(0), 4)
+    distances = fill(0.0f0, 4)
+    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+    count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 4, 0.0f0)
+
+    @test count == Int32(2)
+    @test overflow == false
+    @test metadata[1:2] == UInt32[7, 7]
+    @test distances[1] ≈ 1.0f0
+    @test distances[2] ≈ 6.0f0
+
+    limited_metadata = fill(UInt32(0), 1)
+    limited_distances = fill(0.0f0, 1)
+    limited_count, limited_overflow = all_hits!(limited_metadata, limited_distances, tlas, ray, 0, 1, 0.0f0)
+    @test limited_count == Int32(1)
+    @test limited_overflow == true
+    @test limited_metadata[1] == UInt32(7)
+    @test limited_distances[1] ≈ 1.0f0
+end
+
 @testset "TLAS any_hit - Basic" begin
     # Create a unit triangle
     v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)

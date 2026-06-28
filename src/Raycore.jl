@@ -106,7 +106,7 @@ export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 
 # Ray intersection functions
 export AbstractAccel, AbstractAdaptedAccel
-export closest_hit, any_hit, world_bound, trace_rays
+export closest_hit, any_hit, all_hits!, world_bound, trace_rays
 export n_instances, n_geometries, wait_for_gpu!
 
 # RT transport types (used by Lava.HWTLAS and consumers)

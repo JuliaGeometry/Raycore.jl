@@ -2023,6 +2023,179 @@ Algorithm:
     end
 end
 
+@inline function _insert_sorted_unique_hit!(
+    metadata_out,
+    distances_out,
+    out_base::Int,
+    count::Int32,
+    max_hits::Int,
+    metadata::UInt32,
+    distance::Float32,
+    duplicate_epsilon::Float32,
+)
+    count_int = Int(count)
+    @inbounds for i in 1:count_int
+        out_idx = out_base + i
+        if metadata_out[out_idx] == metadata && abs(distances_out[out_idx] - distance) <= duplicate_epsilon
+            return count, false
+        end
+    end
+
+    if count_int < max_hits
+        insert_pos = count_int + 1
+        @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > distance
+            metadata_out[out_base+insert_pos] = metadata_out[out_base+insert_pos-1]
+            distances_out[out_base+insert_pos] = distances_out[out_base+insert_pos-1]
+            insert_pos -= 1
+        end
+        @inbounds begin
+            metadata_out[out_base+insert_pos] = metadata
+            distances_out[out_base+insert_pos] = distance
+        end
+        return count + Int32(1), false
+    end
+
+    if max_hits <= 0
+        return count, true
+    end
+
+    @inbounds if distance >= distances_out[out_base+max_hits]
+        return count, true
+    end
+
+    insert_pos = max_hits
+    @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > distance
+        metadata_out[out_base+insert_pos] = metadata_out[out_base+insert_pos-1]
+        distances_out[out_base+insert_pos] = distances_out[out_base+insert_pos-1]
+        insert_pos -= 1
+    end
+    @inbounds begin
+        metadata_out[out_base+insert_pos] = metadata
+        distances_out[out_base+insert_pos] = distance
+    end
+    return count, true
+end
+
+"""
+    all_hits!(metadata_out, distances_out, tlas::StaticTLAS, ray, out_base, max_hits, duplicate_epsilon)
+
+Traverse a `StaticTLAS` once and write sorted hit metadata and hit distances
+into caller-provided buffers.
+
+`out_base` is a zero-based offset into the output buffers, so hits are written
+to `out_base + 1:out_base + count`. The function returns `(count, overflow)`.
+When more than `max_hits` unique hits are found, the closest `max_hits` hits are
+retained and `overflow` is set.
+
+Hits with the same triangle metadata and a distance difference no larger than
+`duplicate_epsilon` are collapsed. This keeps coplanar duplicate triangles from
+using extra stack slots while remaining GPU-kernel friendly.
+"""
+@inline function all_hits!(
+    metadata_out,
+    distances_out,
+    tlas::StaticTLAS,
+    ray::R,
+    out_base::Int,
+    max_hits::Int,
+    duplicate_epsilon::Float32,
+) where {R <: AbstractRay}
+    ray = check_direction(ray)
+    ray_o::Point3f = ray.o
+    ray_d::Vec3f = ray.d
+    ray_mint::Float32 = ray.t_min
+    ray_maxt::Float32 = ray.t_max
+    ray_inv_d::Vec3f = safe_invdir(ray_d)
+
+    stack = MVector{32, UInt32}(undef)
+    stack_ptr::Int32 = Int32(1)
+    @inbounds stack[stack_ptr] = INVALID_NODE
+
+    current_instance::Int32 = Int32(-1)
+    node_index::UInt32 = UInt32(1)
+    current_blas_offset::UInt32 = UInt32(0)
+    current_prim_offset::UInt32 = UInt32(0)
+    count::Int32 = Int32(0)
+    overflow::Bool = false
+
+    tlas_nodes = tlas.nodes
+    tlas_instances = tlas.instances
+    tlas_blas_nodes = tlas.all_blas_nodes
+    tlas_blas_prims = tlas.all_blas_prims
+    tlas_blas_descs = tlas.blas_descriptors
+
+    @inbounds while node_index != INVALID_NODE
+        node::BVHNode2 = if current_instance < Int32(0)
+            tlas_nodes[node_index]
+        else
+            tlas_blas_nodes[current_blas_offset + node_index]
+        end
+
+        is_leaf::Bool = (node.child0 == INVALID_NODE)
+
+        if !is_leaf
+            near_child, far_child = intersect_internal_node(node, ray_inv_d, ray_o, ray_mint, ray_maxt)
+
+            if far_child != INVALID_NODE
+                stack_ptr += Int32(1)
+                stack[stack_ptr] = far_child
+            end
+
+            if near_child != INVALID_NODE
+                node_index = near_child
+                continue
+            end
+        elseif current_instance < Int32(0)
+            current_instance = Int32(node.child1)
+
+            stack_ptr += Int32(1)
+            stack[stack_ptr] = TOP_LEVEL_SENTINEL
+
+            node_index = UInt32(1)
+            inst = tlas_instances[current_instance + Int32(1)]
+            desc = tlas_blas_descs[inst.blas_index]
+            current_blas_offset = desc.nodes_offset
+            current_prim_offset = desc.primitives_offset
+            ray_o = transform_point(inst.inv_transform, ray.o)
+            ray_d = transform_direction(inst.inv_transform, ray.d)
+            ray_inv_d = safe_invdir(ray_d)
+            continue
+        else
+            hit, distance, _u, _v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
+            if hit
+                tri = tlas_blas_prims[current_prim_offset + node.child1]
+                new_count, hit_overflow = _insert_sorted_unique_hit!(
+                    metadata_out,
+                    distances_out,
+                    out_base,
+                    count,
+                    max_hits,
+                    tri.metadata,
+                    distance,
+                    duplicate_epsilon,
+                )
+                count = new_count
+                overflow |= hit_overflow
+            end
+        end
+
+        node_index = stack[stack_ptr]
+        stack_ptr -= Int32(1)
+
+        if node_index == TOP_LEVEL_SENTINEL
+            node_index = stack[stack_ptr]
+            stack_ptr -= Int32(1)
+            current_instance = Int32(-1)
+
+            ray_o = ray.o
+            ray_d = ray.d
+            ray_inv_d = safe_invdir(ray_d)
+        end
+    end
+
+    return count, overflow
+end
+
 """
     any_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
 
