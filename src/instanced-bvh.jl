@@ -2031,8 +2031,8 @@ end
     count::Int32,
     max_hits::Int,
     metadata::TMetadata,
-    distance::Float32,
-    instance_index::UInt32,
+    t::Float32,
+    inst_idx::UInt32,
     duplicate_epsilon::Float32,
 ) where {TMetadata}
     count_int = Int(count)
@@ -2040,8 +2040,8 @@ end
         @inbounds for i in 1:count_int
             out_idx = out_base + i
             if metadata_out[out_idx] == metadata &&
-               instance_indices_out[out_idx] == instance_index &&
-               abs(distances_out[out_idx] - distance) <= duplicate_epsilon
+               instance_indices_out[out_idx] == inst_idx &&
+               abs(distances_out[out_idx] - t) <= duplicate_epsilon
                 return count, false
             end
         end
@@ -2049,7 +2049,7 @@ end
 
     if count_int < max_hits
         insert_pos = count_int + 1
-        @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > distance
+        @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > t
             metadata_out[out_base+insert_pos] = metadata_out[out_base+insert_pos-1]
             distances_out[out_base+insert_pos] = distances_out[out_base+insert_pos-1]
             instance_indices_out[out_base+insert_pos] = instance_indices_out[out_base+insert_pos-1]
@@ -2057,8 +2057,8 @@ end
         end
         @inbounds begin
             metadata_out[out_base+insert_pos] = metadata
-            distances_out[out_base+insert_pos] = distance
-            instance_indices_out[out_base+insert_pos] = instance_index
+            distances_out[out_base+insert_pos] = t
+            instance_indices_out[out_base+insert_pos] = inst_idx
         end
         return count + Int32(1), false
     end
@@ -2067,12 +2067,12 @@ end
         return count, true
     end
 
-    @inbounds if distance >= distances_out[out_base+max_hits]
+    @inbounds if t >= distances_out[out_base+max_hits]
         return count, true
     end
 
     insert_pos = max_hits
-    @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > distance
+    @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > t
         metadata_out[out_base+insert_pos] = metadata_out[out_base+insert_pos-1]
         distances_out[out_base+insert_pos] = distances_out[out_base+insert_pos-1]
         instance_indices_out[out_base+insert_pos] = instance_indices_out[out_base+insert_pos-1]
@@ -2080,8 +2080,8 @@ end
     end
     @inbounds begin
         metadata_out[out_base+insert_pos] = metadata
-        distances_out[out_base+insert_pos] = distance
-        instance_indices_out[out_base+insert_pos] = instance_index
+        distances_out[out_base+insert_pos] = t
+        instance_indices_out[out_base+insert_pos] = inst_idx
     end
     return count, true
 end
@@ -2177,9 +2177,10 @@ suppression and retain raw hits.
             ray_inv_d = safe_invdir(ray_d)
             continue
         else
-            hit, distance, _u, _v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
+            hit, t, _u, _v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
             if hit
                 tri = tlas_blas_prims[current_prim_offset + node.child1]
+                inst_idx = UInt32(current_instance + Int32(1))
                 new_count, hit_overflow = _insert_sorted_unique_hit!(
                     metadata_out,
                     distances_out,
@@ -2188,8 +2189,8 @@ suppression and retain raw hits.
                     count,
                     max_hits,
                     tri.metadata,
-                    distance,
-                    UInt32(current_instance + Int32(1)),
+                    t,
+                    inst_idx,
                     duplicate_epsilon,
                 )
                 count = new_count
