@@ -2026,18 +2026,22 @@ end
 @inline function _insert_sorted_unique_hit!(
     metadata_out,
     distances_out,
+    instance_indices_out,
     out_base::Int,
     count::Int32,
     max_hits::Int,
     metadata::TMetadata,
     distance::Float32,
+    instance_index::UInt32,
     duplicate_epsilon::Float32,
 ) where {TMetadata}
     count_int = Int(count)
     if duplicate_epsilon >= 0.0f0
         @inbounds for i in 1:count_int
             out_idx = out_base + i
-            if metadata_out[out_idx] == metadata && abs(distances_out[out_idx] - distance) <= duplicate_epsilon
+            if metadata_out[out_idx] == metadata &&
+               instance_indices_out[out_idx] == instance_index &&
+               abs(distances_out[out_idx] - distance) <= duplicate_epsilon
                 return count, false
             end
         end
@@ -2048,11 +2052,13 @@ end
         @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > distance
             metadata_out[out_base+insert_pos] = metadata_out[out_base+insert_pos-1]
             distances_out[out_base+insert_pos] = distances_out[out_base+insert_pos-1]
+            instance_indices_out[out_base+insert_pos] = instance_indices_out[out_base+insert_pos-1]
             insert_pos -= 1
         end
         @inbounds begin
             metadata_out[out_base+insert_pos] = metadata
             distances_out[out_base+insert_pos] = distance
+            instance_indices_out[out_base+insert_pos] = instance_index
         end
         return count + Int32(1), false
     end
@@ -2069,34 +2075,41 @@ end
     @inbounds while insert_pos > 1 && distances_out[out_base+insert_pos-1] > distance
         metadata_out[out_base+insert_pos] = metadata_out[out_base+insert_pos-1]
         distances_out[out_base+insert_pos] = distances_out[out_base+insert_pos-1]
+        instance_indices_out[out_base+insert_pos] = instance_indices_out[out_base+insert_pos-1]
         insert_pos -= 1
     end
     @inbounds begin
         metadata_out[out_base+insert_pos] = metadata
         distances_out[out_base+insert_pos] = distance
+        instance_indices_out[out_base+insert_pos] = instance_index
     end
     return count, true
 end
 
 """
-    all_hits!(metadata_out, distances_out, tlas::StaticTLAS, ray, out_base, max_hits, duplicate_epsilon)
+    all_hits!(metadata_out, distances_out, instance_indices_out, tlas::StaticTLAS, ray, out_base, max_hits, duplicate_epsilon)
 
-Traverse a `StaticTLAS` once and write sorted hit metadata and hit distances
-into caller-provided buffers.
+Traverse a `StaticTLAS` once and write sorted hit metadata, hit distances, and
+1-based TLAS instance indices into caller-provided buffers.
 
 `out_base` is a zero-based offset into the output buffers, so hits are written
 to `out_base + 1:out_base + count`. The function returns `(count, overflow)`.
 When more than `max_hits` unique hits are found, the closest `max_hits` hits are
 retained and `overflow` is set.
 
-Hits with the same triangle metadata and a distance difference no larger than
-`duplicate_epsilon` are collapsed. This keeps coplanar duplicate triangles from
-using extra stack slots while remaining GPU-kernel friendly. Pass a negative
-`duplicate_epsilon` to disable duplicate suppression and retain raw hits.
+`instance_indices_out[out_idx]` matches the `inst_idx` returned by
+`closest_hit`: the 1-based position in `tlas.instances`.
+
+Hits with the same triangle metadata, same instance index, and a distance
+difference no larger than `duplicate_epsilon` are collapsed. This keeps
+coplanar duplicate triangles from using extra stack slots while remaining
+GPU-kernel friendly. Pass a negative `duplicate_epsilon` to disable duplicate
+suppression and retain raw hits.
 """
 @inline function all_hits!(
     metadata_out,
     distances_out,
+    instance_indices_out,
     tlas::StaticTLAS,
     ray::R,
     out_base::Int,
@@ -2170,11 +2183,13 @@ using extra stack slots while remaining GPU-kernel friendly. Pass a negative
                 new_count, hit_overflow = _insert_sorted_unique_hit!(
                     metadata_out,
                     distances_out,
+                    instance_indices_out,
                     out_base,
                     count,
                     max_hits,
                     tri.metadata,
                     distance,
+                    UInt32(current_instance + Int32(1)),
                     duplicate_epsilon,
                 )
                 count = new_count

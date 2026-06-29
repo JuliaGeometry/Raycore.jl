@@ -16,12 +16,12 @@ const is_leaf = Raycore.is_leaf
 const is_interior = Raycore.is_interior
 
 # Kernel: all_hits! writes sorted hit stacks into caller-provided buffers
-KernelAbstractions.@kernel function all_hits_kernel!(metadata_out, distances_out, counts_out, overflow_out, tlas, origins, directions, max_hits::Int, duplicate_epsilon::Float32)
+KernelAbstractions.@kernel function all_hits_kernel!(metadata_out, distances_out, instance_indices_out, counts_out, overflow_out, tlas, origins, directions, max_hits::Int, duplicate_epsilon::Float32)
     i = @index(Global, Linear)
     @inbounds begin
         ray = Ray(o=origins[i], d=directions[i])
         out_base = (i - 1) * max_hits
-        count, overflow = all_hits!(metadata_out, distances_out, tlas, ray, out_base, max_hits, duplicate_epsilon)
+        count, overflow = all_hits!(metadata_out, distances_out, instance_indices_out, tlas, ray, out_base, max_hits, duplicate_epsilon)
         counts_out[i] = count
         overflow_out[i] = overflow
     end
@@ -417,22 +417,26 @@ end
 
         metadata = fill(UInt32(0), 4)
         distances = fill(0.0f0, 4)
+        instance_indices = fill(UInt32(0), 4)
         ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-        count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 4, 0.0f0)
+        count, overflow = all_hits!(metadata, distances, instance_indices, tlas, ray, 0, 4, 0.0f0)
 
         @test count == Int32(2)
         @test overflow == false
         @test metadata[1:2] == UInt32[7, 7]
         @test distances[1] ≈ 1.0f0
         @test distances[2] ≈ 6.0f0
+        @test instance_indices[1:2] == UInt32[1, 2]
 
         limited_metadata = fill(UInt32(0), 1)
         limited_distances = fill(0.0f0, 1)
-        limited_count, limited_overflow = all_hits!(limited_metadata, limited_distances, tlas, ray, 0, 1, 0.0f0)
+        limited_instance_indices = fill(UInt32(0), 1)
+        limited_count, limited_overflow = all_hits!(limited_metadata, limited_distances, limited_instance_indices, tlas, ray, 0, 1, 0.0f0)
         @test limited_count == Int32(1)
         @test limited_overflow == true
         @test limited_metadata[1] == UInt32(7)
         @test limited_distances[1] ≈ 1.0f0
+        @test limited_instance_indices[1] == UInt32(1)
     end
 
     @testset "TLAS all_hits! - Duplicate Suppression" begin
@@ -453,21 +457,63 @@ end
         ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
         metadata = fill(UInt32(0), 4)
         distances = fill(0.0f0, 4)
-        count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 4, 1.0f-5)
+        instance_indices = fill(UInt32(0), 4)
+        count, overflow = all_hits!(metadata, distances, instance_indices, tlas, ray, 0, 4, 1.0f-5)
 
         @test count == Int32(1)
         @test overflow == false
         @test metadata[1] == UInt32(9)
         @test distances[1] ≈ 1.0f0
+        @test instance_indices[1] == UInt32(1)
 
         raw_metadata = fill(UInt32(0), 4)
         raw_distances = fill(0.0f0, 4)
-        raw_count, raw_overflow = all_hits!(raw_metadata, raw_distances, tlas, ray, 0, 4, -1.0f0)
+        raw_instance_indices = fill(UInt32(0), 4)
+        raw_count, raw_overflow = all_hits!(raw_metadata, raw_distances, raw_instance_indices, tlas, ray, 0, 4, -1.0f0)
 
         @test raw_count == Int32(2)
         @test raw_overflow == false
         @test raw_metadata[1:2] == UInt32[9, 9]
         @test raw_distances[1:2] ≈ Float32[1.0, 1.0]
+        @test raw_instance_indices[1:2] == UInt32[1, 1]
+    end
+
+    @testset "TLAS all_hits! - Duplicate Suppression Keeps Different Instances" begin
+        v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+        tri = RTriangle(
+            SVector(v1, v2, v3),
+            SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+            SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+            SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+            UInt32(9)
+        )
+
+        blas = build_blas([tri])
+        identity = Mat4f(I)
+        near_coplanar = Mat4f(
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            0, 0, -1.0f-6, 1
+        )
+        instances = [
+            InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0)),
+            InstanceDescriptor(UInt32(1), UInt32(2), near_coplanar, Mat4f(inv(near_coplanar)), UInt32(0))
+        ]
+        tlas = build_tlas([blas], instances)
+
+        ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+        metadata = fill(UInt32(0), 4)
+        distances = fill(0.0f0, 4)
+        instance_indices = fill(UInt32(0), 4)
+        count, overflow = all_hits!(metadata, distances, instance_indices, tlas, ray, 0, 4, 1.0f-5)
+
+        @test count == Int32(2)
+        @test overflow == false
+        @test metadata[1:2] == UInt32[9, 9]
+        @test distances[1] ≈ 1.0f0
+        @test distances[2] ≈ 1.000001f0
+        @test instance_indices[1:2] == UInt32[1, 2]
     end
 
     @testset "TLAS all_hits! - Generic Metadata" begin
@@ -500,14 +546,16 @@ end
 
         metadata = fill((surface=UInt32(0), medium=UInt32(0)), 2)
         distances = fill(0.0f0, 2)
+        instance_indices = fill(UInt32(0), 2)
         ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-        count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 2, 0.0f0)
+        count, overflow = all_hits!(metadata, distances, instance_indices, tlas, ray, 0, 2, 0.0f0)
 
         @test count == Int32(2)
         @test overflow == false
         @test metadata == [near_meta, far_meta]
         @test distances[1] ≈ 1.0f0
         @test distances[2] ≈ 3.0f0
+        @test instance_indices == UInt32[1, 1]
     end
 
     @testset "TLAS all_hits! - Overflow Keeps Closest Hits" begin
@@ -545,13 +593,15 @@ end
         ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
         metadata = fill(UInt32(0), 2)
         distances = fill(0.0f0, 2)
-        count, overflow = all_hits!(metadata, distances, tlas, ray, 0, 2, 0.0f0)
+        instance_indices = fill(UInt32(0), 2)
+        count, overflow = all_hits!(metadata, distances, instance_indices, tlas, ray, 0, 2, 0.0f0)
 
         @test count == Int32(2)
         @test overflow == true
         @test metadata == UInt32[11, 11]
         @test distances[1] ≈ 1.0f0
         @test distances[2] ≈ 3.0f0
+        @test instance_indices == UInt32[1, 2]
     end
 
     @testset "TLAS all_hits! - KernelAbstractions Kernel" begin
@@ -590,11 +640,12 @@ end
         max_hits = 2
         metadata = KernelAbstractions.allocate(backend, UInt32, n * max_hits)
         distances = KernelAbstractions.allocate(backend, Float32, n * max_hits)
+        instance_indices = KernelAbstractions.allocate(backend, UInt32, n * max_hits)
         counts = KernelAbstractions.allocate(backend, Int32, n)
         overflow = KernelAbstractions.allocate(backend, Bool, n)
 
         kernel = all_hits_kernel!(backend)
-        kernel(metadata, distances, counts, overflow, tlas, origins, directions, max_hits, 0.0f0; ndrange=n)
+        kernel(metadata, distances, instance_indices, counts, overflow, tlas, origins, directions, max_hits, 0.0f0; ndrange=n)
         KernelAbstractions.synchronize(backend)
 
         @test Array(counts) == Int32[2, 0]
@@ -603,18 +654,21 @@ end
         @test distances_cpu[1] ≈ 1.0f0
         @test distances_cpu[2] ≈ 6.0f0
         @test Array(metadata)[1:2] == UInt32[13, 13]
+        @test Array(instance_indices)[1:2] == UInt32[1, 2]
 
         limited_metadata = KernelAbstractions.allocate(backend, UInt32, n)
         limited_distances = KernelAbstractions.allocate(backend, Float32, n)
+        limited_instance_indices = KernelAbstractions.allocate(backend, UInt32, n)
         limited_counts = KernelAbstractions.allocate(backend, Int32, n)
         limited_overflow = KernelAbstractions.allocate(backend, Bool, n)
-        kernel(limited_metadata, limited_distances, limited_counts, limited_overflow, tlas, origins, directions, 1, 0.0f0; ndrange=n)
+        kernel(limited_metadata, limited_distances, limited_instance_indices, limited_counts, limited_overflow, tlas, origins, directions, 1, 0.0f0; ndrange=n)
         KernelAbstractions.synchronize(backend)
 
         @test Array(limited_counts) == Int32[1, 0]
         @test Array(limited_overflow) == Bool[true, false]
         @test Array(limited_distances)[1] ≈ 1.0f0
         @test Array(limited_metadata)[1] == UInt32(13)
+        @test Array(limited_instance_indices)[1] == UInt32(1)
     end
 
     @testset "TLAS any_hit - Basic" begin
@@ -652,6 +706,44 @@ end
     function make_test_mesh(verts, normals)
         faces = [GLTriangleFace(1, 2, 3)]
         GeometryBasics.mesh(verts, faces; normal=normals)
+    end
+
+    @testset "TLAS all_hits! - Multi-Transform Prototype Mesh" begin
+        mesh = make_test_mesh(
+            [Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)],
+            [Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)]
+        )
+        transforms = [
+            Mat4f(I),
+            Mat4f(
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, -2, 1
+            ),
+            Mat4f(
+                1, 0, 0, 0,
+                0, 1, 0, 0,
+                0, 0, 1, 0,
+                0, 0, -5, 1
+            ),
+        ]
+
+        tlas = Raycore.TLAS(KernelAbstractions.CPU())
+        push!(tlas, mesh, transforms)
+        sync!(tlas)
+
+        metadata = fill(UInt32(0), 3)
+        distances = fill(0.0f0, 3)
+        instance_indices = fill(UInt32(0), 3)
+        ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+        count, overflow = all_hits!(metadata, distances, instance_indices, tlas.static_tlas, ray, 0, 3, 0.0f0)
+
+        @test count == Int32(3)
+        @test overflow == false
+        @test metadata[1:3] == UInt32[1, 1, 1]
+        @test distances[1:3] ≈ Float32[1.0, 3.0, 6.0]
+        @test instance_indices[1:3] == UInt32[1, 2, 3]
     end
 
     @testset "TLASHandle and n_instances" begin
@@ -1104,31 +1196,36 @@ else
             max_hits = 2
             metadata = KA.allocate(cl_backend, UInt32, n * max_hits)
             distances = KA.allocate(cl_backend, Float32, n * max_hits)
+            instance_indices = KA.allocate(cl_backend, UInt32, n * max_hits)
             counts = KA.allocate(cl_backend, Int32, n)
             overflow = KA.allocate(cl_backend, Bool, n)
 
             kernel = all_hits_kernel!(cl_backend)
-            kernel(metadata, distances, counts, overflow, cl_tlas, origins, directions, max_hits, 0.0f0; ndrange=n)
+            kernel(metadata, distances, instance_indices, counts, overflow, cl_tlas, origins, directions, max_hits, 0.0f0; ndrange=n)
             KA.synchronize(cl_backend)
 
             counts_cpu = Array(counts)
             overflow_cpu = Array(overflow)
             distances_cpu = Array(distances)
+            instance_indices_cpu = Array(instance_indices)
             @test counts_cpu == Int32[2, 0]
             @test overflow_cpu == Bool[false, false]
             @test distances_cpu[1] ≈ 1.0f0
             @test distances_cpu[2] ≈ 6.0f0
+            @test instance_indices_cpu[1:2] == UInt32[1, 2]
 
             limited_metadata = KA.allocate(cl_backend, UInt32, n)
             limited_distances = KA.allocate(cl_backend, Float32, n)
+            limited_instance_indices = KA.allocate(cl_backend, UInt32, n)
             limited_counts = KA.allocate(cl_backend, Int32, n)
             limited_overflow = KA.allocate(cl_backend, Bool, n)
-            kernel(limited_metadata, limited_distances, limited_counts, limited_overflow, cl_tlas, origins, directions, 1, 0.0f0; ndrange=n)
+            kernel(limited_metadata, limited_distances, limited_instance_indices, limited_counts, limited_overflow, cl_tlas, origins, directions, 1, 0.0f0; ndrange=n)
             KA.synchronize(cl_backend)
 
             @test Array(limited_counts) == Int32[1, 0]
             @test Array(limited_overflow) == Bool[true, false]
             @test Array(limited_distances)[1] ≈ 1.0f0
+            @test Array(limited_instance_indices)[1] == UInt32(1)
         end
 
         @testset "any_hit_kernel! - shadow/occlusion test" begin
