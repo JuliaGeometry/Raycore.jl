@@ -28,7 +28,7 @@ import AcceleratedKernels as AK
 # Vulkan-compatible 3×4 transform (row-major). SMatrix{4,3} is column-major and
 # byte-identical to a Vulkan row-major 3×4, so the two conventions share the
 # same memory layout without any reinterpret.
-const Mat3x4f = SMatrix{4, 3, Float32, 12}
+const Mat3x4f = SMatrix{4,3,Float32,12}
 
 # ==============================================================================
 # Core Data Structures
@@ -63,7 +63,6 @@ struct BVHNode2
 end
 
 const INVALID_NODE = 0xffffffff
-const SOFTWARE_TRAVERSAL_STACK_CAPACITY = 64
 
 """Check if a node is a leaf node."""
 @inline is_leaf(node::BVHNode2) = node.child0 == INVALID_NODE
@@ -110,8 +109,8 @@ Bottom-Level Acceleration Structure - BVH over triangle geometry.
 Type parameters allow CPU (Vector) or GPU (CuArray, ROCArray) storage.
 """
 struct BLAS{
-    NodeArray <: AbstractVector{BVHNode2},
-    TriArray <: AbstractVector{<:Triangle}
+    NodeArray<:AbstractVector{BVHNode2},
+    TriArray<:AbstractVector{<:Triangle}
 }
     nodes::NodeArray
     primitives::TriArray
@@ -154,11 +153,11 @@ The struct is immutable and contains only the arrays needed for ray traversal.
 No management state (dictionaries, free lists, etc.) - those stay on CPU in TLAS.
 """
 struct StaticTLAS{
-    NodeArray <: AbstractVector{BVHNode2},
-    InstArray <: AbstractVector{InstanceDescriptor},
-    BLASNodeArray <: AbstractVector{BVHNode2},
-    BLASPrimArray <: AbstractVector{<:Triangle},
-    DescArray <: AbstractVector{BLASDescriptor}
+    NodeArray<:AbstractVector{BVHNode2},
+    InstArray<:AbstractVector{InstanceDescriptor},
+    BLASNodeArray<:AbstractVector{BVHNode2},
+    BLASPrimArray<:AbstractVector{<:Triangle},
+    DescArray<:AbstractVector{BLASDescriptor}
 } <: AbstractAdaptedAccel
     nodes::NodeArray
     instances::InstArray
@@ -274,12 +273,12 @@ mutable struct TLAS{Backend} <: AbstractAccel
     # `blas_array` is a backend array of isbits `BLAS{NodeArr,TriArr}`.  Element
     # type varies by mesh metadata, so no tighter bound; `nothing` until the
     # first `push!` because the concrete BLAS type isn't known at construction.
-    blas_array::Union{Nothing, AbstractVector}
+    blas_array::Union{Nothing,AbstractVector}
 
     root_aabb::Bounds3
 
     # CPU-side management (dictionaries must stay on CPU for O(1) lookup)
-    handle_to_range::Dict{TLASHandle, UnitRange{Int}}
+    handle_to_range::Dict{TLASHandle,UnitRange{Int}}
     deleted_handles::Set{TLASHandle}
 
     # Per-BLAS backing arrays.  Structural composition: the TLAS owning
@@ -290,15 +289,15 @@ mutable struct TLAS{Backend} <: AbstractAccel
 
     # Flat BLAS arrays for StaticTLAS traversal (built during sync!, kept alive for isbits pointers).
     # `nothing` before the first `build_flat_blas_arrays!`.
-    _flat_blas_nodes::Union{Nothing, AbstractVector{BVHNode2}}
-    _flat_blas_prims::Union{Nothing, AbstractVector}        # see blas_array note
-    _flat_blas_descs::Union{Nothing, AbstractVector{BLASDescriptor}}
+    _flat_blas_nodes::Union{Nothing,AbstractVector{BVHNode2}}
+    _flat_blas_prims::Union{Nothing,AbstractVector}        # see blas_array note
+    _flat_blas_descs::Union{Nothing,AbstractVector{BLASDescriptor}}
 
     # GPU-adapted form, owned by sync!. Consumers read this via `tlas.static_tlas`
     # or `Adapt.adapt(backend, tlas)` per dispatch — do NOT cache across
     # mutations. See the TLAS docstring for the full invariant.
     # `nothing` until the first sync!.
-    static_tlas::Union{Nothing, StaticTLAS}
+    static_tlas::Union{Nothing,StaticTLAS}
 
     # Whether BVH topology needs rebuild (geometry added/removed)
     dirty::Bool
@@ -340,7 +339,7 @@ function TLAS(backend)
         KA.allocate(backend, InstanceDescriptor, 0), # instances (direct GPU append)
         allocate_empty_blas_array(backend),         # blas_array (GPU array of isbits BLASes)
         Bounds3(),                                   # root_aabb
-        Dict{TLASHandle, UnitRange{Int}}(),         # handle_to_range
+        Dict{TLASHandle,UnitRange{Int}}(),         # handle_to_range
         Set{TLASHandle}(),                          # deleted_handles
         BLASArrays[],                                # blas_storage
         nothing,                                     # _flat_blas_nodes
@@ -555,11 +554,11 @@ Build a Triangle from decomposed mesh arrays at the given face index.
 """
 function build_triangle(vertices, normals, uvs, indices, face_idx, metadata)
     f_idx = 1 + (3 * (face_idx - 1))
-    vs = @SVector [vertices[indices[f_idx + i]] for i in 0:2]
-    ns = @SVector [normals[indices[f_idx + i]] for i in 0:2]
+    vs = @SVector [vertices[indices[f_idx+i]] for i in 0:2]
+    ns = @SVector [normals[indices[f_idx+i]] for i in 0:2]
     ts = @SVector [Vec3f(NaN) for _ in 1:3]
     uv = if !isempty(uvs)
-        @SVector [uvs[indices[f_idx + i]] for i in 0:2]
+        @SVector [uvs[indices[f_idx+i]] for i in 0:2]
     else
         SVector(Point2f(0), Point2f(1, 0), Point2f(1, 1))
     end
@@ -573,7 +572,7 @@ Check if a triangle face is degenerate (zero area) without constructing a full T
 """
 function is_degenerate_face(vertices, indices, face_idx)
     f_idx = 1 + (3 * (face_idx - 1))
-    vs = @SVector [vertices[indices[f_idx + i]] for i in 0:2]
+    vs = @SVector [vertices[indices[f_idx+i]] for i in 0:2]
     is_degenerate(vs)
 end
 
@@ -591,7 +590,8 @@ function build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
     has_meta = hasproperty(nmesh, :face_meta)
     n_faces = length(fs)
 
-    cpu_triangles = [begin
+    cpu_triangles = [
+        begin
             # After expand_faceviews, face_meta is per-vertex with all 3 verts sharing same value
             meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
             build_triangle(verts, norms, uvs, indices, i, meta)
@@ -638,8 +638,8 @@ per-triangle interface — see `InstanceDescriptor` for semantics.
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
-                    instance_id::UInt32=UInt32(0),
-                    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
+    instance_id::UInt32=UInt32(0),
+    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
     blas_idx = build_and_append_blas!(tlas, mesh)
     t = mat4_to_mat3x4(transform)
     cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), UInt32(0))]
@@ -660,8 +660,8 @@ per-instance interface override.  When `nothing`, every instance gets `0`
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
-                    instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing,
-                    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
+    instance_ids::Union{Nothing,AbstractVector{<:Integer}}=nothing,
+    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
     if instance_ids !== nothing && length(instance_ids) != length(transforms)
         throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
     end
@@ -828,7 +828,8 @@ function update!(tlas::TLAS, handle::TLASHandle, new_geometry)
     has_meta = hasproperty(nmesh, :face_meta)
     n_faces = length(fs)
 
-    cpu_triangles = [begin
+    cpu_triangles = [
+        begin
             meta = has_meta ? nmesh.face_meta[indices[3*(i-1)+1]] : UInt32(i)
             build_triangle(verts, norms, uvs, indices, i, meta)
         end
@@ -998,7 +999,7 @@ function compact_instances!(tlas::TLAS)
     # Copy valid ranges to new array and update handle mappings
     cpu_instances = Array(tlas.instances)
     new_instances = InstanceDescriptor[]
-    new_handle_to_range = Dict{TLASHandle, UnitRange{Int}}()
+    new_handle_to_range = Dict{TLASHandle,UnitRange{Int}}()
 
     for (handle, range) in tlas.handle_to_range
         handle in tlas.deleted_handles && continue
@@ -1025,7 +1026,7 @@ function compact_instances!(tlas::TLAS)
     if n_blas > 0 && length(used_blas_indices) < n_blas
         # Build old→new index mapping (only for referenced BLASes)
         sorted_used = sort!(collect(used_blas_indices))
-        old_to_new = Dict{UInt32, UInt32}()
+        old_to_new = Dict{UInt32,UInt32}()
         for (new_idx, old_idx) in enumerate(sorted_used)
             old_to_new[old_idx] = UInt32(new_idx)
         end
@@ -1061,8 +1062,8 @@ function compact_instances!(tlas::TLAS)
 
     # Update instances on backend
     tlas.instances = isempty(new_instances) ?
-        KA.allocate(tlas.backend, InstanceDescriptor, 0) :
-        Adapt.adapt(tlas.backend, new_instances)
+                     KA.allocate(tlas.backend, InstanceDescriptor, 0) :
+                     Adapt.adapt(tlas.backend, new_instances)
 end
 
 # ------------------------------------------------------------------------------
@@ -1197,7 +1198,7 @@ Interleaves x,y,z bits to create space-filling Z-curve ordering.
     # Interleave bits: xxyyzzxxyyzzxxyyzz...
     return (expand_bits(unsafe_trunc(UInt32, x)) << 2) |
            (expand_bits(unsafe_trunc(UInt32, y)) << 1) |
-            expand_bits(unsafe_trunc(UInt32, z))
+           expand_bits(unsafe_trunc(UInt32, z))
 end
 
 """Count leading zeros (clz) for 32-bit integer."""
@@ -1234,7 +1235,7 @@ end
     idx::Int32,
     morton_codes::AbstractVector{UInt32},
     n_prims::Int32
-)::Tuple{Int32, Int32}
+)::Tuple{Int32,Int32}
     # Determine direction
     d_left = delta(idx, idx - Int32(1), morton_codes, n_prims)
     d_right = delta(idx, idx + Int32(1), morton_codes, n_prims)
@@ -1376,7 +1377,7 @@ blas_gpu = build_blas(gpu_triangles)  # CuArray{Triangle}
 """
 function build_blas(
     primitives::AbstractVector{T}
-) where {T <: Triangle}
+) where {T<:Triangle}
     n = length(primitives)
     n == 0 && error("Cannot build BLAS from empty primitive list")
 
@@ -1504,11 +1505,11 @@ function build_tlas_topology(blas_array, instances, backend)
     scene_max_p = cpu_maxs[1]
     for i in 2:n
         scene_min_p = Point3f(min(scene_min_p[1], cpu_mins[i][1]),
-                              min(scene_min_p[2], cpu_mins[i][2]),
-                              min(scene_min_p[3], cpu_mins[i][3]))
+            min(scene_min_p[2], cpu_mins[i][2]),
+            min(scene_min_p[3], cpu_mins[i][3]))
         scene_max_p = Point3f(max(scene_max_p[1], cpu_maxs[i][1]),
-                              max(scene_max_p[2], cpu_maxs[i][2]),
-                              max(scene_max_p[3], cpu_maxs[i][3]))
+            max(scene_max_p[2], cpu_maxs[i][2]),
+            max(scene_max_p[3], cpu_maxs[i][3]))
     end
     scene_aabb = Bounds3(scene_min_p, scene_max_p)
 
@@ -1606,7 +1607,7 @@ Uses KernelAbstractions for automatic CPU/GPU execution based on input array typ
 function build_tlas(
     blas_array::AbstractVector{B},
     instances::AbstractVector{InstanceDescriptor}
-) where {B <: BLAS}
+) where {B<:BLAS}
     n_blas = length(blas_array)
     n = length(instances)
 
@@ -1653,7 +1654,7 @@ end
 
 
 # Type union for traversal - both TLAS and StaticTLAS have the same traversal-relevant fields
-const TraversableTLAS = Union{TLAS, StaticTLAS}
+const TraversableTLAS = Union{TLAS,StaticTLAS}
 
 # ==============================================================================
 # Transform Utilities
@@ -1663,9 +1664,9 @@ const TraversableTLAS = Union{TLAS, StaticTLAS}
 # The upper three rows of the 4×4 become the three Vulkan rows.
 @inline function mat4_to_mat3x4(m)::Mat3x4f
     Mat3x4f(
-        Float32(m[1,1]), Float32(m[1,2]), Float32(m[1,3]), Float32(m[1,4]),
-        Float32(m[2,1]), Float32(m[2,2]), Float32(m[2,3]), Float32(m[2,4]),
-        Float32(m[3,1]), Float32(m[3,2]), Float32(m[3,3]), Float32(m[3,4]),
+        Float32(m[1, 1]), Float32(m[1, 2]), Float32(m[1, 3]), Float32(m[1, 4]),
+        Float32(m[2, 1]), Float32(m[2, 2]), Float32(m[2, 3]), Float32(m[2, 4]),
+        Float32(m[3, 1]), Float32(m[3, 2]), Float32(m[3, 3]), Float32(m[3, 4]),
     )
 end
 
@@ -1676,14 +1677,14 @@ end
 @inline function mat3x4_inverse(m::Mat3x4f)::Mat3x4f
     R = m[SOneTo(3), SOneTo(3)]
     B = inv(R)
-    tx, ty, tz = m[4,1], m[4,2], m[4,3]
-    t_inv_x = -(B[1,1]*tx + B[2,1]*ty + B[3,1]*tz)
-    t_inv_y = -(B[1,2]*tx + B[2,2]*ty + B[3,2]*tz)
-    t_inv_z = -(B[1,3]*tx + B[2,3]*ty + B[3,3]*tz)
+    tx, ty, tz = m[4, 1], m[4, 2], m[4, 3]
+    t_inv_x = -(B[1, 1]*tx + B[2, 1]*ty + B[3, 1]*tz)
+    t_inv_y = -(B[1, 2]*tx + B[2, 2]*ty + B[3, 2]*tz)
+    t_inv_z = -(B[1, 3]*tx + B[2, 3]*ty + B[3, 3]*tz)
     return Mat3x4f(
-        B[1,1], B[2,1], B[3,1], t_inv_x,
-        B[1,2], B[2,2], B[3,2], t_inv_y,
-        B[1,3], B[2,3], B[3,3], t_inv_z,
+        B[1, 1], B[2, 1], B[3, 1], t_inv_x,
+        B[1, 2], B[2, 2], B[3, 2], t_inv_y,
+        B[1, 3], B[2, 3], B[3, 3], t_inv_z,
     )
 end
 
@@ -1692,9 +1693,9 @@ end
 # a dot of one Julia column with (p..., 1).
 @inline function transform_point(m::Mat3x4f, p::Point3f)::Point3f
     Point3f(
-        m[1,1] * p[1] + m[2,1] * p[2] + m[3,1] * p[3] + m[4,1],
-        m[1,2] * p[1] + m[2,2] * p[2] + m[3,2] * p[3] + m[4,2],
-        m[1,3] * p[1] + m[2,3] * p[2] + m[3,3] * p[3] + m[4,3],
+        m[1, 1] * p[1] + m[2, 1] * p[2] + m[3, 1] * p[3] + m[4, 1],
+        m[1, 2] * p[1] + m[2, 2] * p[2] + m[3, 2] * p[3] + m[4, 2],
+        m[1, 3] * p[1] + m[2, 3] * p[2] + m[3, 3] * p[3] + m[4, 3],
     )
 end
 
@@ -1702,27 +1703,27 @@ end
 # Standard graphics convention: out_i = sum_j m[i,j]*p[j] + m[i,4].
 @inline function transform_point(m::Mat4f, p::Point3f)::Point3f
     Point3f(
-        m[1,1] * p[1] + m[1,2] * p[2] + m[1,3] * p[3] + m[1,4],
-        m[2,1] * p[1] + m[2,2] * p[2] + m[2,3] * p[3] + m[2,4],
-        m[3,1] * p[1] + m[3,2] * p[2] + m[3,3] * p[3] + m[3,4],
+        m[1, 1] * p[1] + m[1, 2] * p[2] + m[1, 3] * p[3] + m[1, 4],
+        m[2, 1] * p[1] + m[2, 2] * p[2] + m[2, 3] * p[3] + m[2, 4],
+        m[3, 1] * p[1] + m[3, 2] * p[2] + m[3, 3] * p[3] + m[3, 4],
     )
 end
 
 # Transform direction (ignoring translation).
 @inline function transform_direction(m::Mat3x4f, v::Vec3f)::Vec3f
     Vec3f(
-        m[1,1] * v[1] + m[2,1] * v[2] + m[3,1] * v[3],
-        m[1,2] * v[1] + m[2,2] * v[2] + m[3,2] * v[3],
-        m[1,3] * v[1] + m[2,3] * v[2] + m[3,3] * v[3],
+        m[1, 1] * v[1] + m[2, 1] * v[2] + m[3, 1] * v[3],
+        m[1, 2] * v[1] + m[2, 2] * v[2] + m[3, 2] * v[3],
+        m[1, 3] * v[1] + m[2, 3] * v[2] + m[3, 3] * v[3],
     )
 end
 
 # Mat4f variant — translation column ignored for direction transforms.
 @inline function transform_direction(m::Mat4f, v::Vec3f)::Vec3f
     Vec3f(
-        m[1,1] * v[1] + m[1,2] * v[2] + m[1,3] * v[3],
-        m[2,1] * v[1] + m[2,2] * v[2] + m[2,3] * v[3],
-        m[3,1] * v[1] + m[3,2] * v[2] + m[3,3] * v[3],
+        m[1, 1] * v[1] + m[1, 2] * v[2] + m[1, 3] * v[3],
+        m[2, 1] * v[1] + m[2, 2] * v[2] + m[2, 3] * v[3],
+        m[3, 1] * v[1] + m[3, 2] * v[2] + m[3, 3] * v[3],
     )
 end
 
@@ -1900,7 +1901,7 @@ Algorithm:
 4. Transform back to world space
 5. Return closest hit across all instances
 """
-@inline function closest_hit(tlas::StaticTLAS, ray::R) where {R <: AbstractRay}
+@inline function closest_hit(tlas::StaticTLAS, ray::R) where {R<:AbstractRay}
     # Initialize traversal state - matches HLSL TraceRays
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
@@ -1909,9 +1910,8 @@ Algorithm:
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)  # Use safe inversion to avoid division by zero
 
-    # Stack for traversal. This is intentionally larger than the common ~20
-    # level case because realistic flattened BLASes can exceed 32 levels.
-    stack = MVector{SOFTWARE_TRAVERSAL_STACK_CAPACITY,UInt32}(undef)
+    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
+    stack = MVector{32,UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
@@ -1940,7 +1940,7 @@ Algorithm:
         node::BVHNode2 = if current_instance < Int32(0)
             tlas_nodes[node_index]
         else
-            tlas_blas_nodes[current_blas_offset + node_index]
+            tlas_blas_nodes[current_blas_offset+node_index]
         end
 
         is_leaf::Bool = (node.child0 == INVALID_NODE)
@@ -1970,7 +1970,7 @@ Algorithm:
 
             # Get instance and transform ray
             node_index = UInt32(1)  # Start at root of BLAS
-            inst = tlas_instances[current_instance + Int32(1)]
+            inst = tlas_instances[current_instance+Int32(1)]
             desc = tlas_blas_descs[inst.blas_index]
             current_blas_offset = desc.nodes_offset
             ray_o = transform_point(inst.inv_transform, ray.o)
@@ -2013,14 +2013,14 @@ Algorithm:
         inst_idx = UInt32(closest_instance + Int32(1))
         inst = tlas_instances[inst_idx]
         desc = tlas_blas_descs[inst.blas_index]
-        tri = tlas_blas_prims[desc.primitives_offset + closest_prim]
+        tri = tlas_blas_prims[desc.primitives_offset+closest_prim]
         w = 1.0f0 - hit_u - hit_v
-        bary = SVector{3, Float32}(w, hit_u, hit_v)
+        bary = SVector{3,Float32}(w, hit_u, hit_v)
         return (true, tri, ray_maxt, bary, inst_idx)
     else
         # No hit - return zero sentinel
         dummy_tri = empty_triangle(eltype(tlas_blas_prims))
-        bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
+        bary = SVector{3,Float32}(0.0f0, 0.0f0, 0.0f0)
         return (false, dummy_tri, 0.0f0, bary, UInt32(0))
     end
 end
@@ -2117,7 +2117,7 @@ suppression and retain raw hits.
     out_base::Int,
     max_hits::Int,
     duplicate_epsilon::Float32,
-) where {R <: AbstractRay}
+) where {R<:AbstractRay}
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
     ray_d::Vec3f = ray.d
@@ -2125,7 +2125,8 @@ suppression and retain raw hits.
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)
 
-    stack = MVector{SOFTWARE_TRAVERSAL_STACK_CAPACITY,UInt32}(undef)
+    stack = MVector{64,UInt32}(undef)
+    # Note that the stack size (64) is larger than the other algos (32) because this algorithm can exceed 32 levels.
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
@@ -2146,7 +2147,7 @@ suppression and retain raw hits.
         node::BVHNode2 = if current_instance < Int32(0)
             tlas_nodes[node_index]
         else
-            tlas_blas_nodes[current_blas_offset + node_index]
+            tlas_blas_nodes[current_blas_offset+node_index]
         end
 
         is_leaf::Bool = (node.child0 == INVALID_NODE)
@@ -2170,7 +2171,7 @@ suppression and retain raw hits.
             stack[stack_ptr] = TOP_LEVEL_SENTINEL
 
             node_index = UInt32(1)
-            inst = tlas_instances[current_instance + Int32(1)]
+            inst = tlas_instances[current_instance+Int32(1)]
             desc = tlas_blas_descs[inst.blas_index]
             current_blas_offset = desc.nodes_offset
             current_prim_offset = desc.primitives_offset
@@ -2181,7 +2182,7 @@ suppression and retain raw hits.
         else
             hit, t, _u, _v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
             if hit
-                tri = tlas_blas_prims[current_prim_offset + node.child1]
+                tri = tlas_blas_prims[current_prim_offset+node.child1]
                 inst_idx = UInt32(current_instance + Int32(1))
                 new_count, hit_overflow = _insert_sorted_unique_hit!(
                     metadata_out,
@@ -2225,7 +2226,7 @@ Faster than closest_hit when only occlusion testing is needed.
 
 Matches HLSL TraceRays with ANY_HIT defined.
 """
-@inline function any_hit(tlas::StaticTLAS, ray::R) where {R <: AbstractRay}
+@inline function any_hit(tlas::StaticTLAS, ray::R) where {R<:AbstractRay}
     # Initialize traversal state - matches HLSL TraceRays
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
@@ -2234,9 +2235,8 @@ Matches HLSL TraceRays with ANY_HIT defined.
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)
 
-    # Stack for traversal. This matches the TLAS closest/all-hit traversal
-    # capacity so the three software paths fail or pass on the same topology.
-    stack = MVector{SOFTWARE_TRAVERSAL_STACK_CAPACITY,UInt32}(undef)
+    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
+    stack = MVector{32,UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
@@ -2258,7 +2258,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
         node::BVHNode2 = if current_instance < Int32(0)
             tlas_nodes[node_index]
         else
-            tlas_blas_nodes[current_blas_offset + node_index]
+            tlas_blas_nodes[current_blas_offset+node_index]
         end
 
         is_leaf::Bool = (node.child0 == INVALID_NODE)
@@ -2288,7 +2288,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
 
             # Get instance and transform ray
             node_index = UInt32(1)  # Start at root of BLAS
-            inst = tlas_instances[current_instance + Int32(1)]
+            inst = tlas_instances[current_instance+Int32(1)]
             desc = tlas_blas_descs[inst.blas_index]
             current_blas_offset = desc.nodes_offset
             ray_o = transform_point(inst.inv_transform, ray.o)
@@ -2303,9 +2303,9 @@ Matches HLSL TraceRays with ANY_HIT defined.
                 inst_idx = UInt32(current_instance + Int32(1))
                 inst = tlas_instances[inst_idx]
                 desc = tlas_blas_descs[inst.blas_index]
-                tri = tlas_blas_prims[desc.primitives_offset + node.child1]
+                tri = tlas_blas_prims[desc.primitives_offset+node.child1]
                 w = 1.0f0 - u - v
-                bary = SVector{3, Float32}(w, u, v)
+                bary = SVector{3,Float32}(w, u, v)
                 return (true, tri, t, bary, inst_idx)
             end
         end
@@ -2330,7 +2330,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
 
     # No hit found
     @inbounds dummy_tri = tlas_blas_prims[1]
-    bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
+    bary = SVector{3,Float32}(0.0f0, 0.0f0, 0.0f0)
     return (false, dummy_tri, 0.0f0, bary, UInt32(0))
 end
 
@@ -2392,7 +2392,7 @@ Operates directly on the backend arrays stored in the TLAS.
 function refit_tlas!(tlas::TLAS)
     tlas.transforms_dirty || return tlas
     n = length(tlas.instances)
-    n == 0 && (tlas.transforms_dirty = false; return tlas)
+    n == 0 && (tlas.transforms_dirty=false; return tlas)
     backend = tlas.backend
 
     # Update leaf node AABBs from new transforms (kernel)
@@ -2471,7 +2471,7 @@ tlas = TLAS(geometries, metadata_fn; backend=OpenCLBackend())
 function TLAS(
     primitives::AbstractVector{P},
     metadata_fn::Function;
-    backend = KA.CPU()
+    backend=KA.CPU()
 ) where {P}
     first_metadata = metadata_fn(1, 1)
     TMetadata = typeof(first_metadata)
@@ -2532,7 +2532,7 @@ function Base.eltype(tlas::TLAS)
     return eltype(tlas.blas_storage[1].primitives)
 end
 
-function Base.eltype(::StaticTLAS{NA, IA, BNA, BPA, DA}) where {NA, IA, BNA, BPA, DA}
+function Base.eltype(::StaticTLAS{NA,IA,BNA,BPA,DA}) where {NA,IA,BNA,BPA,DA}
     return eltype(BPA)
 end
 
