@@ -63,6 +63,7 @@ struct BVHNode2
 end
 
 const INVALID_NODE = 0xffffffff
+const SOFTWARE_TRAVERSAL_STACK_CAPACITY = 64
 
 """Check if a node is a leaf node."""
 @inline is_leaf(node::BVHNode2) = node.child0 == INVALID_NODE
@@ -1908,8 +1909,9 @@ Algorithm:
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)  # Use safe inversion to avoid division by zero
 
-    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
-    stack = MVector{32, UInt32}(undef)
+    # Stack for traversal. This is intentionally larger than the common ~20
+    # level case because realistic flattened BLASes can exceed 32 levels.
+    stack = MVector{SOFTWARE_TRAVERSAL_STACK_CAPACITY,UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
@@ -2123,7 +2125,7 @@ suppression and retain raw hits.
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)
 
-    stack = MVector{32, UInt32}(undef)
+    stack = MVector{SOFTWARE_TRAVERSAL_STACK_CAPACITY,UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
@@ -2232,8 +2234,9 @@ Matches HLSL TraceRays with ANY_HIT defined.
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)
 
-    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
-    stack = MVector{32, UInt32}(undef)
+    # Stack for traversal. This matches the TLAS closest/all-hit traversal
+    # capacity so the three software paths fail or pass on the same topology.
+    stack = MVector{SOFTWARE_TRAVERSAL_STACK_CAPACITY,UInt32}(undef)
     stack_ptr::Int32 = Int32(1)
     @inbounds stack[stack_ptr] = INVALID_NODE
 
