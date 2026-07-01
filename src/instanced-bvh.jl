@@ -1384,8 +1384,10 @@ function build_blas(
     # Infer backend from input array type
     backend = KA.get_backend(primitives)
 
+    init = Bounds3()
     # Compute scene AABB (works on both CPU and GPU arrays)
-    scene_aabb = mapreduce(world_bound, ∪, primitives, init=Bounds3())
+    scene_aabb = AK.mapreduce(world_bound, ∪, primitives; init=init, neutral=init)
+
     scene_min = scene_aabb.p_min
     scene_extent = Vec3f(scene_aabb.p_max - scene_aabb.p_min)
 
