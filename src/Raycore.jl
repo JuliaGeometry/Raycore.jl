@@ -146,7 +146,7 @@ export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, g
 
 # MultiTypeSet - type-stable heterogeneous collections
 export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
-export is_invalid, is_valid, with_index, n_slots, deref, get_static, to_tuple
+export is_invalid, is_valid, with_index, with_texture, n_slots, deref, get_static, to_tuple
 export maybe_convert_field, store_texture
 export free!
 

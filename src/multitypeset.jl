@@ -174,6 +174,38 @@ end
 @inline function deref(smv::StaticMultiTypeSet{Data,Textures}, tref::TextureRef{ReferencedArrayType,T,N,TIdx}) where {Data<:Tuple,Textures<:Tuple,ReferencedArrayType,T,N,TIdx}
     @inbounds smv.textures[TIdx][tref.idx]
 end
+
+"""
+    with_texture(f, smv::StaticMultiTypeSet, slot::Integer, idx::Integer, args...)
+
+Call `f(texture_array, args...)` for the texture at a RUNTIME `(slot, idx)`.
+
+`deref` indexes `smv.textures[TIdx]` with `TIdx` taken from the `TextureRef`
+TYPE, so a texture reference cannot be type-erased: two image maps in different
+type slots are different Julia types, and any struct holding one inherits that.
+For materials that is the whole constant-vs-texture type explosion.
+
+This is the escape hatch: the slot is a runtime value and the dispatch is an
+if-elseif chain over the tuple, like `with_index`. Each arm is MONOMORPHIC, so
+as long as `f` returns the same type from every arm (sample-and-convert rather
+than returning the array) the call is type-stable and GPU-safe. Returning the
+array itself would produce a union and is not supported by design.
+"""
+@inline @generated function with_texture(
+    f::F, smv::StaticMultiTypeSet{Data, Textures}, slot::Integer, idx::Integer, args...
+) where {F, Data<:Tuple, Textures<:Tuple}
+    N = length(Textures.parameters)
+    N == 0 && return :(f(nothing, args...))
+    expr = :(@inbounds f(smv.textures[$N][idx], args...))
+    for i in (N - 1):-1:1
+        expr = Expr(:if, :(slot == $i),
+                    :(@inbounds f(smv.textures[$i][idx], args...)),
+                    expr)
+    end
+    return quote
+        $expr
+    end
+end
 # ============================================================================
 # Dummy kernel for argconvert (same pattern as kernel-abstractions.jl)
 # ============================================================================
@@ -286,7 +318,11 @@ Convert a struct field value for GPU storage. Override this for custom types.
 
 Materials should use loose type parameters so fields can be either raw values OR
 TextureRef. This way constant values don't need texture indirection at all.
-This function should not be overloaded outside Raycore.
+
+This is the extension point a consumer overrides when it wants control over how
+its own items reach the device: Hikari overrides it for `Material` so every
+texture-carrying field lands on one uniform handle type instead of on whatever
+the caller happened to pass.
 """
 # Convert large arrays to TextureRef, but NOT StaticArrays (they're inline values, not textures)
 maybe_convert_field(dhv::MultiTypeSet, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
