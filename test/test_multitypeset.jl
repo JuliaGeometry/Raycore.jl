@@ -139,3 +139,59 @@ end
     result = Array(output)
     @test result ≈ [0.5f0, 1.5f0, 0.8f0]
 end
+
+# `push!` resizes the GPU slot and writes one element per call, so registering
+# anything per-face (Hikari's area lights: 261 120 of them for one tessellated
+# sphere) cost that many vkAllocateMemory/vkFreeMemory pairs — ~150 s per mesh.
+# `append!` resizes each slot once and fills it with a single copyto!. It has to
+# agree with a push! loop exactly, including the order of the returned keys,
+# because callers derive flat indices from them.
+@testset "MultiTypeSet append! matches a push! loop" begin
+    items = [SimpleMaterial(Float32(i)) for i in 1:64]
+
+    pushed = MultiTypeSet(backend)
+    push_keys = [push!(pushed, m) for m in items]
+
+    appended = MultiTypeSet(backend)
+    append_keys = append!(appended, items)
+
+    @test append_keys == push_keys
+    @test length(appended) == length(pushed) == 64
+    @test Array(Raycore.get_static(appended).data[1]) == Array(Raycore.get_static(pushed).data[1])
+
+    @testset "into a slot that already has items" begin
+        set = MultiTypeSet(backend)
+        first_key = push!(set, SimpleMaterial(1f0))
+        keys = append!(set, [SimpleMaterial(Float32(i)) for i in 2:10])
+        @test first_key.vec_idx == 1
+        @test [k.vec_idx for k in keys] == 2:10
+        @test all(k -> k.type_idx == first_key.type_idx, keys)
+        @test Array(Raycore.get_static(set).data[1]) == [SimpleMaterial(Float32(i)) for i in 1:10]
+    end
+
+    @testset "mixed types keep per-item order" begin
+        set = MultiTypeSet(backend)
+        mixed = Any[SimpleMaterial(1f0), GlassMaterial(1.5f0), SimpleMaterial(2f0),
+                    GlassMaterial(1.6f0), SimpleMaterial(3f0)]
+        keys = append!(set, mixed)
+        @test length(set) == 5
+        # Same type => same slot, in the order they appeared.
+        @test keys[1].type_idx == keys[3].type_idx == keys[5].type_idx
+        @test keys[2].type_idx == keys[4].type_idx
+        @test keys[1].type_idx != keys[2].type_idx
+        @test [keys[i].vec_idx for i in (1, 3, 5)] == [1, 2, 3]
+        @test [keys[i].vec_idx for i in (2, 4)] == [1, 2]
+        # And every key round-trips to the item it was made from. `with_index`
+        # indexes the GPU slot, so read the slots back to the host once.
+        slots = map(Array, Raycore.get_static(set).data)
+        for (i, item) in enumerate(mixed)
+            @test slots[keys[i].type_idx][keys[i].vec_idx] == item
+        end
+    end
+
+    @testset "empty append! is a no-op" begin
+        set = MultiTypeSet(backend)
+        @test isempty(append!(set, SimpleMaterial{Float32}[]))
+        @test isempty(set)
+    end
+end

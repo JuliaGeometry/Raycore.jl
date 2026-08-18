@@ -427,6 +427,58 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
     return SetKey(UInt32(type_idx), UInt32(vec_idx))
 end
 
+"""
+    append!(dhv::MultiTypeSet, items) -> Vector{SetKey}
+
+Append every element of `items` in one pass, returning their keys in order.
+
+`push!` resizes the GPU slot and writes one element per call, so a loop over N
+items costs N `vkAllocateMemory`/`vkFreeMemory` pairs and N host→device copies.
+That is fine for the handful of materials a scene declares and catastrophic for
+anything per-face: registering the area lights of a mesh whose emissive surface
+is a tessellated sphere (261 120 faces) took ~150 s per mesh, which was ~95 % of
+the time to build `RayDemo/Materials/materials.pbrt`.
+
+Here each type slot is resized ONCE and filled with a single `copyto!`.
+"""
+function Base.append!(dhv::MultiTypeSet, items)::Vector{SetKey}
+    keys = Vector{SetKey}(undef, length(items))
+    isempty(items) && return keys
+
+    # Convert first: `maybe_convert_field` can store textures, and the stored
+    # type decides which slot an item lands in.
+    converted = map(item -> maybe_convert_field(dhv, item), items)
+
+    # Group by stored type, preserving order within each group.
+    order = Dict{DataType, Vector{Int}}()
+    for (i, item) in enumerate(converted)
+        push!(get!(() -> Int[], order, typeof(item)), i)
+    end
+
+    for (CT, positions) in order
+        chunk = CT[converted[i] for i in positions]
+        type_idx = findfirst(==(CT), dhv.data_order)
+        if type_idx === nothing
+            dhv.data_vectors[CT] = chunk
+            push!(dhv.data_order, CT)
+            type_idx = length(dhv.data_order)
+            new_slot = Adapt.adapt(dhv.backend, chunk)
+            dhv.static = StaticMultiTypeSet((dhv.static.data..., new_slot), dhv.static.textures)
+            base = 0
+        else
+            append!(dhv.data_vectors[CT], chunk)
+            slot = dhv.static.data[type_idx]
+            base = length(slot)
+            resize!(slot, base + length(chunk))
+            copyto!(slot, base + 1, chunk, 1, length(chunk))
+        end
+        for (k, i) in enumerate(positions)
+            keys[i] = SetKey(UInt32(type_idx), UInt32(base + k))
+        end
+    end
+    return keys
+end
+
 # ============================================================================
 # update! - Sync modified CPU data into existing GPU arrays
 # ============================================================================
