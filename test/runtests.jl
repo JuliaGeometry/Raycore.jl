@@ -14,6 +14,7 @@
 #                                     suite emits placeholder broken-tests until
 #                                     the alignment hint is fixed in Lava's
 #                                     SPIR-V emitter.
+#   RAYCORE_TEST_BACKEND=metal      — Metal on an Apple GPU.
 #   RAYCORE_TEST_BACKEND=lava       — Lava on whatever Vulkan ICD is found
 #                                     (developer GPUs / RADV / NVIDIA / etc.).
 #                                     Full Lava-using suite runs.
@@ -31,9 +32,13 @@ const KA = KernelAbstractions
 const RAYCORE_TEST_BACKEND_NAME = lowercase(get(ENV, "RAYCORE_TEST_BACKEND", "cpu"))
 const _USE_LAVA   = RAYCORE_TEST_BACKEND_NAME in ("lava", "lavapipe")
 const _IS_LAVAPIPE = RAYCORE_TEST_BACKEND_NAME == "lavapipe"
+const _USE_METAL   = RAYCORE_TEST_BACKEND_NAME == "metal"
 
 if _USE_LAVA
     using Lava
+end
+if _USE_METAL
+    using Metal
 end
 
 """
@@ -42,7 +47,11 @@ end
 KernelAbstractions backend the current CI matrix entry asks for.
 `KA.CPU()` (default) or `Lava.LavaBackend()` (when env var selects lava/lavapipe).
 """
-test_backend() = _USE_LAVA ? Lava.LavaBackend() : KA.CPU()
+function test_backend()
+    _USE_LAVA && return Lava.LavaBackend()
+    _USE_METAL && return Metal.MetalBackend()
+    return KA.CPU()
+end
 
 """Whether we're running on lavapipe specifically (mesa software Vulkan).
 Used to mark tests broken that hit lavapipe-specific JIT bugs."""
@@ -112,6 +121,12 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
         # Either KA.CPU() (cpu matrix entry) or LavaBackend on real GPU.
         @testset "Instanced BVH" begin
             include("test_instanced_bvh.jl")
+        end
+        @testset "BVH refit ordering" begin
+            include("test_bvh_refit_ordering.jl")
+        end
+        @testset "MultiTypeSet aliasing" begin
+            include("test_multitypeset_aliasing.jl")
         end
         if _USE_LAVA
             # Suites that hard-depend on Lava-specific types (LavaArray /

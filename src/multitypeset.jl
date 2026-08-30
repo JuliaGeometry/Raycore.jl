@@ -417,11 +417,21 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
         vec_idx = 1
     else
         # Existing material type: surgical one-element append into the GPU slot.
-        push!(dhv.data_vectors[CT], converted_item)
+        #
+        # `old_len` is read BEFORE the host mirror grows, and the device write
+        # is skipped when the two alias. On a GPU backend `Adapt.adapt` builds a
+        # separate device array, but on `KA.CPU()` it is the identity, so
+        # `data_vectors[CT]` and this slot are the SAME `Vector` — the `push!`
+        # below already stores the item, and resizing again would store it a
+        # second time. That is how a two-quad area light ended up with six
+        # emissive triangles instead of four on the CPU backend.
         slot = dhv.static.data[type_idx]
         old_len = length(slot)
-        resize!(slot, old_len + 1)
-        @allowscalar slot[old_len + 1] = converted_item
+        push!(dhv.data_vectors[CT], converted_item)
+        if slot !== dhv.data_vectors[CT]
+            resize!(slot, old_len + 1)
+            @allowscalar slot[old_len + 1] = converted_item
+        end
         vec_idx = old_len + 1
     end
     return SetKey(UInt32(type_idx), UInt32(vec_idx))
@@ -466,11 +476,15 @@ function Base.append!(dhv::MultiTypeSet, items)::Vector{SetKey}
             dhv.static = StaticMultiTypeSet((dhv.static.data..., new_slot), dhv.static.textures)
             base = 0
         else
-            append!(dhv.data_vectors[CT], chunk)
+            # `base` before the host mirror grows, and no device write when the
+            # two alias — see the note in `push!` above.
             slot = dhv.static.data[type_idx]
             base = length(slot)
-            resize!(slot, base + length(chunk))
-            copyto!(slot, base + 1, chunk, 1, length(chunk))
+            append!(dhv.data_vectors[CT], chunk)
+            if slot !== dhv.data_vectors[CT]
+                resize!(slot, base + length(chunk))
+                copyto!(slot, base + 1, chunk, 1, length(chunk))
+            end
         end
         for (k, i) in enumerate(positions)
             keys[i] = SetKey(UInt32(type_idx), UInt32(base + k))

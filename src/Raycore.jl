@@ -37,7 +37,12 @@ Concrete implementations:
 
 # Query
 - `closest_hit(adapted, ray) -> (hit, tri, t, bary, instance_override)`
-- `any_hit(adapted, ray) -> Bool`
+- `any_hit(adapted, ray) -> (hit, tri, t, bary, instance_override)` — the SAME
+  shape as `closest_hit`, not a `Bool`. Only the traversal differs: it stops at
+  the first accepted hit, so `t`/`tri` are *an* intersection, not the nearest.
+  This said `-> Bool`, and all three implementations (software `StaticTLAS`,
+  Vulkan, Metal) return the tuple — a backend written to the doc would break
+  every caller, and a caller written to it gets a device-side type error.
 - `world_bound(accel)`, `n_instances(accel)`, `n_geometries(accel)`.
 
 # Flush

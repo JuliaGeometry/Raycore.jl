@@ -767,22 +767,22 @@ else
         return GeometryBasics.mesh(verts, faces; normal=norms)
     end
 
-    @testset "TLAS adapt to LavaArray" begin
+    @testset "TLAS adapt moves the nodes onto the backend" begin
         mesh = make_triangle_mesh()
         tlas, handles = TLAS([mesh]; backend=cl_backend)
 
-        # Adapt TLAS to Lava arrays (GPU-first: backend must match)
+        # GPU-first: adapt must put the storage where the kernels run.
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         @test cl_tlas isa Raycore.StaticTLAS
-        # GPU arrays (LavaArray) are not isbits on the host — KA handles
-        # the device pointer conversion during kernel launch.
-        # The kernel tests below verify that the TLAS works correctly on GPU.
-        if cl_backend isa KA.CPU
-            @test cl_tlas.nodes isa Vector
-        else
-            @test cl_tlas.nodes isa LavaArray
-        end
+        # `get_backend`, not a named array type. This asserted `isa LavaArray`,
+        # which is a driver type — so the whole branch errored the first time
+        # the suite ran on anything else. What is being claimed is where the
+        # storage LIVES, and that is the portable way to ask it.
+        #
+        # A device array is not isbits on the host; KA converts the pointer at
+        # launch, and the kernel tests below are what prove that end works.
+        @test KA.get_backend(cl_tlas.nodes) == cl_backend
     end
 
     @testset "TLAS sync with many instances" begin
@@ -1164,13 +1164,13 @@ else
 
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
-        # Verify fields land on the right backend after adapt.
-        ArrayType = cl_backend isa KA.CPU ? Vector : LavaArray
-        @test cl_tlas.nodes isa ArrayType
-        @test cl_tlas.instances isa ArrayType
-        @test cl_tlas.all_blas_nodes isa ArrayType
-        @test cl_tlas.all_blas_prims isa ArrayType
-        @test cl_tlas.blas_descriptors isa ArrayType
+        # Verify fields land on the right backend after adapt. Every one of
+        # them, not just `nodes`: a partial adapt is the failure this catches,
+        # and it reads the same on every backend because it names none.
+        for f in (:nodes, :instances, :all_blas_nodes, :all_blas_prims,
+                  :blas_descriptors)
+            @test KA.get_backend(getfield(cl_tlas, f)) == cl_backend
+        end
         # root_aabb stays isbits (not an array)
         @test isbitstype(typeof(cl_tlas.root_aabb))
     end

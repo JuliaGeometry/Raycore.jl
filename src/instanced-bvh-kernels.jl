@@ -236,6 +236,33 @@ Each thread starts at a leaf and walks up the tree. Uses atomic operations
 to ensure each internal node is updated exactly once after both children are ready.
 Based on RadeonRays Refit kernel.
 """
+#     bvh_publish_fence()
+#
+# Device-scope memory fence ordering a BVH node's AABB store against the atomic
+# counter that publishes it.
+#
+# The bottom-up refit kernels below are Karras' scheme: each of a node's two
+# children increments the parent's arrival counter, the second arriver reads
+# BOTH children and writes their boxes into the parent. That handoff is a
+# release/acquire pair — the writing thread's store to `nodes[child]` must be
+# visible to whichever thread later observes the counter reach 2 — and an atomic
+# RMW on the counter alone does not supply it. `Atomix.@atomic` carries no
+# ordering that survives to every backend (Atomix's Metal extension opens with
+# `# TODO: respect ordering` and emits `memory_order_relaxed`), so the ordering
+# has to be stated here, once, for everyone.
+#
+# Without it the second arriver can read a child node the first arriver has
+# written but not yet published, and the parent inherits a stale or zero box.
+# The symptom is a BVH that is *mostly* right: a handful of interior nodes get
+# boxes too small, rays miss geometry that is really there, and the render loses
+# scattered light. It is also non-deterministic, so two builds of the same scene
+# disagree.
+#
+# The default is a no-op, which is correct for the CPU backend: `KA.CPU()` runs
+# each workitem to completion on one thread, so the handoff is already ordered.
+# GPU backends override this with their own device fence.
+@inline bvh_publish_fence() = nothing
+
 KA.@kernel function refit_aabbs_kernel!(
     nodes,
     update_flags,
@@ -253,9 +280,14 @@ KA.@kernel function refit_aabbs_kernel!(
         # If new_value == 1: we're first thread (was 0), bail out
         # If new_value == 2: we're second thread (was 1), update AABB and continue
         # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
+        # Release: everything this thread wrote to `nodes[...]` above must be
+        # visible before the counter below tells the sibling it may be read.
+        bvh_publish_fence()
         new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
 
         if new_value == UInt32(2)
+            # Acquire: pair with the sibling's release before reading its node.
+            bvh_publish_fence()
             # Second thread arrived - compute AABB from both children
             @inbounds begin
                 node = nodes[parent_idx]
@@ -393,9 +425,14 @@ KA.@kernel function refit_tlas_aabbs_kernel!(
     while parent_idx != INVALID_NODE
         # Atomic increment: mark this node as visited
         # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
+        # Release: everything this thread wrote to `nodes[...]` above must be
+        # visible before the counter below tells the sibling it may be read.
+        bvh_publish_fence()
         new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
 
         if new_value == UInt32(2)
+            # Acquire: pair with the sibling's release before reading its node.
+            bvh_publish_fence()
             # Second thread arrived - compute AABB from both children
             @inbounds begin
                 node = nodes[parent_idx]
