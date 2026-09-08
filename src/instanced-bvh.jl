@@ -1088,10 +1088,10 @@ function Adapt.adapt_structure(to, tlas::TLAS)
     # surfaces later as a confusing GPUCompiler "non-bitstype argument" error.
     # Catch it at the API boundary instead.
     #
-    # Compare by type, not by `===`: two distinct `LavaBackend()` instances
-    # are semantically the same backend but not object-identical, so `!==`
-    # would falsely flag a same-backend adapt as cross-backend.
-    if to isa KA.Backend && typeof(to) !== typeof(tlas.backend)
+    # `!=`, not a type comparison: a backend's `==` is "the same device", so two
+    # `LavaBackend`s on two GPUs are different backends here, as they must be,
+    # while two spellings of one device (the default, a second queue) are not.
+    if to isa KA.Backend && to != tlas.backend
         error(
             "Cross-backend Adapt.adapt(::$(typeof(to)), ::TLAS) is not supported. " *
             "TLAS was built on $(typeof(tlas.backend)), but adapt was called with $(typeof(to)). " *
