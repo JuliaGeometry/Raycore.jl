@@ -228,9 +228,9 @@ end
 
 @testset "SW TLAS — only one live static_tlas across many swaps (leak bound)" begin
     # The static_tlas field is the single owner of the adapted form. Overwriting
-    # it on every rebuild means the old StaticTLAS goes unreferenced and is
-    # collectable. Prior draft designs (kept a cache of adapted_scene keyed by
-    # objectid in VolPath) accumulated references across mutations — that's
+    # it on every rebuild means the previous StaticTLAS goes unreferenced and is
+    # collectable. A cache of adapted scenes keyed by objectid accumulates
+    # references across mutations instead, which is
     # the regression this test exists to prevent.
     tlas = Raycore.TLAS(GPU_BACKEND)
     handle = push!(tlas, sphere_mesh(16), translation(0, 0, 0))

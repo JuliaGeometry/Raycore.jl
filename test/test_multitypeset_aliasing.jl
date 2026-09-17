@@ -8,9 +8,9 @@
 # and each has to be written. On `KA.CPU()` `adapt` is the identity and they are
 # the SAME `Vector` — writing both stores every item twice.
 #
-# `push!` and `append!` used to grow the host mirror first and only then read
-# `length(slot)` for the insertion offset. Aliased, that length already included
-# the new items, so they were appended a second time at a bogus offset and the
+# `push!` and `append!` must not grow the host mirror before reading
+# `length(slot)` for the insertion offset: aliased, that length already includes
+# the new items, so they are appended a second time at a bogus offset and the
 # returned `SetKey`s pointed past the real entries.
 #
 # What it looked like: a pbrt scene with two emissive quads (2 triangles each)
