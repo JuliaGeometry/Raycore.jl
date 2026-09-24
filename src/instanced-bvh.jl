@@ -307,6 +307,18 @@ mutable struct TLAS{Backend} <: AbstractAccel
 
     # Counters
     next_handle_id::UInt32
+
+    # The primitive type an EMPTY structure is typed over. With BLASes the
+    # type comes from the first one; without any there is nothing to read it
+    # from, and a guess makes the empty scene's kernel a DIFFERENT kernel from
+    # the populated one, over a primitive whose metadata the caller's code was
+    # never written for. Hikari's `resolve_mi_idx` reads
+    # `metadata.medium_interface_idx`, which a bare `UInt32` does not have, so
+    # an empty scene compiled a guaranteed field error, and Metal refuses to
+    # compile a throw it cannot report. The caller knows what it will push;
+    # this is where it says so. `HWTLAS{Tri}` is told the same thing through its
+    # type parameter.
+    empty_primtype::Type
 end
 
 # Note: get_isbits_ptr is defined in multitypeset.jl and reused here
@@ -316,11 +328,15 @@ end
 # ------------------------------------------------------------------------------
 
 """
-    TLAS(backend) -> TLAS
+    TLAS(backend; primtype = Triangle{UInt32}) -> TLAS
 
 Create an empty TLAS for the given backend.
 Use `push!` to add geometries/instances, then `sync!` to rebuild the BVH.
 `Adapt.adapt_structure` returns a StaticTLAS for kernel traversal.
+
+`primtype` is the primitive type the structure holds while it holds nothing:
+pass the `Triangle{Meta}` your pushes will carry, so an empty scene and a
+populated one compile to the same kernel.
 
 # Example
 ```julia
@@ -331,7 +347,7 @@ sync!(tlas)  # Rebuild BVH on backend
 static = adapt(backend, tlas)  # StaticTLAS with isbits pointers for kernels
 ```
 """
-function TLAS(backend)
+function TLAS(backend; primtype::Type = Triangle{UInt32})
     # GPU-first design: all arrays on backend from the start
     tlas = TLAS(
         backend,
@@ -349,6 +365,7 @@ function TLAS(backend)
         true,                                        # dirty (topology)
         false,                                       # transforms_dirty
         UInt32(1),                                   # next_handle_id
+        primtype,                                    # empty_primtype
     )
 
     # Register finalizer to free GPU memory when TLAS is garbage collected
@@ -932,7 +949,7 @@ function rebuild_static_tlas!(tlas::TLAS)
     if tlas._flat_blas_nodes === nothing
         # Empty scene — use correctly-typed empty backing arrays so the
         # StaticTLAS type parameters are still concrete.
-        prim_type = isempty(tlas.blas_storage) ? Triangle{UInt32} : eltype(tlas.blas_storage[1].primitives)
+        prim_type = isempty(tlas.blas_storage) ? tlas.empty_primtype : eltype(tlas.blas_storage[1].primitives)
         empty_nodes = KA.allocate(backend, BVHNode2, 0)
         empty_prims = KA.allocate(backend, prim_type, 0)
         empty_descs = Adapt.adapt(backend, BLASDescriptor[])
@@ -2329,11 +2346,11 @@ end
     Base.eltype(tlas::TraversableTLAS)
 
 Get the element type of primitives stored in the TLAS.  Returns the element
-type of the first BLAS's primitives; defaults to `Triangle{UInt32}` when the
-TLAS has no BLASes yet.
+type of the first BLAS's primitives; the `primtype` it was constructed with
+when it has no BLASes yet.
 """
 function Base.eltype(tlas::TLAS)
-    isempty(tlas.blas_storage) && return Triangle{UInt32}
+    isempty(tlas.blas_storage) && return tlas.empty_primtype
     return eltype(tlas.blas_storage[1].primitives)
 end
 
