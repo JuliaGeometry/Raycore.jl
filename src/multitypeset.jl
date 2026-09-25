@@ -57,6 +57,18 @@ StaticMultiTypeSet() = StaticMultiTypeSet((), ())
 
 Base.isempty(smv::StaticMultiTypeSet) = isempty(smv.data)
 Base.length(smv::StaticMultiTypeSet) = sum(length, smv.data; init=0)
+# An `AbstractVector` with no `size` could not be printed, and neither could
+# anything holding one: a failing test's operands, a render state, a plan. The
+# slots are usually device arrays, so `show` names them and never reads them.
+Base.size(smv::StaticMultiTypeSet) = (length(smv),)
+function Base.show(io::IO, ::MIME"text/plain", smv::StaticMultiTypeSet)
+    print(io, "StaticMultiTypeSet with $(n_slots(smv)) type(s), $(length(smv)) element(s)")
+    for v in smv.data
+        print(io, "\n  ", length(v), "× ", eltype(v))
+    end
+end
+Base.show(io::IO, smv::StaticMultiTypeSet) =
+    print(io, "StaticMultiTypeSet(", n_slots(smv), " types, ", length(smv), " elements)")
 n_slots(smv::StaticMultiTypeSet) = length(smv.data)
 
 # Get the static version - identity for StaticMultiTypeSet, .static field for MultiTypeSet

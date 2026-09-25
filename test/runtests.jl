@@ -128,6 +128,9 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
         @testset "MultiTypeSet aliasing" begin
             include("test_multitypeset_aliasing.jl")
         end
+        @testset "StaticMultiTypeSet show" begin
+            include("test_multitypeset_show.jl")
+        end
         if _USE_LAVA
             # Suites that hard-depend on Lava-specific types (LavaArray /
             # HWTLAS).  Don't run on the cpu matrix entry.
