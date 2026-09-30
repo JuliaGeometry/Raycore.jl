@@ -1733,6 +1733,38 @@ end
     )
 end
 
+"""
+    transform_normal(m::Mat3x4f, n::Vec3f) -> Vec3f
+
+Surface normal `n` under `m`, normalized. Uses the cofactor of the linear part,
+which is its inverse transpose up to the determinant: right under non-uniform
+scale, and no inverse to compute.
+"""
+@inline function transform_normal(m::Mat3x4f, n::Vec3f)::Vec3f
+    # Columns of the linear part: the images of the three axes.
+    a1 = Vec3f(m[1,1], m[1,2], m[1,3])
+    a2 = Vec3f(m[2,1], m[2,2], m[2,3])
+    a3 = Vec3f(m[3,1], m[3,2], m[3,3])
+    c1, c2, c3 = cross(a2, a3), cross(a3, a1), cross(a1, a2)
+    v = n[1] * c1 + n[2] * c2 + n[3] * c3
+    # A mirroring transform (negative determinant) flips the cofactor.
+    return normalize(dot(a1, c1) < 0f0 ? -v : v)
+end
+
+"""
+    transform(m::Mat3x4f, t::Triangle) -> Triangle
+
+The triangle moved by instance transform `m`: vertices as points, tangents as
+directions, normals through [`transform_normal`](@ref). Used to hand a hit
+triangle to the caller in the space of the ray, not of its BLAS.
+"""
+@inline function transform(m::Mat3x4f, t::Triangle)
+    return typeof(t)(map(p -> transform_point(m, p), t.vertices),
+                     map(n -> Normal3f(transform_normal(m, Vec3f(n))), t.normals),
+                     map(v -> transform_direction(m, v), t.tangents),
+                     t.uv, t.metadata)
+end
+
 # Mat4f variant — translation column ignored for direction transforms.
 @inline function transform_direction(m::Mat4f, v::Vec3f)::Vec3f
     Vec3f(
@@ -2028,7 +2060,9 @@ Algorithm:
         inst_idx = UInt32(closest_instance + Int32(1))
         inst = tlas_instances[inst_idx]
         desc = tlas_blas_descs[inst.blas_index]
-        tri = tlas_blas_prims[desc.primitives_offset + closest_prim]
+        # The BLAS stores the triangle in object space; the caller shades in the
+        # ray's (world) space.
+        tri = transform(inst.transform, tlas_blas_prims[desc.primitives_offset + closest_prim])
         w = 1.0f0 - hit_u - hit_v
         bary = SVector{3, Float32}(w, hit_u, hit_v)
         return (true, tri, ray_maxt, bary, inst_idx)
@@ -2125,7 +2159,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
                 inst_idx = UInt32(current_instance + Int32(1))
                 inst = tlas_instances[inst_idx]
                 desc = tlas_blas_descs[inst.blas_index]
-                tri = tlas_blas_prims[desc.primitives_offset + node.child1]
+                tri = transform(inst.transform, tlas_blas_prims[desc.primitives_offset + node.child1])
                 w = 1.0f0 - u - v
                 bary = SVector{3, Float32}(w, u, v)
                 return (true, tri, t, bary, inst_idx)
