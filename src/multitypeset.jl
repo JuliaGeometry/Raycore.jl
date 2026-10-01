@@ -564,6 +564,10 @@ update_item(::MultiTypeSet, old::TextureRef, ::TextureRef) = old
 # Nothing/Nothing: no-op.
 update_item(::MultiTypeSet, ::Nothing, ::Nothing) = nothing
 
+"Whether a value of type `T` holds a texture slot anywhere inside it."
+holds_texture(::Type{<:TextureRef}) = true
+holds_texture(::Type{T}) where {T} = isstructtype(T) && any(holds_texture, fieldtypes(T))
+
 # Generic fallback: walk field-by-field when field names match, otherwise
 # replace `old` with `new` (leaf case — isbits values, identically-typed
 # structs with no nested arrays, etc.).  A type parameter mismatch (e.g.
@@ -599,6 +603,12 @@ end
 
 function update_item(dhv::MultiTypeSet, old, new)
     T_old = typeof(old)
+    # A value of the stored type with no texture slot in it is already in
+    # stored form: it IS the update. Rebuilding it field by field went through
+    # `T.name.wrapper(fields...)`, which a type with an inner constructor
+    # (every light) or a static array (its one field is a tuple) cannot take,
+    # so moving a point light threw.
+    typeof(new) === T_old && isbitstype(T_old) && !holds_texture(T_old) && return new
     fnames = fieldnames(T_old)
     isempty(fnames) && return new  # leaf — swap in the new value
     # Only recurse if new exposes the same field names (types of individual
