@@ -22,7 +22,7 @@ Makie = "ee78f7c6-11fb-53f2-987a-cfe4a2b5a57a"
 RaycoreMakieExt = "Makie"
 
 [compat]
-AcceleratedKernels = "0.4.3"
+AcceleratedKernels = "0.4.3, 0.5"
 Adapt = "4.4.0"
 Atomix = "1.1.2"
 GPUArraysCore = "0.2.0"
