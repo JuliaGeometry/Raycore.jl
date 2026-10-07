@@ -542,6 +542,15 @@ function update!(dhv::MultiTypeSet, key::SetKey, new_item)
     return nothing
 end
 
+"""
+    getindex(dhv::MultiTypeSet, key::SetKey)
+
+The item stored under `key`, as the set holds it: its arrays as the `TextureRef`
+slots they were uploaded to. Handing parts of it back to [`update!`](@ref) keeps
+those slots instead of uploading the arrays again.
+"""
+Base.getindex(dhv::MultiTypeSet, key::SetKey) = dhv.data_vectors[dhv.data_order[key.type_idx]][key.vec_idx]
+
 public update_item, copyto_texture!
 
 """
