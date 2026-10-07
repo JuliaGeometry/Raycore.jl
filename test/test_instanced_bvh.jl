@@ -404,6 +404,51 @@ end
     @test hit_miss == false
 end
 
+@testset "TLAS - a hidden instance is not hit" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(1)
+    )
+    blas = build_blas([tri])
+    identity = Mat4f(I)
+    back = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1)
+    # The front instance hidden: the ray passes it and meets the one behind.
+    instances = [
+        InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, Raycore.INSTANCE_HIDDEN),
+        InstanceDescriptor(UInt32(1), UInt32(2), back, Mat4f(inv(back)), UInt32(0))
+    ]
+    tlas = build_tlas([blas], instances)
+    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+    hit, _, dist, _, inst_id = closest_hit(tlas, ray)
+    @test hit
+    @test dist ≈ 6.0f0
+    @test inst_id == UInt32(2)
+    # Only the hidden one in the ray's way: nothing is hit.
+    only_front = build_tlas([blas], instances[1:1])
+    @test !closest_hit(only_front, ray)[1]
+    @test !any_hit(only_front, ray)[1]
+end
+
+@testset "TLAS - set_visible! keeps the instance" begin
+    tlas = Raycore.TLAS(test_backend())
+    mesh = GeometryBasics.normal_mesh(Sphere(Point3f(0), 1f0))
+    h = push!(tlas, mesh, Mat4f(I))
+    sync!(tlas)
+    hidden(t) = Raycore.is_hidden(only(Raycore.get_instances(t, h)))
+    @test !hidden(tlas)
+    @test set_visible!(tlas, h, false)
+    @test hidden(tlas)
+    @test Raycore.n_instances(tlas) == 1
+    @test set_visible!(tlas, h, true)
+    @test !hidden(tlas)
+    delete!(tlas, h)
+    @test !set_visible!(tlas, h, true)
+end
+
 # ==============================================================================
 # GB.Mesh TLAS API Tests
 # ==============================================================================

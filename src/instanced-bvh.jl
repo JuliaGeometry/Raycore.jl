@@ -85,7 +85,8 @@ Fields:
   BLAS geometry.  Matches Vulkan's `gl_InstanceCustomIndexEXT`.
 - `transform`: Local-to-world transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `inv_transform`: World-to-local transform (Vulkan row-major 3×4, `Mat3x4f`)
-- `flags`: Instance flags (reserved for future use)
+- `flags`: Instance flags. `INSTANCE_HIDDEN` keeps the instance out of every
+  ray's way (`set_visible!`); the other bits are reserved.
 """
 struct InstanceDescriptor
     blas_index::UInt32
@@ -785,6 +786,31 @@ end
 # the homogeneous 4×4 form and converts to Mat3x4f at the boundary.
 update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat4f) =
     update_transform!(tlas, handle, mat4_to_mat3x4(transform))
+
+"""The `InstanceDescriptor.flags` bit of an instance no ray hits."""
+const INSTANCE_HIDDEN = UInt32(1)
+
+@inline is_hidden(inst::InstanceDescriptor) = inst.flags & INSTANCE_HIDDEN != UInt32(0)
+
+"""
+    set_visible!(accel, handle::TLASHandle, visible::Bool) -> Bool
+
+Show or hide every instance of `handle`. A hidden instance stays in the
+structure, with its geometry, its index and its transform; no ray hits it.
+Showing it again costs no rebuild of its geometry. Returns `false` for a handle
+that names nothing.
+"""
+function set_visible!(tlas::TLAS, handle::TLASHandle, visible::Bool)
+    haskey(tlas.handle_to_range, handle) || return false
+    handle in tlas.deleted_handles && return false
+    @allowscalar for i in tlas.handle_to_range[handle]
+        inst = tlas.instances[i]
+        flags = visible ? inst.flags & ~INSTANCE_HIDDEN : inst.flags | INSTANCE_HIDDEN
+        tlas.instances[i] = InstanceDescriptor(inst.blas_index, inst.instance_id,
+                                               inst.transform, inst.inv_transform, flags)
+    end
+    return true
+end
 
 """
     update_transforms!(tlas::TLAS, handle::TLASHandle, transforms)
@@ -2008,22 +2034,25 @@ Algorithm:
                 continue
             end
         elseif current_instance < Int32(0)
-            # Top-level leaf - transition to instance
-            current_instance = Int32(node.child1)  # 0-indexed instance index
+            # Top-level leaf - transition to instance, unless it is hidden: then
+            # it is popped like a missed node.
+            inst = tlas_instances[node.child1 + UInt32(1)]
+            if !is_hidden(inst)
+                current_instance = Int32(node.child1)  # 0-indexed instance index
 
-            # Push sentinel
-            stack_ptr += Int32(1)
-            stack[stack_ptr] = TOP_LEVEL_SENTINEL
+                # Push sentinel
+                stack_ptr += Int32(1)
+                stack[stack_ptr] = TOP_LEVEL_SENTINEL
 
-            # Get instance and transform ray
-            node_index = UInt32(1)  # Start at root of BLAS
-            inst = tlas_instances[current_instance + Int32(1)]
-            desc = tlas_blas_descs[inst.blas_index]
-            current_blas_offset = desc.nodes_offset
-            ray_o = transform_point(inst.inv_transform, ray.o)
-            ray_d = transform_direction(inst.inv_transform, ray.d)
-            ray_inv_d = safe_invdir(ray_d)
-            continue
+                # Transform the ray into the instance
+                node_index = UInt32(1)  # Start at root of BLAS
+                desc = tlas_blas_descs[inst.blas_index]
+                current_blas_offset = desc.nodes_offset
+                ray_o = transform_point(inst.inv_transform, ray.o)
+                ray_d = transform_direction(inst.inv_transform, ray.d)
+                ray_inv_d = safe_invdir(ray_d)
+                continue
+            end
         else
             # Bottom-level leaf - test triangle
             hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
@@ -2135,22 +2164,25 @@ Matches HLSL TraceRays with ANY_HIT defined.
                 continue
             end
         elseif current_instance < Int32(0)
-            # Top-level leaf - transition to instance
-            current_instance = Int32(node.child1)  # 0-indexed instance index
+            # Top-level leaf - transition to instance, unless it is hidden: then
+            # it is popped like a missed node.
+            inst = tlas_instances[node.child1 + UInt32(1)]
+            if !is_hidden(inst)
+                current_instance = Int32(node.child1)  # 0-indexed instance index
 
-            # Push sentinel
-            stack_ptr += Int32(1)
-            stack[stack_ptr] = TOP_LEVEL_SENTINEL
+                # Push sentinel
+                stack_ptr += Int32(1)
+                stack[stack_ptr] = TOP_LEVEL_SENTINEL
 
-            # Get instance and transform ray
-            node_index = UInt32(1)  # Start at root of BLAS
-            inst = tlas_instances[current_instance + Int32(1)]
-            desc = tlas_blas_descs[inst.blas_index]
-            current_blas_offset = desc.nodes_offset
-            ray_o = transform_point(inst.inv_transform, ray.o)
-            ray_d = transform_direction(inst.inv_transform, ray.d)
-            ray_inv_d = safe_invdir(ray_d)
-            continue
+                # Transform the ray into the instance
+                node_index = UInt32(1)  # Start at root of BLAS
+                desc = tlas_blas_descs[inst.blas_index]
+                current_blas_offset = desc.nodes_offset
+                ray_o = transform_point(inst.inv_transform, ray.o)
+                ray_d = transform_direction(inst.inv_transform, ray.d)
+                ray_inv_d = safe_invdir(ray_d)
+                continue
+            end
         else
             # Bottom-level leaf - test triangle
             hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)

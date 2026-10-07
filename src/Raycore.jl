@@ -104,7 +104,7 @@ export build_triangle, is_degenerate_face
 
 # TLAS (GPU two-level acceleration structure)
 export TLASHandle, StaticTLAS, INVALID_HANDLE
-export sync!, update!, n_total_instances
+export sync!, update!, n_total_instances, set_visible!
 
 # BVH4 types (HIPRT-style 4-wide nodes)
 export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
