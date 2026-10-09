@@ -639,12 +639,12 @@ end
     copyto_texture!(dhv, ref, data)
 
 Write `data` into the GPU texture addressed by `ref`.  Same-size is a plain
-`copyto!` (device pointer unchanged — no other state needs updating).  Size
-mismatch goes through `Base.resize!(::LavaArray)` which is capacity-aware:
-the VkBuffer is only re-allocated on genuine growth beyond current capacity,
-and the old buffer is retired via the deferred-free path (`bq.deferred_frees`
-gated on the batch timeline — safe w.r.t. in-flight GPU work without any
-CPU-side `synchronize`).
+`copyto!` (device pointer unchanged — no other state needs updating).  A vector
+of another length goes through `Base.resize!`, which a backend may make
+capacity-aware (no reallocation within capacity, the old buffer retired once the
+GPU is past it). Any other shape gets a fresh array of the new shape in the old
+one's place: Base has no `resize!` for more than one dimension, and a backend that
+adds one is not something every backend does.
 
 If the device pointer actually moved (pool-alloc returned a fresh buffer),
 the one affected slot of `static.textures[AT_slot]` is updated via a single
@@ -655,7 +655,7 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
     AT_slot === nothing && error("MultiTypeSet has no texture type slot for $AT (TextureRef broken?)")
 
     count = 0
-    for arr in dhv.texture_gpu_arrays
+    for (k, arr) in enumerate(dhv.texture_gpu_arrays)
         typeof(arr) === AT || continue
         count += 1
         count == ref.idx || continue
@@ -664,11 +664,11 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
             # Same shape: pointer cannot move — one copyto!, done.
             copyto!(arr, new_data)
         else
-            # Capacity-aware grow: zero-alloc within capacity, deferred-free
-            # on true growth.  Compare the device pointer before/after to see
-            # whether the surrounding isbits table needs one slot refreshed.
+            # Compare the device pointer before/after to see whether the
+            # surrounding isbits table needs one slot refreshed.
             old_ptr = get_isbits_ptr(dhv.backend, arr)
-            resize!(arr, size(new_data))
+            arr = resized(arr, size(new_data))
+            dhv.texture_gpu_arrays[k] = arr
             copyto!(arr, new_data)
             new_ptr = get_isbits_ptr(dhv.backend, arr)
             if new_ptr != old_ptr
@@ -683,6 +683,15 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
     end
     error("GPU array not found for TextureRef(idx=$(ref.idx))")
 end
+
+"""
+    resized(arr, dims) -> array
+
+`arr` at the new shape: the same array, resized in place, for a vector; a fresh
+array of `arr`'s type for any other shape, whose contents the caller writes.
+"""
+resized(arr::AbstractVector, dims::Dims{1}) = resize!(arr, dims[1])
+resized(arr::AbstractArray, dims::Dims) = similar(arr, dims)
 
 # No `update!` / `resize_and_overwrite!` hook: call sites use `Base.resize!` +
 # `Base.copyto!` directly.  Lava's `Base.resize!(::LavaArray)` is capacity-aware
