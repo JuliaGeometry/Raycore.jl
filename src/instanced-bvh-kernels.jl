@@ -32,15 +32,25 @@ end
 # ==============================================================================
 
 """
+    rootbounds(x) -> Bounds3
+
+The bounds of what an instance instances, in its own space. The TLAS management
+kernels read nothing else of a BLAS, so they take either the BLASes themselves
+(the dynamic TLAS keeps a device array of isbits ones) or only their root bounds
+(`build_tlas`, whose BLASes are host structs of arrays, which no kernel can take).
+"""
+@inline rootbounds(b::BLAS) = b.root_aabb
+@inline rootbounds(b::Bounds3) = b
+
+"""
 Compute world AABB for a single instance by transforming local AABB corners.
 Returns (min_point, max_point) as two Point3f values.
 """
 @inline function compute_instance_world_aabb(
     inst::InstanceDescriptor,
-    blas_array::AbstractVector{<:BLAS}
+    blas_array::AbstractVector
 )
-    blas = blas_array[inst.blas_index]
-    local_aabb = blas.root_aabb
+    local_aabb = rootbounds(blas_array[inst.blas_index])
 
     # Initialize with first corner
     corner1 = transform_point(inst.transform, corner(local_aabb, 1))
@@ -327,13 +337,12 @@ Calculate Morton code for a single instance centroid.
 @inline function calculate_tlas_morton_code(
     inst_idx::Int,
     instances::AbstractVector{InstanceDescriptor},
-    blas_array::AbstractVector{<:BLAS},
+    blas_array::AbstractVector,
     scene_min::Point3f,
     scene_extent::Vec3f
 )::UInt32
     inst = instances[inst_idx]
-    blas = blas_array[inst.blas_index]
-    local_aabb = blas.root_aabb
+    local_aabb = rootbounds(blas_array[inst.blas_index])
 
     # Transform centroid to world space
     local_center = 0.5f0 * (local_aabb.p_min + local_aabb.p_max)
@@ -365,14 +374,13 @@ Create TLAS leaf node for one instance (stores world-space AABB, not triangle ve
     sorted_leaf_idx::Int,
     sorted_indices::AbstractVector{<:Integer},
     instances::AbstractVector{InstanceDescriptor},
-    blas_array::AbstractVector{<:BLAS},
+    blas_array::AbstractVector,
     parent::UInt32
 )::BVHNode2
     # Get original instance index (sorted_indices maps sorted position -> original position)
     original_idx = sorted_indices[sorted_leaf_idx]
     inst = instances[original_idx]
-    blas = blas_array[inst.blas_index]
-    local_aabb = blas.root_aabb
+    local_aabb = rootbounds(blas_array[inst.blas_index])
 
     # Transform AABB to world space (8 corners)
     world_aabb = Bounds3()
@@ -538,8 +546,7 @@ KA.@kernel function update_tlas_leaf_aabbs_kernel!(
             # Get the actual instance index from the leaf node (stored as 0-indexed in child1)
             inst_idx = Int(old_node.child1) + 1
             inst = instances[inst_idx]
-            blas = blas_array[inst.blas_index]
-            local_aabb = blas.root_aabb
+            local_aabb = rootbounds(blas_array[inst.blas_index])
 
             # Transform AABB to world space (8 corners)
             world_aabb = Bounds3()

@@ -1722,10 +1722,15 @@ function build_tlas(
         )
     end
 
-    backend = KA.get_backend(blas_array)
+    # From the BLASes' own arrays: `blas_array` is a host vector whatever they live
+    # on, so asking it answered the CPU and built the topology there for a GPU scene.
+    backend = KA.get_backend(first(blas_array).nodes)
     backend_instances = Adapt.adapt(backend, instances)
+    # Their root bounds and not the BLASes: a host struct of arrays is no kernel
+    # argument, and the bounds are all the topology kernels read (`rootbounds`).
+    roots = Adapt.adapt(backend, Bounds3[b.root_aabb for b in blas_array])
 
-    nodes, root_aabb = build_tlas_topology(blas_array, backend_instances, backend)
+    nodes, root_aabb = build_tlas_topology(roots, backend_instances, backend)
 
     # Build flat arrays from BLAS data
     descriptors = Vector{BLASDescriptor}(undef, n_blas)
