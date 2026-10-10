@@ -803,8 +803,10 @@ end
 """
     update_transform!(tlas::TLAS, handle::TLASHandle, transform)
 
-Update the transform of a single-instance handle directly on GPU.
-For handles with multiple instances, use `update_transforms!`.
+Set every instance of `handle` to `transform`, directly on the device. One
+transform per instance is [`update_transforms!`](@ref). The hardware structures
+(`Mantle.HWTLAS`) mean the same, and RayMakie moves a mesh, a batch of one, this
+way on either.
 
 `transform` may be a `Mat4f` (homogeneous 4×4) or the canonical Vulkan
 row-major 3×4 (`Mat3x4f`); the `Mat4f` form is converted internally via
@@ -814,13 +816,7 @@ BVH AABBs.
 function update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat3x4f)
     haskey(tlas.handle_to_range, handle) || error("Invalid handle")
     handle in tlas.deleted_handles && error("Handle has been deleted")
-    range = tlas.handle_to_range[handle]
-    length(range) == 1 || error("Handle has $(length(range)) instances, use update_transforms! for multiple")
-
-    transforms = Adapt.adapt(tlas.backend, [transform])
-    update_instance_transforms!(tlas, transforms, 1, first(range))
-
-    return nothing
+    return update_transforms!(tlas, handle, fill(transform, length(tlas.handle_to_range[handle])))
 end
 
 # Mat4f convenience: mirrors push!(tlas, mesh, ::Mat4f) which also accepts

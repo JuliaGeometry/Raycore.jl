@@ -608,10 +608,13 @@ end
     @test_throws ErrorException Raycore.update_transform!(tlas, h2, stress_xlat(1, 0, 0))
     @test_throws ErrorException Raycore.update_transforms!(tlas, h2, [stress_xlat(1, 0, 0)])
 
-    # Wrong-arity update_transform! / update_transforms! (handle/length mismatch).
+    # update_transform! sets every instance of a handle; update_transforms! wants
+    # exactly one transform per instance.
     h3 = push!(tlas, stress_sphere(6), [stress_xlat(0,0,0), stress_xlat(1,0,0)])
     Raycore.sync!(tlas)
-    @test_throws ErrorException Raycore.update_transform!(tlas, h3, stress_xlat(2, 0, 0))    # 1 vs 2
+    Raycore.update_transform!(tlas, h3, stress_xlat(2, 0, 0))
+    @test all(==(Raycore.mat4_to_mat3x4(stress_xlat(2, 0, 0))),
+              [inst.transform for inst in Raycore.get_instances(tlas, h3)])
     @test_throws ErrorException Raycore.update_transforms!(tlas, h3,
         [stress_xlat(0,0,0), stress_xlat(1,0,0), stress_xlat(2,0,0)])                          # 3 vs 2
 end
