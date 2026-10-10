@@ -25,7 +25,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install xvfb (GLFW pulled in by Lava needs an X display at module __init__)
+      - name: Install xvfb (GLFW pulled in by Mantle needs an X display at module __init__)
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb
@@ -48,5 +48,5 @@ jobs:
           # can't compile to SPIR-V.
           check_bounds: auto
           # Wrap julia with xvfb-run so GLFW's __init__ (transitively loaded
-          # via Lava) can call glfwInit() on a headless runner.
+          # via Mantle) can call glfwInit() on a headless runner.
           prefix: xvfb-run --auto-servernum
