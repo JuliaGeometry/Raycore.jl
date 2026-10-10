@@ -483,7 +483,8 @@ KA.@kernel function update_instance_transforms_kernel!(
                 old_inst.instance_id,
                 transform,
                 mat3x4_inverse(transform),
-                old_inst.flags
+                old_inst.flags,
+                old_inst.mask
             )
         end
     end
@@ -506,7 +507,8 @@ KA.@kernel function update_instance_transforms_offset_kernel!(
                 old_inst.instance_id,
                 transform,
                 mat3x4_inverse(transform),
-                old_inst.flags
+                old_inst.flags,
+                old_inst.mask
             )
         end
     end

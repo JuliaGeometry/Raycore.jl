@@ -87,6 +87,10 @@ Fields:
 - `inv_transform`: World-to-local transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `flags`: Instance flags. `INSTANCE_HIDDEN` keeps the instance out of every
   ray's way (`set_visible!`); the other bits are reserved.
+- `mask`: the instance's cull mask. A ray traced with mask `m` sees the instance
+  only when `mask & m != 0`; see [`closest_hit`](@ref). Only the low 8 bits count,
+  as on the hardware structures. The 5-argument constructor gives `0xff`, which
+  every ray sees.
 """
 struct InstanceDescriptor
     blas_index::UInt32
@@ -94,13 +98,44 @@ struct InstanceDescriptor
     transform::Mat3x4f
     inv_transform::Mat3x4f
     flags::UInt32
+    mask::UInt32
 end
+
+InstanceDescriptor(blas_index, instance_id, transform, inv_transform, flags) =
+    InstanceDescriptor(blas_index, instance_id, transform, inv_transform, flags, 0xff)
 
 # Mat4f convenience: `convert(Mat3x4f, ::Mat4f)` fails (different SMatrix
 # shape), so an explicit outer constructor lets callers pass the natural
 # homogeneous 4×4 form. Mirrors push!(tlas, mesh, ::Mat4f).
-InstanceDescriptor(blas_index, instance_id, transform::Mat4f, inv_transform::Mat4f, flags) =
-    InstanceDescriptor(blas_index, instance_id, mat4_to_mat3x4(transform), mat4_to_mat3x4(inv_transform), flags)
+InstanceDescriptor(blas_index, instance_id, transform::Mat4f, inv_transform::Mat4f, flags, mask = 0xff) =
+    InstanceDescriptor(blas_index, instance_id, mat4_to_mat3x4(transform), mat4_to_mat3x4(inv_transform), flags, mask)
+
+"""
+    InstanceRecord(transform, id, mask)
+
+One instance of a geometry in a hardware top-level structure, in the form a
+kernel writes it: the array [`instance_buffer`](@ref) returns holds these, and
+[`refit!`](@ref) is what makes the structure take what was written.
+
+- `transform`: object to world, a `Mat3x4f` (a `Mat4f` is converted).
+- `id`: the instance's custom index, which `closest_hit` and `any_hit` return as
+  their fifth value. The low 24 bits count (Vulkan's `instanceCustomIndex` is 24
+  bits wide).
+- `mask`: the cull mask; a ray traced with mask `m` sees the instance only when
+  `mask & m != 0`. The low 8 bits count.
+
+The same type on every backend. Which geometry a record instances is not in it:
+every record of a batch instances the geometry the batch was pushed with, and
+the backend writes its own descriptor (a device address on Vulkan, an index on
+Metal) from that when it builds or refits.
+"""
+struct InstanceRecord
+    transform::Mat3x4f
+    id::UInt32
+    mask::UInt32
+end
+
+InstanceRecord(transform::Mat4f, id, mask) = InstanceRecord(mat4_to_mat3x4(transform), id, mask)
 
 """
     BLAS{NodeArray, TriArray}
@@ -642,7 +677,7 @@ end
 
 """
     push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
-          instance_id::UInt32=UInt32(0)) -> TLASHandle
+          instance_id::UInt32=UInt32(0), instance_mask::UInt8=0xff) -> TLASHandle
 
 Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
 `face_meta` attribute (if present). If no `face_meta` attribute exists, each
@@ -652,32 +687,38 @@ triangle gets `UInt32(face_idx)` as metadata.
 (inherit from triangle metadata); pass a nonzero value to override the
 per-triangle interface — see `InstanceDescriptor` for semantics.
 
+`instance_mask` is the instance's cull mask: a ray traced with mask `m` sees it
+only when `instance_mask & m != 0` (see [`closest_hit`](@ref)). The same keyword,
+with the same meaning, as a hardware structure's `push!`.
+
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
-                    instance_id::UInt32=UInt32(0),
+                    instance_id::UInt32=UInt32(0), instance_mask::UInt8=UInt8(0xff),
                     sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
     blas_idx = build_and_append_blas!(tlas, mesh)
     t = mat4_to_mat3x4(transform)
-    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), UInt32(0))]
+    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), UInt32(0),
+                                          UInt32(instance_mask))]
     return append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
 """
     push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
-          instance_ids::Union{Nothing, AbstractVector{UInt32}}=nothing) -> TLASHandle
+          instance_ids = nothing, instance_mask::UInt8 = 0xff) -> TLASHandle
 
 Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
 Builds BLAS once, creates `length(transforms)` InstanceDescriptors.
 
 `instance_ids` (if given) must match `length(transforms)` and supplies the
 per-instance interface override.  When `nothing`, every instance gets `0`
-(inherit from triangle metadata).
+(inherit from triangle metadata). Every instance gets `instance_mask`.
 
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
                     instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing,
+                    instance_mask::UInt8=UInt8(0xff),
                     sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
     if instance_ids !== nothing && length(instance_ids) != length(transforms)
         throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
@@ -688,7 +729,7 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractV
     cpu_descriptors = map(enumerate(transforms)) do (i, transform)
         t = mat4_to_mat3x4(transform)
         iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
-        InstanceDescriptor(blas_idx, iid, t, mat3x4_inverse(t), UInt32(0))
+        InstanceDescriptor(blas_idx, iid, t, mat3x4_inverse(t), UInt32(0), UInt32(instance_mask))
     end
     return append_instances_with_handle!(tlas, cpu_descriptors)
 end
@@ -792,6 +833,12 @@ const INSTANCE_HIDDEN = UInt32(1)
 
 @inline is_hidden(inst::InstanceDescriptor) = inst.flags & INSTANCE_HIDDEN != UInt32(0)
 
+# Whether a ray traced with cull mask `mask` enters `inst`: not hidden, and the
+# two masks share a bit. `% UInt32` rather than `UInt32(...)`: the checked
+# conversion has an error path, and this runs inside every traversal kernel.
+@inline sees(inst::InstanceDescriptor, mask) =
+    !is_hidden(inst) && (inst.mask & (mask % UInt32) & 0xff) != UInt32(0)
+
 """
     set_visible!(accel, handle::TLASHandle, visible::Bool) -> Bool
 
@@ -807,7 +854,7 @@ function set_visible!(tlas::TLAS, handle::TLASHandle, visible::Bool)
         inst = tlas.instances[i]
         flags = visible ? inst.flags & ~INSTANCE_HIDDEN : inst.flags | INSTANCE_HIDDEN
         tlas.instances[i] = InstanceDescriptor(inst.blas_index, inst.instance_id,
-                                               inst.transform, inst.inv_transform, flags)
+                                               inst.transform, inst.inv_transform, flags, inst.mask)
     end
     return true
 end
@@ -964,6 +1011,19 @@ function sync!(tlas::TLAS)
 end
 
 """
+    refit!(tlas::TLAS) -> TLAS
+
+Take the instance transforms as they are now, wherever they were written from —
+`update_transform!`, or a kernel writing `tlas.instances` — and refit the BVH
+over them; a structure whose topology changed is rebuilt instead. See
+[`refit!`](@ref) for the contract every acceleration structure shares.
+"""
+function refit!(tlas::TLAS)
+    tlas.transforms_dirty = true
+    return sync!(tlas)
+end
+
+"""
     rebuild_static_tlas!(tlas::TLAS)
 
 Build a fresh `StaticTLAS` from the current `tlas.nodes` / `tlas.instances` /
@@ -1079,7 +1139,7 @@ function compact_instances!(tlas::TLAS)
             if new_blas_idx != inst.blas_index
                 new_instances[i] = InstanceDescriptor(
                     new_blas_idx, inst.instance_id,
-                    inst.transform, inst.inv_transform, inst.flags
+                    inst.transform, inst.inv_transform, inst.flags, inst.mask
                 )
             end
         end
@@ -1956,9 +2016,14 @@ Matches HLSL IntersectLeafNode.
 end
 
 """
-    closest_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
+    closest_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_idx)
 
 Traverse two-level BVH to find closest ray intersection.
+
+`mask` is the ray's cull mask: an instance takes part only when its own mask
+(`instance_mask` at `push!`) shares a bit with it, so `0xff` sees every instance
+and `0x00` none. The same rule as the hardware structures, which only count
+the low 8 bits, as this does.
 
 `instance_idx` is the 1-based position in `tlas.instances` (or `UInt32(0)`
 on miss).  Dereferencing `tlas.instances[instance_idx]` yields the full
@@ -1974,7 +2039,7 @@ Algorithm:
 4. Transform back to world space
 5. Return closest hit across all instances
 """
-@inline function closest_hit(tlas::StaticTLAS, ray::R) where {R <: AbstractRay}
+@inline function closest_hit(tlas::StaticTLAS, ray::AbstractRay, mask::Integer)
     # Initialize traversal state - matches HLSL TraceRays
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
@@ -2034,10 +2099,11 @@ Algorithm:
                 continue
             end
         elseif current_instance < Int32(0)
-            # Top-level leaf - transition to instance, unless it is hidden: then
-            # it is popped like a missed node.
+            # Top-level leaf - transition to instance, unless the ray does not
+            # see it (hidden, or no mask bit in common): then it is popped like
+            # a missed node.
             inst = tlas_instances[node.child1 + UInt32(1)]
-            if !is_hidden(inst)
+            if sees(inst, mask)
                 current_instance = Int32(node.child1)  # 0-indexed instance index
 
                 # Push sentinel
@@ -2104,14 +2170,15 @@ Algorithm:
 end
 
 """
-    any_hit(tlas::TLAS, ray::AbstractRay) -> (hit, primitive, distance, barycentric, instance_idx)
+    any_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_idx)
 
 Traverse two-level BVH to find ANY ray intersection (returns on first hit).
-Faster than closest_hit when only occlusion testing is needed.
+Faster than closest_hit when only occlusion testing is needed. `mask` is the
+ray's cull mask, as for [`closest_hit`](@ref).
 
 Matches HLSL TraceRays with ANY_HIT defined.
 """
-@inline function any_hit(tlas::StaticTLAS, ray::R) where {R <: AbstractRay}
+@inline function any_hit(tlas::StaticTLAS, ray::AbstractRay, mask::Integer)
     # Initialize traversal state - matches HLSL TraceRays
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
@@ -2164,10 +2231,11 @@ Matches HLSL TraceRays with ANY_HIT defined.
                 continue
             end
         elseif current_instance < Int32(0)
-            # Top-level leaf - transition to instance, unless it is hidden: then
-            # it is popped like a missed node.
+            # Top-level leaf - transition to instance, unless the ray does not
+            # see it (hidden, or no mask bit in common): then it is popped like
+            # a missed node.
             inst = tlas_instances[node.child1 + UInt32(1)]
-            if !is_hidden(inst)
+            if sees(inst, mask)
                 current_instance = Int32(node.child1)  # 0-indexed instance index
 
                 # Push sentinel
@@ -2216,11 +2284,18 @@ Matches HLSL TraceRays with ANY_HIT defined.
         end
     end
 
-    # No hit found
-    @inbounds dummy_tri = tlas_blas_prims[1]
+    # No hit found. The same sentinel as `closest_hit`'s: `tlas_blas_prims[1]`
+    # stood here, which an empty structure does not have.
+    dummy_tri = empty_triangle(eltype(tlas_blas_prims))
     bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
     return (false, dummy_tri, 0.0f0, bary, UInt32(0))
 end
+
+# The two-argument forms trace with mask `0xff`, which every instance pushed
+# with the default mask matches. On every adapted structure, hardware ones
+# included: a backend implements the three-argument method only.
+@inline closest_hit(accel::AbstractAdaptedAccel, ray::AbstractRay) = closest_hit(accel, ray, 0xff)
+@inline any_hit(accel::AbstractAdaptedAccel, ray::AbstractRay) = any_hit(accel, ray, 0xff)
 
 # ==============================================================================
 # Helper Functions
@@ -2258,7 +2333,8 @@ function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform
             old_inst.instance_id,
             transform,
             mat3x4_inverse(transform),
-            old_inst.flags
+            old_inst.flags,
+            old_inst.mask
         )
     end
     tlas.transforms_dirty = true
