@@ -15,6 +15,15 @@ const RBLAS = Raycore.BLAS           # Conflicts with LinearAlgebra.BLAS
 const is_leaf = Raycore.is_leaf
 const is_interior = Raycore.is_interior
 
+# A vector whose every read is bounds-checked, whatever `@inbounds` the caller
+# wrote: an out-of-range read throws here instead of reading whatever memory
+# follows, which on a device is undefined.
+struct BoundsChecked{T, A <: AbstractVector{T}} <: AbstractVector{T}
+    data::A
+end
+Base.size(v::BoundsChecked) = size(v.data)
+Base.getindex(v::BoundsChecked, i::Integer) = v.data[i]
+
 # One ray traced with cull mask `mask`, in a kernel on the structure's backend.
 @kernel function masked_hit_kernel!(hits, distances, tlas, origin, direction, mask)
     hit, _, dist, _, _ = closest_hit(tlas, Ray(o = origin, d = direction), mask)
@@ -409,6 +418,22 @@ end
     ray_miss = Ray(o=Point3f(2, 2, 1.0), d=Vec3f(0, 0, -1))
     hit_miss, _, _, _, _ = any_hit(tlas, ray_miss)
     @test hit_miss == false
+end
+
+@testset "TLAS - an empty structure is traced without reading a node" begin
+    # A TLAS with no instances has no nodes, and the traversal started at node 1
+    # regardless: a read past the end of an empty array, under `@inbounds`. On the
+    # host it read whatever followed; on lavapipe a ray against the drained TLAS of
+    # the stress suite never finished.
+    tlas = Raycore.TLAS(KA.CPU())
+    sync!(tlas)
+    st = tlas.static_tlas
+    checked = Raycore.StaticTLAS(BoundsChecked(st.nodes), BoundsChecked(st.instances),
+                                 BoundsChecked(st.all_blas_nodes), BoundsChecked(st.all_blas_prims),
+                                 BoundsChecked(st.blas_descriptors), st.root_aabb)
+    ray = Ray(o = Point3f(0, 0, 5), d = Vec3f(0, 0, -1))
+    @test !closest_hit(checked, ray)[1]
+    @test !any_hit(checked, ray)[1]
 end
 
 @testset "TLAS - a hidden instance is not hit" begin

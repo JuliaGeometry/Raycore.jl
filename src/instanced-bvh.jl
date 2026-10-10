@@ -2061,9 +2061,6 @@ Algorithm:
     hit_u::Float32 = 0.0f0
     hit_v::Float32 = 0.0f0
 
-    # Entry point is node 1 (1-indexed in Julia)
-    node_index::UInt32 = UInt32(1)
-
     # Cached BLAS offset for current instance (avoids repeated descriptor lookup)
     current_blas_offset::UInt32 = UInt32(0)
 
@@ -2073,6 +2070,12 @@ Algorithm:
     tlas_blas_nodes = tlas.all_blas_nodes
     tlas_blas_prims = tlas.all_blas_prims
     tlas_blas_descs = tlas.blas_descriptors
+
+    # Entry point is node 1 (1-indexed in Julia). A structure with no instances
+    # has no nodes: the traversal ends before it starts and the ray misses. It
+    # read `tlas_nodes[1]` past the end of the empty array, which lavapipe turned
+    # into a ray that never finished.
+    node_index::UInt32 = isempty(tlas_nodes) ? INVALID_NODE : UInt32(1)
 
     @inbounds while node_index != INVALID_NODE
         # Fetch node based on current level
@@ -2195,8 +2198,6 @@ Matches HLSL TraceRays with ANY_HIT defined.
 
     # Traversal state - use Int32 for indices to avoid UInt32 arithmetic issues
     current_instance::Int32 = Int32(-1)  # -1 means no instance (top level)
-    # Entry point is node 1 (1-indexed in Julia)
-    node_index::UInt32 = UInt32(1)
     current_blas_offset::UInt32 = UInt32(0)
 
     # Get typed references to avoid repeated field access
@@ -2205,6 +2206,10 @@ Matches HLSL TraceRays with ANY_HIT defined.
     tlas_blas_nodes = tlas.all_blas_nodes
     tlas_blas_prims = tlas.all_blas_prims
     tlas_blas_descs = tlas.blas_descriptors
+
+    # Entry point is node 1 (1-indexed in Julia); none in an empty structure, as
+    # in `closest_hit`.
+    node_index::UInt32 = isempty(tlas_nodes) ? INVALID_NODE : UInt32(1)
 
     @inbounds while node_index != INVALID_NODE
         # Fetch node based on current level
