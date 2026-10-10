@@ -9,23 +9,18 @@
 # different size too, so a stale reference from any previous dispatch or cached
 # descriptor will fault or return the wrong geometry.
 #
-# This suite covers both TLAS backings, both driven through Lava + Vulkan:
+# This suite covers the software TLAS (`Raycore.TLAS`): its BVH traversed by a
+# KernelAbstractions `closest_hit` kernel on the backend under test, verified
+# after every mutation. The same updates on the hardware structure
+# (`Mantle.HWTLAS`) are Mantle's `test/test_hwtlas_mesh_update.jl`.
 #
-#   1. SW TLAS (`Raycore.TLAS`) — BVH traversed on GPU via a KernelAbstractions
-#      `closest_hit` kernel, with the backing `LavaBackend`. Verified after
-#      every mutation.
-#   2. HW TLAS (`Raycore.HWTLAS`) — Vulkan hardware ray tracing. Verified via
-#      `trace_closest_hits!`.
-#
-# For each backend we oscillate the mesh tessellation count (small ↔ big ↔
-# small) many times and assert:
+# We oscillate the mesh tessellation count (small ↔ big ↔ small) many times and
+# assert:
 #   - The hit is always at the sphere surface within tolerance (correctness —
 #     catches stale BLAS captures: ray would miss or come back with wrong t if
 #     any pointer stayed captured).
-#   - Internal GPU-side resource counters stay bounded (leak / UAF bound: pool
-#     blocks and live buffers must not scale with iteration count).
-#
-# Lava is a hard test dep for Raycore, so this runs as part of the normal suite.
+#   - The TLAS's own storage stays bounded (leak bound: live BLASes and the flat
+#     node and primitive arrays must not scale with iteration count).
 # ==============================================================================
 
 using Test
@@ -36,9 +31,6 @@ using Raycore
 using KernelAbstractions
 const KA = KernelAbstractions
 using Adapt
-using Lava
-
-const GPU_BACKEND = Lava.LavaBackend()
 
 # ------------------------------------------------------------------------------
 # Shared: sphere mesh with varying tessellation + analytic ray/sphere intersect
@@ -63,7 +55,7 @@ translation(dx, dy, dz) = SMatrix{4,4,Float32,16}(
 )
 
 # ------------------------------------------------------------------------------
-# SW TLAS mesh-update test (Raycore BVH traversal on Lava)
+# SW TLAS mesh-update test (Raycore BVH traversal on the backend under test)
 # ------------------------------------------------------------------------------
 
 KA.@kernel function sw_trace_one_kernel!(hit_out, t_out, tlas, origin, direction)
@@ -75,13 +67,14 @@ end
 
 "Trace one ray down the +z axis from (0,0,5) and return (hit, t) on CPU."
 function sw_trace_one(tlas)
-    static_tlas = Adapt.adapt(GPU_BACKEND, tlas)
-    hit = KA.zeros(GPU_BACKEND, Bool, 1)
-    t   = KA.zeros(GPU_BACKEND, Float32, 1)
+    backend = test_backend()
+    static_tlas = Adapt.adapt(backend, tlas)
+    hit = KA.zeros(backend, Bool, 1)
+    t   = KA.zeros(backend, Float32, 1)
     origin    = Point3f(0f0, 0f0, 5f0)
     direction = Vec3f(0f0, 0f0, -1f0)
-    sw_trace_one_kernel!(GPU_BACKEND)(hit, t, static_tlas, origin, direction; ndrange=1)
-    KA.synchronize(GPU_BACKEND)
+    sw_trace_one_kernel!(backend)(hit, t, static_tlas, origin, direction; ndrange=1)
+    KA.synchronize(backend)
     return (hit = Array(hit)[1], t = Array(t)[1])
 end
 
@@ -94,7 +87,7 @@ function sw_swap_mesh!(tlas, handle, n, offset_z)
 end
 
 @testset "SW TLAS — mesh update correctness under size oscillation" begin
-    tlas = Raycore.TLAS(GPU_BACKEND)
+    tlas = Raycore.TLAS(test_backend())
     handle = push!(tlas, sphere_mesh(16), translation(0, 0, 0))
     Raycore.sync!(tlas)
 
@@ -126,16 +119,16 @@ end
     # `objectid(scene)` alone, which silently violated the "re-read per
     # dispatch" rule and rendered frozen geometry in the dolphin video. This
     # test nails the contract down at the Raycore level.
-    tlas = Raycore.TLAS(GPU_BACKEND)
+    tlas = Raycore.TLAS(test_backend())
     handle = push!(tlas, sphere_mesh(16), translation(0, 0, 0))
 
     # First adapt triggers build of tlas.static_tlas.
-    st_before = Adapt.adapt(GPU_BACKEND, tlas)
+    st_before = Adapt.adapt(test_backend(), tlas)
     @test tlas.static_tlas === st_before
 
-    hit_before = let hit = KA.zeros(GPU_BACKEND, Bool, 1), t = KA.zeros(GPU_BACKEND, Float32, 1)
-        sw_trace_one_kernel!(GPU_BACKEND)(hit, t, st_before, Point3f(0,0,5), Vec3f(0,0,-1); ndrange=1)
-        KA.synchronize(GPU_BACKEND)
+    hit_before = let hit = KA.zeros(test_backend(), Bool, 1), t = KA.zeros(test_backend(), Float32, 1)
+        sw_trace_one_kernel!(test_backend())(hit, t, st_before, Point3f(0,0,5), Vec3f(0,0,-1); ndrange=1)
+        KA.synchronize(test_backend())
         (hit = Array(hit)[1], t = Array(t)[1])
     end
     @test hit_before.hit
@@ -147,10 +140,10 @@ end
     handle = push!(tlas, sphere_mesh(48), translation(0, 0, 2f0))
 
     # A consumer re-reads `tlas.static_tlas` per dispatch (the canonical path):
-    st_after = Adapt.adapt(GPU_BACKEND, tlas)
-    hit_after_fresh = let hit = KA.zeros(GPU_BACKEND, Bool, 1), t = KA.zeros(GPU_BACKEND, Float32, 1)
-        sw_trace_one_kernel!(GPU_BACKEND)(hit, t, st_after, Point3f(0,0,5), Vec3f(0,0,-1); ndrange=1)
-        KA.synchronize(GPU_BACKEND)
+    st_after = Adapt.adapt(test_backend(), tlas)
+    hit_after_fresh = let hit = KA.zeros(test_backend(), Bool, 1), t = KA.zeros(test_backend(), Float32, 1)
+        sw_trace_one_kernel!(test_backend())(hit, t, st_after, Point3f(0,0,5), Vec3f(0,0,-1); ndrange=1)
+        KA.synchronize(test_backend())
         (hit = Array(hit)[1], t = Array(t)[1])
     end
     @test hit_after_fresh.hit
@@ -167,9 +160,9 @@ end
     # consumer (re-read `tlas.static_tlas` per dispatch). Test that we NOTICE
     # staleness when it happens, so regressions that make consumers silently
     # cache are flagged.
-    hit_stale = let hit = KA.zeros(GPU_BACKEND, Bool, 1), t = KA.zeros(GPU_BACKEND, Float32, 1)
-        sw_trace_one_kernel!(GPU_BACKEND)(hit, t, st_before, Point3f(0,0,5), Vec3f(0,0,-1); ndrange=1)
-        KA.synchronize(GPU_BACKEND)
+    hit_stale = let hit = KA.zeros(test_backend(), Bool, 1), t = KA.zeros(test_backend(), Float32, 1)
+        sw_trace_one_kernel!(test_backend())(hit, t, st_before, Point3f(0,0,5), Vec3f(0,0,-1); ndrange=1)
+        KA.synchronize(test_backend())
         (hit = Array(hit)[1], t = Array(t)[1])
     end
     # Either st_before's backing buffer was reused in place (stale consumer
@@ -191,9 +184,9 @@ end
     # always short-circuited. sync! would run refit_tlas! but refit was a no-op;
     # tlas.transforms_dirty stayed true forever; subsequent clean-path fast
     # returns never kicked in. This test pins the refit wiring.
-    tlas = Raycore.TLAS(GPU_BACKEND)
+    tlas = Raycore.TLAS(test_backend())
     handle = push!(tlas, sphere_mesh(16), translation(0, 0, 0))
-    st_initial = Adapt.adapt(GPU_BACKEND, tlas)
+    st_initial = Adapt.adapt(test_backend(), tlas)
 
     # Baseline: unit sphere at z=0, ray from z=5 hits at z=1 → t=4.
     r = sw_trace_one(tlas)
@@ -232,7 +225,7 @@ end
     # collectable. A cache of adapted scenes keyed by objectid accumulates
     # references across mutations instead, which is
     # the regression this test exists to prevent.
-    tlas = Raycore.TLAS(GPU_BACKEND)
+    tlas = Raycore.TLAS(test_backend())
     handle = push!(tlas, sphere_mesh(16), translation(0, 0, 0))
     Raycore.sync!(tlas)
 
@@ -247,7 +240,7 @@ end
     for iter in 1:20
         n = isodd(iter) ? 32 : 16
         handle = sw_swap_mesh!(tlas, handle, n, Float32(0.01 * iter))
-        _ = Adapt.adapt(GPU_BACKEND, tlas)
+        _ = Adapt.adapt(test_backend(), tlas)
     end
     GC.gc(true)
 
@@ -259,7 +252,7 @@ end
 end
 
 @testset "SW TLAS — mesh update leak bound (Julia heap)" begin
-    tlas = Raycore.TLAS(GPU_BACKEND)
+    tlas = Raycore.TLAS(test_backend())
     handle = push!(tlas, sphere_mesh(16), translation(0, 0, 0))
     Raycore.sync!(tlas)
 
@@ -292,7 +285,5 @@ end
     @test length(tlas._flat_blas_prims) == length(tlas.blas_storage[1].primitives)
     @test length(tlas._flat_blas_nodes) == length(tlas.blas_storage[1].nodes)
 end
-
-# HW TLAS mesh-update tests relocated to Lava in Phase F.
 
 println("\nAll mesh-update tests passed.")

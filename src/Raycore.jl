@@ -18,7 +18,7 @@ Mutable acceleration structure for ray/geometry intersection queries.
 
 Concrete implementations:
 - `Raycore.TLAS` — software BVH/TLAS, runs on any KernelAbstractions backend.
-- `Lava.HWTLAS` — hardware ray tracing via `VK_KHR_ray_tracing_pipeline`.
+- `Mantle.HWTLAS` — the GPU's hardware acceleration structure, on Vulkan and Metal.
 
 # Mutation API
 - `push!(accel, mesh, transform)`: add geometry, return a `TLASHandle`.
@@ -121,7 +121,7 @@ export AbstractAccel, AbstractAdaptedAccel
 export closest_hit, any_hit, world_bound, trace_rays
 export n_instances, n_geometries, wait_for_gpu!
 
-# RT transport types (used by Lava.HWTLAS and consumers)
+# RT transport types (used by Mantle.HWTLAS and consumers)
 export RTRay, RTHitResult
 
 # Stubs for Lava/Makie extensions

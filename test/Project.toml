@@ -4,21 +4,23 @@ Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
 GeometryBasics = "5c1252a2-5f33-56bf-86c9-59e7332b4326"
 JET = "c3a54625-cd67-489e-a8e7-0a5a0ff4e31b"
 KernelAbstractions = "63c18a36-062a-441e-b654-da1e3ab1ce7c"
-Lava = "3a680b1f-cb25-4bee-9cf7-bc880b76dc8c"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+Mantle = "8f4c1f2e-6a3d-4b71-9c05-2e7d8a1b6f34"
 Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [sources]
-# Lava is unregistered; pull from master at test time.
-Lava = {url = "https://github.com/SimonDanisch/Lava.jl", rev = "main"}
+# Mantle is unregistered. It provides the KA backend over Vulkan (`LavaBackend`)
+# for the lava and lavapipe entries; Lava and KernelInterface, which it needs,
+# are unregistered too and have to be `dev`ed next to it.
+Mantle = {url = "https://github.com/SimonDanisch/Mantle.jl", rev = "sd/lava-refactor"}
 
 [compat]
 Aqua = "0.8"
 JET = "0.11"
-Lava = "0.1"
+Mantle = "0.1"
 Metal = "1, 2"
 StaticArrays = "1.9.7"
 Test = "1"

@@ -14,6 +14,9 @@
 #   - GC-pressure: many `adapt()` calls without retaining results, plus a
 #     hard leak bound across 200 mesh swaps.
 #
+# All on the backend under test. The same churn on the hardware structure
+# (`Mantle.HWTLAS`) is Mantle's `test/test_hwtlas_stress.jl`.
+#
 # Each test asserts EXACT counts on `tlas._flat_blas_*` / `tlas.blas_storage`
 # rather than loose multiples — a leak that adds even one entry per cycle
 # trips the test inside a few iterations instead of hiding behind 25× slack.
@@ -27,10 +30,9 @@ using Raycore
 using KernelAbstractions
 const KA = KernelAbstractions
 using Adapt
-using Lava
 using Random
 
-const STRESS_BACKEND = Lava.LavaBackend()
+const STRESS_BACKEND = test_backend()
 
 # ------------------------------------------------------------------------------
 # Helpers
@@ -842,89 +844,27 @@ end
 # surfaces later as a confusing GPUCompiler "non-bitstype argument" inside
 # kernel compilation. Pin the loud-at-the-API-boundary contract.
 
+# A KA backend no TLAS here is built on: the second backend the check is handed
+# where the backend under test is the host one.
+struct ElsewhereBackend <: KA.Backend end
+
 @testset "TLAS stress — cross-backend adapt errors loudly" begin
-    cpu_tlas = Raycore.TLAS(KA.CPU())
-    push!(cpu_tlas, stress_sphere(8))
-    Raycore.sync!(cpu_tlas)
+    # Built on the host and on the backend under test (the same one on the cpu
+    # entry), each handed to every backend there is here.
+    built_on = unique([KA.CPU(), STRESS_BACKEND])
+    for on in built_on
+        tlas = Raycore.TLAS(on)
+        push!(tlas, stress_sphere(8))
+        Raycore.sync!(tlas)
 
-    # Adapting to the matching backend works.
-    @test Adapt.adapt(KA.CPU(), cpu_tlas) === cpu_tlas.static_tlas
+        # Adapting to the matching backend works.
+        @test Adapt.adapt(on, tlas) === tlas.static_tlas
 
-    # Adapting to a different backend errors loudly.
-    @test_throws ErrorException Adapt.adapt(STRESS_BACKEND, cpu_tlas)
-
-    # Same the other way: a Lava-backend TLAS adapted to KA.CPU() must error.
-    lava_tlas = Raycore.TLAS(STRESS_BACKEND)
-    push!(lava_tlas, stress_sphere(8))
-    Raycore.sync!(lava_tlas)
-    @test Adapt.adapt(STRESS_BACKEND, lava_tlas) === lava_tlas.static_tlas
-    @test_throws ErrorException Adapt.adapt(KA.CPU(), lava_tlas)
-end
-
-# ------------------------------------------------------------------------------
-# 13. HW TLAS stress — same patterns over Vulkan ray tracing
-# ------------------------------------------------------------------------------
-
-@testset "HW TLAS stress — random churn with strict invariants" begin
-    # HW path now supports push! / delete! / update_transform! /
-    # update_transforms!.  The latter is GPU-resident: a compute kernel
-    # writes new records into the batch's instance_buf, sync! refits.
-    rng = MersenneTwister(0xBADF00D)
-    hwtlas = Lava.HWTLAS(STRESS_BACKEND)
-    handles = Raycore.TLASHandle[]
-
-    h0 = push!(hwtlas, stress_sphere(8), stress_xlat(0, 0, 0); instance_id=UInt32(1))
-    push!(handles, h0)
-    Raycore.sync!(hwtlas)
-
-    for iter in 1:80
-        op = rand(rng, 1:3)
-        if op == 1 && length(handles) < 16
-            n = rand(rng, [4, 6, 8])
-            x = Float32(rand(rng) * 4 - 2)
-            h = push!(hwtlas, stress_sphere(n), stress_xlat(x, 0, 0);
-                      instance_id=UInt32(length(handles) + 1))
-            push!(handles, h)
-        elseif op == 2 && length(handles) > 1
-            i = rand(rng, 1:length(handles))
-            Raycore.delete!(hwtlas, handles[i])
-            deleteat!(handles, i)
-        elseif op == 3 && !isempty(handles)
-            i = rand(rng, 1:length(handles))
-            Raycore.update_transform!(hwtlas, handles[i],
-                stress_xlat(Float32(rand(rng) * 6 - 3), 0, 0))
-        end
-
-        if iter % 5 == 0
-            Raycore.sync!(hwtlas)
-            @test Raycore.n_instances(hwtlas) == length(handles)
+        # Adapting to a different backend errors loudly.
+        for to in [built_on; ElsewhereBackend()]
+            to == on || @test_throws ErrorException Adapt.adapt(to, tlas)
         end
     end
-
-    Raycore.sync!(hwtlas)
-    @test Raycore.world_bound(hwtlas) isa Raycore.Bounds3
-    @test Raycore.wait_for_gpu!(hwtlas) === hwtlas
-end
-
-@testset "HW TLAS stress — long mesh-swap loop, leak bound" begin
-    # Mirror of the SW TLAS leak-bound test, on the HW path.  Each iteration
-    # drops the previous BLAS and pushes a fresh one.  The HW pool / instance
-    # buffer counts must NOT scale with iteration count.
-    hwtlas = Lava.HWTLAS(STRESS_BACKEND)
-    h = push!(hwtlas, stress_sphere(16), stress_xlat(0, 0, 0); instance_id=UInt32(1))
-    Raycore.sync!(hwtlas)
-
-    n_iters = 100
-    for iter in 1:n_iters
-        Raycore.delete!(hwtlas, h)
-        h = push!(hwtlas, stress_sphere(iseven(iter) ? 12 : 32),
-                  stress_xlat(0, 0, Float32(0.001 * iter));
-                  instance_id=UInt32(1))
-        Raycore.sync!(hwtlas)
-        @test Raycore.n_instances(hwtlas) == 1
-    end
-    GC.gc(true); GC.gc(true)
-    @test Raycore.n_instances(hwtlas) == 1
 end
 
 println("\nAll stress tests passed.")

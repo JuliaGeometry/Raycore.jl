@@ -2571,7 +2571,7 @@ n_geometries(tlas::StaticTLAS) = length(tlas.blas_descriptors)
 Block the CPU until the GPU has completed all prior work that could be
 reading `accel` or its adapted form. Default implementation calls
 `KA.synchronize` on `accel.backend`. Concrete types that carry their own
-queue (e.g. `Lava.HWTLAS`) override this to wait on the specific timeline.
+queue (e.g. `Mantle.HWTLAS`) override this to wait on the specific timeline.
 
 Convenience only. The per-dispatch hot path does NOT call this; see `sync!`.
 """

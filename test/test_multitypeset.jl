@@ -2,10 +2,10 @@ using Test
 using Raycore: MultiTypeSet, StaticMultiTypeSet, SetKey, TextureRef
 using Raycore: with_index, deref, is_valid, is_invalid, n_slots, update!
 using KernelAbstractions
+const KA = KernelAbstractions
 using Adapt
-using Lava
 
-backend = Lava.LavaBackend()
+backend = test_backend()
 
 # Test structs - used for both CPU and GPU tests
 struct SimpleMaterial{T}
@@ -82,10 +82,10 @@ end
     # static field is already GPU-ready
     smv = dhv.static
 
-    # Check structure
-    @test smv.data[1] isa Lava.LavaArray
-    @test smv.textures[1] isa Lava.LavaArray
-    @test smv.textures[2] isa Lava.LavaArray
+    # The slots kernels read live on the backend the set was made for.
+    @test KA.get_backend(smv.data[1]) == backend
+    @test KA.get_backend(smv.textures[1]) == backend
+    @test KA.get_backend(smv.textures[2]) == backend
 
     # Kernel that accesses both texture fields via deref
     @kernel function mat2_kernel(out, smv, idxs)
@@ -98,8 +98,8 @@ end
         out[i] = with_index(get_sum, smv, idxs[i], smv)
     end
 
-    indices = LavaArray([idx1, idx2])
-    output = LavaArray(zeros(Float32, 2))
+    indices = Adapt.adapt(backend, [idx1, idx2])
+    output = KA.zeros(backend, Float32, 2)
 
     kernel = mat2_kernel(backend)
     kernel(output, smv, indices; ndrange=2)
@@ -117,9 +117,9 @@ end
 
     smv = dhv.static
 
-    # Check that inner arrays are LavaArrays
-    @test smv.data[1] isa Lava.LavaArray
-    @test smv.data[2] isa Lava.LavaArray
+    # The slots kernels read live on the backend the set was made for.
+    @test KA.get_backend(smv.data[1]) == backend
+    @test KA.get_backend(smv.data[2]) == backend
 
     # Run kernel
     @kernel function simple_kernel(output, hvec, indices)
@@ -129,8 +129,8 @@ end
         output[i] = with_index(get_val, hvec, indices[i])
     end
 
-    indices = LavaArray([idx1, idx2, idx3])
-    output = LavaArray(zeros(Float32, 3))
+    indices = Adapt.adapt(backend, [idx1, idx2, idx3])
+    output = KA.zeros(backend, Float32, 3)
 
     kernel = simple_kernel(backend)
     kernel(output, smv, indices; ndrange=3)

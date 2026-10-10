@@ -15,6 +15,13 @@ const RBLAS = Raycore.BLAS           # Conflicts with LinearAlgebra.BLAS
 const is_leaf = Raycore.is_leaf
 const is_interior = Raycore.is_interior
 
+# One ray traced with cull mask `mask`, in a kernel on the structure's backend.
+@kernel function masked_hit_kernel!(hits, distances, tlas, origin, direction, mask)
+    hit, _, dist, _, _ = closest_hit(tlas, Ray(o = origin, d = direction), mask)
+    hits[1] = hit
+    distances[1] = dist
+end
+
 @testset "Instanced BVH" begin
 
 @testset "Morton Code Generation" begin
@@ -468,26 +475,31 @@ end
 end
 
 @testset "TLAS - push! takes an instance mask, refit! takes rewritten instances" begin
-    tlas = Raycore.TLAS(test_backend())
+    backend = test_backend()
+    tlas = Raycore.TLAS(backend)
     mesh = GeometryBasics.normal_mesh(Rect3f(Point3f(-1), Vec3f(2)))
     h = push!(tlas, mesh, Mat4f(I); instance_mask = 0x04)
     sync!(tlas)
     static = tlas.static_tlas
-    # Traced on the host, so only where the structure's arrays are host arrays.
-    trace(mask) = closest_hit(tlas.static_tlas, Ray(o = Point3f(0, 0, 5), d = Vec3f(0, 0, -1)), mask)
-    if test_backend() isa KA.CPU
-        @test trace(0x04)[1]
-        @test !trace(0x03)[1]
-        # Move the instance by rewriting its descriptor, as a kernel would, and refit.
-        moved = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -2, 1)
-        inst = only(Array(tlas.instances))
-        copyto!(tlas.instances, [InstanceDescriptor(inst.blas_index, inst.instance_id, moved,
-                                                    Mat4f(inv(moved)), inst.flags, inst.mask)])
-        @test Raycore.refit!(tlas) === tlas
-        @test tlas.static_tlas === static          # refit in place
-        hit, _, dist, _, _ = trace(0x04)
-        @test hit && dist ≈ 6.0f0                  # the top face moved from z = 1 to z = -1
+    # (hit, distance) of one ray down the z axis, traced where the structure lives.
+    function trace(mask)
+        hits, distances = KA.zeros(backend, Bool, 1), KA.zeros(backend, Float32, 1)
+        masked_hit_kernel!(backend)(hits, distances, tlas.static_tlas, Point3f(0, 0, 5),
+                                    Vec3f(0, 0, -1), mask; ndrange = 1)
+        KA.synchronize(backend)
+        return Array(hits)[1], Array(distances)[1]
     end
+    @test trace(0x04)[1]
+    @test !trace(0x03)[1]
+    # Move the instance by rewriting its descriptor, as a kernel would, and refit.
+    moved = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -2, 1)
+    inst = only(Array(tlas.instances))
+    copyto!(tlas.instances, [InstanceDescriptor(inst.blas_index, inst.instance_id, moved,
+                                                Mat4f(inv(moved)), inst.flags, inst.mask)])
+    @test Raycore.refit!(tlas) === tlas
+    @test tlas.static_tlas === static          # refit in place
+    hit, dist = trace(0x04)
+    @test hit && dist ≈ 6.0f0                  # the top face moved from z = 1 to z = -1
     # The mask survives a transform update, which rebuilds each descriptor.
     Raycore.update_transforms!(tlas, h, [Mat4f(I)])
     sync!(tlas)
@@ -767,11 +779,10 @@ end
 end # main testset "Instanced BVH"
 
 # ==============================================================================
-# KernelAbstractions Dynamic Scene Tests (Lava backend)
+# KernelAbstractions Dynamic Scene Tests (the backend under test)
 # ==============================================================================
 
 # Load packages at top-level (required for KA.@kernel macro)
-using Lava
 import KernelAbstractions as KA
 using KernelAbstractions: @index, @Const
 import Adapt
