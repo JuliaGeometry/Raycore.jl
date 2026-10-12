@@ -8,6 +8,7 @@ using GeometryBasics
 using StaticArrays
 using LinearAlgebra
 using KernelAbstractions
+import Adapt
 
 # Use qualified names to avoid conflicts with other packages
 const RTriangle = Raycore.Triangle   # Conflicts with GeometryBasics.Triangle
@@ -29,6 +30,22 @@ Base.getindex(v::BoundsChecked, i::Integer) = v.data[i]
     hit, _, dist, _, _ = closest_hit(tlas, Ray(o = origin, d = direction), mask)
     hits[1] = hit
     distances[1] = dist
+end
+
+# One ray traced with `trace` (`closest_hit` or `any_hit`) and cull mask `mask`,
+# in a kernel on the structure's backend: whether it hit, the distance, the
+# fifth value, and the triangle.
+@kernel function whole_hit_kernel!(out, tris, tlas, origin, direction, mask, trace)
+    hit, tri, t, _, id = trace(tlas, Ray(o = origin, d = direction), mask)
+    out[1] = (hit, t, id)
+    tris[1] = tri
+end
+
+# Instance records written on the device, as a simulation would: record `i`
+# gets `transforms[i]`, `ids[i]` and `mask`.
+@kernel function write_records_kernel!(records, @Const(transforms), @Const(ids), mask)
+    i = @index(Global)
+    @inbounds records[i] = InstanceRecord(transforms[i], ids[i], mask)
 end
 
 @testset "Instanced BVH" begin
@@ -516,11 +533,9 @@ end
     end
     @test trace(0x04)[1]
     @test !trace(0x03)[1]
-    # Move the instance by rewriting its descriptor, as a kernel would, and refit.
+    # Move the instance by rewriting its record, as a kernel would, and refit.
     moved = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -2, 1)
-    inst = only(Array(tlas.instances))
-    copyto!(tlas.instances, [InstanceDescriptor(inst.blas_index, inst.instance_id, moved,
-                                                Mat4f(inv(moved)), inst.flags, inst.mask)])
+    copyto!(instance_buffer(tlas, h), [InstanceRecord(moved, UInt32(0), UInt32(0x04))])
     @test Raycore.refit!(tlas) === tlas
     @test tlas.static_tlas === static          # refit in place
     hit, dist = trace(0x04)
@@ -529,6 +544,103 @@ end
     Raycore.update_transforms!(tlas, h, [Mat4f(I)])
     sync!(tlas)
     @test only(Array(tlas.instances)).mask == UInt32(0x04)
+end
+
+@testset "TLAS - the hit a hardware structure returns, records a kernel writes" begin
+    # What `Mantle.HWTLAS` returns, asserted here on the software structure and
+    # compared with the hardware one ray by ray in Mantle's
+    # `test_tlas_same_hit.jl`: the triangle in world space, the custom index.
+    backend = test_backend()
+    tri_mesh(z) = GeometryBasics.normal_mesh(GeometryBasics.Mesh(
+        [Point3f(0, 0, z), Point3f(1, 0, z), Point3f(0, 1, z)], [GLTriangleFace(1, 2, 3)]))
+    # Scale x by 2, move to (x, y): the vertices move, the normal stays +z.
+    at(x, y) = Mat4f(2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, 0, 1)
+    tlas = Raycore.TLAS(backend)
+    h1 = push!(tlas, tri_mesh(0f0), [at(10, 0), at(20, 0)]; instance_ids = UInt32[101, 102])
+    # An id past 24 bits: a hit reports its low 24, as a hardware record holds.
+    h2 = push!(tlas, tri_mesh(-1f0), at(30, 0); instance_id = UInt32(0x01000005))
+    h3 = push!(tlas, tri_mesh(0f0), at(80, 0); instance_id = UInt32(7))
+    set_visible!(tlas, h3, false)
+    sync!(tlas)
+
+    function shoot(x, y; mask = 0xff, trace = closest_hit)
+        out = Adapt.adapt(backend, [(false, 0f0, UInt32(99))])
+        tris = Adapt.adapt(backend, [Raycore.empty_triangle(Raycore.Triangle{UInt32})])
+        whole_hit_kernel!(backend)(out, tris, tlas.static_tlas, Point3f(x, y, 5), Vec3f(0, 0, -1),
+                                   UInt32(mask), trace; ndrange = 1)
+        KA.synchronize(backend)
+        hit, t, id = only(Array(out))
+        return (; hit, t, id, tri = only(Array(tris)))
+    end
+
+    for trace in (closest_hit, any_hit)
+        r = shoot(20.5, 0.25; trace)
+        @test r.hit && r.t ≈ 5f0 && r.id == UInt32(102)
+        @test all(r.tri.vertices .≈ [Point3f(20, 0, 0), Point3f(22, 0, 0), Point3f(20, 1, 0)])
+        @test all(n -> Vec3f(n) ≈ Vec3f(0, 0, 1), r.tri.normals)
+        r = shoot(30.5, 0.25; trace)
+        @test r.hit && r.t ≈ 6f0 && r.id == UInt32(5)
+        @test all(r.tri.vertices .≈ [Point3f(30, 0, -1), Point3f(32, 0, -1), Point3f(30, 1, -1)])
+        r = shoot(100, 100; trace)
+        @test !r.hit && r.id == UInt32(0)
+    end
+    @test !shoot(80.5, 0.25).hit      # hidden
+
+    # The records `push!` made, one per instance.
+    @test Array(instance_buffer(tlas, h1)) ==
+          [InstanceRecord(at(10, 0), UInt32(101), UInt32(0xff)), InstanceRecord(at(20, 0), UInt32(102), UInt32(0xff))]
+    @test Array(instance_buffer(tlas, h3)) == [InstanceRecord(at(80, 0), UInt32(7), UInt32(0xff))]
+
+    # A kernel writes new transforms, ids and a mask into h1's records: the
+    # structure takes them at `refit!`, not before.
+    write_records_kernel!(backend)(instance_buffer(tlas, h1),
+                                   Adapt.adapt(backend, Raycore.mat4_to_mat3x4.([at(40, 0), at(50, 0)])),
+                                   Adapt.adapt(backend, UInt32[201, 202]), UInt32(0x02); ndrange = 2)
+    KA.synchronize(backend)
+    @test shoot(20.5, 0.25).hit
+    static = tlas.static_tlas
+    @test Raycore.refit!(tlas) === tlas
+    @test tlas.static_tlas === static           # refit in place
+    @test !shoot(20.5, 0.25).hit                # nothing left at the old place
+    r = shoot(50.5, 0.25)
+    @test r.hit && r.id == UInt32(202) && r.tri.vertices[1] ≈ Point3f(50, 0, 0)
+    @test shoot(40.5, 0.25).id == UInt32(201)
+    @test !shoot(40.5, 0.25; mask = 0x01).hit   # the mask the kernel wrote
+    @test shoot(40.5, 0.25; mask = 0x02).hit
+    @test !shoot(80.5, 0.25).hit                # a refit keeps an instance hidden
+
+    # A host transform update writes the records too, keeping id and mask.
+    update_transforms!(tlas, h1, [at(60, 0), at(70, 0)])
+    @test Array(instance_buffer(tlas, h1)) ==
+          [InstanceRecord(at(60, 0), UInt32(201), UInt32(0x02)), InstanceRecord(at(70, 0), UInt32(202), UInt32(0x02))]
+    sync!(tlas)
+    @test shoot(70.5, 0.25).id == UInt32(202)
+    # ...so a refit after it does not put the instances back.
+    Raycore.refit!(tlas)
+    @test shoot(70.5, 0.25).id == UInt32(202)
+    # The position forms write the records as well: one instance, or a whole
+    # batch by its range; a range that splits a batch is refused.
+    first1 = first(tlas.handle_to_range[h1])
+    Raycore.update_instance_transform!(tlas, first1 + 1, at(75, 0))
+    @test Array(instance_buffer(tlas, h1))[2] == InstanceRecord(at(75, 0), UInt32(202), UInt32(0x02))
+    Raycore.update_instance_transforms!(tlas, [at(60, 0), at(70, 0)], 2, first1)
+    @test Array(instance_buffer(tlas, h1))[2] == InstanceRecord(at(70, 0), UInt32(202), UInt32(0x02))
+    @test_throws ArgumentError Raycore.update_instance_transforms!(tlas, [at(60, 0)], 1, first1)
+    Raycore.refit!(tlas)
+    @test shoot(70.5, 0.25).id == UInt32(202)
+
+    # The records of a deleted handle go with it; the others still name their
+    # own instances once the structure has compacted around the hole.
+    delete!(tlas, h1)
+    @test_throws ArgumentError instance_buffer(tlas, h1)
+    sync!(tlas)
+    copyto!(instance_buffer(tlas, h2), [InstanceRecord(at(90, 0), UInt32(55), UInt32(0xff))])
+    Raycore.refit!(tlas)
+    r = shoot(90.5, 0.25)
+    @test r.hit && r.t ≈ 6f0 && r.id == UInt32(55)
+    @test !shoot(70.5, 0.25).hit
+    @test !shoot(80.5, 0.25).hit
+    @test_throws ArgumentError instance_buffer(tlas, Raycore.TLASHandle(UInt32(999)))
 end
 
 @testset "TLAS - set_visible! keeps the instance" begin
@@ -1014,16 +1126,16 @@ else
     @testset "closest_hit_instance_id_kernel! - instance identification" begin
         mesh = make_triangle_mesh()
 
-        # Three instances at different positions. Traversal returns the
-        # 1-based instance array index; here we push 3 instances so each
-        # ray hits position 1, 2, 3.
+        # Three instances at different positions, each with its own custom
+        # index, which is what the traversal returns: not the instance's
+        # position in the structure (1, 2, 3).
         transforms = [
             Mat4f(I),  # Instance 1 at origin
             Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1),   # Instance 2 at x=5
             Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 5, 0, 1)    # Instance 3 at y=5
         ]
         tlas_tmp = Raycore.TLAS(cl_backend)
-        push!(tlas_tmp, mesh, transforms)
+        push!(tlas_tmp, mesh, transforms; instance_ids = UInt32[11, 12, 13])
         sync!(tlas_tmp)
         tlas = tlas_tmp
         cl_tlas = Adapt.adapt(cl_backend, tlas)
@@ -1051,10 +1163,8 @@ else
         instance_ids_cpu = Array(instance_ids)
 
         @test all(hits_cpu)
-        # closest_hit returns the 1-based instance array index
-        @test instance_ids_cpu[1] == UInt32(1)
-        @test instance_ids_cpu[2] == UInt32(2)
-        @test instance_ids_cpu[3] == UInt32(3)
+        # closest_hit returns the instance's custom index
+        @test instance_ids_cpu == UInt32[11, 12, 13]
     end
 
     @testset "closest_hit_metadata_kernel! - primitive metadata" begin
@@ -1137,9 +1247,12 @@ else
         mesh1 = make_triangle_mesh(Vec3f(0, 0, 0))
         mesh2 = make_triangle_mesh(Vec3f(5, 0, 0))
 
-        # Two default-override (inherit) instances; closest_hit returns
-        # their 1-based array positions (1 and 2).
-        tlas, _ = TLAS([mesh1, mesh2]; backend=cl_backend)
+        # Two instances with the custom indices 7 and 9, which closest_hit
+        # returns.
+        tlas = Raycore.TLAS(cl_backend)
+        push!(tlas, mesh1; instance_id = UInt32(7))
+        push!(tlas, mesh2; instance_id = UInt32(9))
+        sync!(tlas)
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         n = 3
@@ -1174,8 +1287,9 @@ else
         @test distances_cpu[1] ≈ 2.0f0
         @test distances_cpu[2] ≈ 3.0f0
 
-        @test instance_ids_cpu[1] == UInt32(1)
-        @test instance_ids_cpu[2] == UInt32(2)
+        @test instance_ids_cpu[1] == UInt32(7)
+        @test instance_ids_cpu[2] == UInt32(9)
+        @test instance_ids_cpu[3] == UInt32(0)    # a miss
 
         # Barycentrics are (w, u, v) where w = 1-u-v
         # For hit at (0.25, 0.25): u=0.25, v=0.25, w=0.5

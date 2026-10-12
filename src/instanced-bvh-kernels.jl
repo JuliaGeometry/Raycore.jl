@@ -476,30 +476,14 @@ end
 # GPU Dynamic Update Kernels
 # ==============================================================================
 
-KA.@kernel function update_instance_transforms_kernel!(
-    instances,
-    @Const(transforms),
-    n_particles::Int32
-)
-    i = @index(Global, Linear)
-    if i <= n_particles
-        @inbounds begin
-            old_inst = instances[i]
-            transform = transforms[i]
-            instances[i] = InstanceDescriptor(
-                old_inst.blas_index,
-                old_inst.instance_id,
-                transform,
-                mat3x4_inverse(transform),
-                old_inst.flags,
-                old_inst.mask
-            )
-        end
-    end
-end
-
+"""
+GPU kernel: the transforms of one batch, `transforms[i]` for its instance `i`,
+into its instance `first_idx + i - 1` and its record `records[i]`. Each keeps
+its geometry, flags, id and mask.
+"""
 KA.@kernel function update_instance_transforms_offset_kernel!(
     instances,
+    records,
     @Const(transforms),
     n_particles::Int32,
     first_idx::Int32
@@ -517,6 +501,37 @@ KA.@kernel function update_instance_transforms_offset_kernel!(
                 mat3x4_inverse(transform),
                 old_inst.flags,
                 old_inst.mask
+            )
+            old_record = records[i]
+            records[i] = InstanceRecord(transform, old_record.id, old_record.mask)
+        end
+    end
+end
+
+"""
+GPU kernel: the records of one batch, as a kernel may have written them, into
+its instances: record `i` becomes instance `first_idx + i - 1`'s transform, its
+inverse, its id and its mask. The instance keeps its geometry and its flags.
+"""
+KA.@kernel function apply_instance_records_kernel!(
+    instances,
+    @Const(records),
+    n::Int32,
+    first_idx::Int32
+)
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            inst_idx = first_idx + i - Int32(1)
+            old_inst = instances[inst_idx]
+            r = records[i]
+            instances[inst_idx] = InstanceDescriptor(
+                old_inst.blas_index,
+                r.id,
+                r.transform,
+                mat3x4_inverse(r.transform),
+                old_inst.flags,
+                r.mask
             )
         end
     end
@@ -614,5 +629,5 @@ end
 export calculate_morton_code_for_prim, build_topology_for_node
 export set_parents_for_node, create_leaf_for_prim, refit_node_aabb
 export calculate_tlas_morton_code, create_tlas_leaf_for_instance
-export update_instance_transforms_kernel!, update_instance_transforms_offset_kernel!, update_tlas_leaf_aabbs_kernel!
+export update_instance_transforms_offset_kernel!, apply_instance_records_kernel!, update_tlas_leaf_aabbs_kernel!
 export update_particle_materials_kernel!

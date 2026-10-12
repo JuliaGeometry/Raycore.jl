@@ -36,8 +36,8 @@ Concrete implementations:
   violation.
 
 # Query
-- `closest_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_override)`
-- `any_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_override)` — the SAME
+- `closest_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_id)`
+- `any_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_id)` — the SAME
   shape as `closest_hit`, not a `Bool`. Only the traversal differs: it stops at
   the first accepted hit, so `t`/`tri` are *an* intersection, not the nearest.
   This said `-> Bool`, and all three implementations (software `StaticTLAS`,
@@ -46,9 +46,13 @@ Concrete implementations:
 - `mask` is the ray's cull mask: an instance is seen only when its mask
   (`instance_mask` at `push!`, or the record's `mask`) shares a bit with it. Low
   8 bits, on every implementation.
+- The hit means the same on every implementation: `tri` is the hit triangle in
+  world space (moved by its instance's transform), `instance_id` the instance's
+  custom index (`instance_id` at `push!`, or the record's `id`), low 24 bits;
+  the empty triangle and `0` on a miss.
 - `world_bound(accel)`, `n_instances(accel)`, `n_geometries(accel)`.
 
-# Instances a kernel writes (hardware structures)
+# Instances a kernel writes
 - `instance_buffer(accel, handle)` — the batch's [`InstanceRecord`](@ref)s, a
   device array a kernel may write; `refit!(accel)` commits what it wrote.
 

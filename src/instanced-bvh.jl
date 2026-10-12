@@ -77,12 +77,12 @@ Describes an instance of a bottom-level BVH in world space.
 
 Fields:
 - `blas_index`: Index into BLAS array
-- `instance_id`: Scene-binding slot for this instance.  `0` means "inherit
-  from the triangle's per-face metadata"; any nonzero value is forwarded
-  verbatim by `closest_hit` / `any_hit` as the 5th return value.  Hikari
-  uses it as a `medium_interface_idx` override so N instances of one BLAS
-  can have distinct materials / media / emission without duplicating the
-  BLAS geometry.  Matches Vulkan's `gl_InstanceCustomIndexEXT`.
+- `instance_id`: the instance's custom index, which `closest_hit` / `any_hit`
+  return as their 5th value, its low 24 bits, as the hardware structures do
+  (Vulkan's `gl_InstanceCustomIndexEXT` is 24 bits wide). Hikari uses it as a
+  `medium_interface_idx` override, `0` meaning "inherit from the triangle's
+  per-face metadata", so N instances of one BLAS can have distinct materials /
+  media / emission without duplicating the BLAS geometry.
 - `transform`: Local-to-world transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `inv_transform`: World-to-local transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `flags`: Instance flags. `INSTANCE_HIDDEN` keeps the instance out of every
@@ -113,9 +113,10 @@ InstanceDescriptor(blas_index, instance_id, transform::Mat4f, inv_transform::Mat
 """
     InstanceRecord(transform, id, mask)
 
-One instance of a geometry in a hardware top-level structure, in the form a
-kernel writes it: the array [`instance_buffer`](@ref) returns holds these, and
-[`refit!`](@ref) is what makes the structure take what was written.
+One instance of a geometry in a top-level structure, in the form a kernel
+writes it: the array [`instance_buffer`](@ref) returns holds these, and
+[`refit!`](@ref) is what makes the structure take what was written. The same
+on `Raycore.TLAS` and on the hardware structures.
 
 - `transform`: object to world, a `Mat3x4f` (a `Mat4f` is converted).
 - `id`: the instance's custom index, which `closest_hit` and `any_hit` return as
@@ -126,8 +127,9 @@ kernel writes it: the array [`instance_buffer`](@ref) returns holds these, and
 
 The same type on every backend. Which geometry a record instances is not in it:
 every record of a batch instances the geometry the batch was pushed with, and
-the backend writes its own descriptor (a device address on Vulkan, an index on
-Metal) from that when it builds or refits.
+the structure writes its own descriptor from that (an
+[`InstanceDescriptor`](@ref) on `Raycore.TLAS`, a device address on Vulkan, an
+index on Metal).
 """
 struct InstanceRecord
     transform::Mat3x4f
@@ -274,6 +276,9 @@ The same contract applies to `HWTLAS` — see its docstring.
 - `root_aabb`: World-space bounding box
 - `handle_to_range`: Handle -> range in instances array (CPU-side)
 - `deleted_handles`: Handles deleted but not yet compacted (CPU-side)
+- `records`: Handle -> the batch's `InstanceRecord`s, a backend array a kernel
+   may write ([`instance_buffer`](@ref)); [`refit!`](@ref) copies them into
+   `instances`. Live handles only.
 - `blas_storage`: Per-BLAS backing arrays; keeps GPU buffers alive for isbits pointers
 - `static_tlas`: GPU-adapted form, owned by `sync!`. Consumers read this, do
    not cache it across mutations.
@@ -316,6 +321,12 @@ mutable struct TLAS{Backend} <: AbstractAccel
     # CPU-side management (dictionaries must stay on CPU for O(1) lookup)
     handle_to_range::Dict{TLASHandle, UnitRange{Int}}
     deleted_handles::Set{TLASHandle}
+
+    # The instances as a kernel writes them, one backend array per batch, in the
+    # order of the batch's range in `instances`. Every host update writes both;
+    # `refit!` copies these into `instances`, which is how what a kernel wrote
+    # reaches the traversal. A deleted handle's array leaves with the handle.
+    records::Dict{TLASHandle, AbstractVector{InstanceRecord}}
 
     # Per-BLAS backing arrays.  Structural composition: the TLAS owning
     # `blas_storage` transitively pins every BLAS's `nodes` / `primitives`
@@ -393,6 +404,7 @@ function TLAS(backend; primtype::Type = Triangle{UInt32})
         Bounds3(),                                   # root_aabb
         Dict{TLASHandle, UnitRange{Int}}(),         # handle_to_range
         Set{TLASHandle}(),                          # deleted_handles
+        Dict{TLASHandle, AbstractVector{InstanceRecord}}(),  # records
         BLASArrays[],                                # blas_storage
         nothing,                                     # _flat_blas_nodes
         nothing,                                     # _flat_blas_prims
@@ -436,6 +448,8 @@ use-after-free.
 function free!(tlas::TLAS)
     finalize(tlas.nodes)
     finalize(tlas.instances)
+    foreach(finalize, values(tlas.records))
+    empty!(tlas.records)
     finalize(tlas.blas_array)
     for ba in tlas.blas_storage
         finalize(ba.nodes)
@@ -661,7 +675,8 @@ function build_and_append_blas!(tlas::TLAS, mesh::GeometryBasics.Mesh)
 end
 
 """Internal: append the given instance descriptors to `tlas.instances`, register
-a handle for the appended range, and return it."""
+a handle for the appended range, give it the records of the same instances
+([`instance_buffer`](@ref)), and return it."""
 function append_instances_with_handle!(tlas::TLAS, cpu_descriptors::AbstractVector{InstanceDescriptor})
     start_idx = length(tlas.instances) + 1
     backend_descriptors = Adapt.adapt(tlas.backend, collect(cpu_descriptors))
@@ -671,6 +686,8 @@ function append_instances_with_handle!(tlas::TLAS, cpu_descriptors::AbstractVect
     handle = TLASHandle(tlas.next_handle_id)
     tlas.next_handle_id += UInt32(1)
     tlas.handle_to_range[handle] = start_idx:end_idx
+    tlas.records[handle] = Adapt.adapt(tlas.backend,
+        [InstanceRecord(d.transform, d.instance_id, d.mask) for d in cpu_descriptors])
     tlas.dirty = true
     return handle
 end
@@ -750,8 +767,10 @@ function Base.delete!(tlas::TLAS, handle::TLASHandle)::Bool
     haskey(tlas.handle_to_range, handle) || return false
     handle in tlas.deleted_handles && return false
 
-    # Mark as deleted (will be compacted on sync!)
+    # Mark as deleted (will be compacted on sync!). Its records go now: the
+    # handle names no batch any more, for `instance_buffer` and `refit!` alike.
     push!(tlas.deleted_handles, handle)
+    delete!(tlas.records, handle)
     tlas.dirty = true
 
     return true
@@ -835,6 +854,10 @@ const INSTANCE_HIDDEN = UInt32(1)
 @inline sees(inst::InstanceDescriptor, mask) =
     !is_hidden(inst) && (inst.mask & (mask % UInt32) & 0xff) != UInt32(0)
 
+# The custom index a hit reports: the low 24 bits, all a hardware instance
+# record holds (Vulkan's `instanceCustomIndex`, Metal's `userID` as written).
+@inline custom_index(inst::InstanceDescriptor) = inst.instance_id & 0x00ffffff
+
 """
     set_visible!(accel, handle::TLASHandle, visible::Bool) -> Bool
 
@@ -858,14 +881,14 @@ end
 """
     update_transforms!(tlas::TLAS, handle::TLASHandle, transforms)
 
-Update all instances' transforms in a group directly on GPU.
-Length must match the number of instances in the handle.
+Update all instances' transforms in a group directly on GPU, in the instances
+and in the batch's records ([`instance_buffer`](@ref)) alike, keeping each
+instance's id and mask. Length must match the number of instances in the handle.
 
 Transforms may be `Mat4f` or the canonical Vulkan row-major 3×4
 (`Mat3x4f`); `Mat4f` arrays are converted element-wise via
 `mat4_to_mat3x4`. The array can be CPU or GPU — it'll be adapted to the
-TLAS backend. After calling this, use `refit_tlas!` to update the BVH
-AABBs.
+TLAS backend. The next `sync!` refits the BVH over them.
 """
 function update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::AbstractVector{Mat3x4f})
     haskey(tlas.handle_to_range, handle) || error("Invalid handle")
@@ -873,9 +896,12 @@ function update_transforms!(tlas::TLAS, handle::TLASHandle, transforms::Abstract
     range = tlas.handle_to_range[handle]
     length(transforms) == length(range) || error("Transform count ($(length(transforms))) != instance count ($(length(range)))")
 
-    backend_transforms = Adapt.adapt(tlas.backend, transforms)
-    update_instance_transforms!(tlas, backend_transforms, length(range), first(range))
-
+    backend = tlas.backend
+    kernel! = update_instance_transforms_offset_kernel!(backend)
+    kernel!(tlas.instances, tlas.records[handle], Adapt.adapt(backend, transforms),
+            Int32(length(range)), Int32(first(range)); ndrange = length(range))
+    KA.synchronize(backend)
+    tlas.transforms_dirty = true
     return nothing
 end
 
@@ -1009,14 +1035,34 @@ end
 """
     refit!(tlas::TLAS) -> TLAS
 
-Take the instance transforms as they are now, wherever they were written from —
-`update_transform!`, or a kernel writing `tlas.instances` — and refit the BVH
-over them; a structure whose topology changed is rebuilt instead. See
-[`refit!`](@ref) for the contract every acceleration structure shares.
+Take every batch's instance records as they are now, wherever they were written
+from — `update_transform!`, or a kernel writing [`instance_buffer`](@ref) — into
+the instances (transform, its inverse, id and mask; each instance keeps its
+geometry and its visibility), and refit the BVH over them; a structure whose
+topology changed is rebuilt instead. See [`refit!`](@ref) for the contract every
+acceleration structure shares.
 """
 function refit!(tlas::TLAS)
+    backend = tlas.backend
+    for (handle, records) in tlas.records
+        range = tlas.handle_to_range[handle]
+        apply_instance_records_kernel!(backend)(tlas.instances, records, Int32(length(range)),
+                                                Int32(first(range)); ndrange = length(range))
+    end
     tlas.transforms_dirty = true
     return sync!(tlas)
+end
+
+"""
+    instance_buffer(tlas::TLAS, handle::TLASHandle) -> backend vector of InstanceRecord
+
+The records of the batch `handle` names, one per instance in push order: the
+array `push!` made, on the structure's backend. See [`instance_buffer`](@ref).
+"""
+function instance_buffer(tlas::TLAS, handle::TLASHandle)
+    records = get(tlas.records, handle, nothing)
+    records === nothing && throw(ArgumentError("instance_buffer: no batch for handle $handle"))
+    return records
 end
 
 """
@@ -2017,7 +2063,7 @@ Matches HLSL IntersectLeafNode.
 end
 
 """
-    closest_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_idx)
+    closest_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_id)
 
 Traverse two-level BVH to find closest ray intersection.
 
@@ -2026,12 +2072,11 @@ Traverse two-level BVH to find closest ray intersection.
 and `0x00` none. The same rule as the hardware structures, which only count
 the low 8 bits, as this does.
 
-`instance_idx` is the 1-based position in `tlas.instances` (or `UInt32(0)`
-on miss).  Dereferencing `tlas.instances[instance_idx]` yields the full
-`InstanceDescriptor` — from which the caller can read the transforms, the
-interface-override `instance_id`, or anything else.  This keeps a single
-source of truth (the TLAS instance array) rather than duplicating a
-pre-extracted sub-field.
+The hit is what a hardware structure (`Mantle.HWTLAS`) returns for the same
+scene: `primitive` is the triangle in world space, moved by its instance's
+transform ([`transform`](@ref)), and `instance_id` the instance's custom index
+(`instance_id` at `push!`, the record's `id`), its low 24 bits. On a miss,
+`primitive` is the empty triangle and `instance_id` is `0`.
 
 Algorithm:
 1. Traverse TLAS to find candidate instances
@@ -2164,7 +2209,7 @@ Algorithm:
         tri = transform(inst.transform, tlas_blas_prims[desc.primitives_offset + closest_prim])
         w = 1.0f0 - hit_u - hit_v
         bary = SVector{3, Float32}(w, hit_u, hit_v)
-        return (true, tri, ray_maxt, bary, inst_idx)
+        return (true, tri, ray_maxt, bary, custom_index(inst))
     else
         # No hit - return zero sentinel
         dummy_tri = empty_triangle(eltype(tlas_blas_prims))
@@ -2174,11 +2219,11 @@ Algorithm:
 end
 
 """
-    any_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_idx)
+    any_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_id)
 
 Traverse two-level BVH to find ANY ray intersection (returns on first hit).
 Faster than closest_hit when only occlusion testing is needed. `mask` is the
-ray's cull mask, as for [`closest_hit`](@ref).
+ray's cull mask, and the hit means what it does for [`closest_hit`](@ref).
 
 Matches HLSL TraceRays with ANY_HIT defined.
 """
@@ -2268,7 +2313,7 @@ Matches HLSL TraceRays with ANY_HIT defined.
                 tri = transform(inst.transform, tlas_blas_prims[desc.primitives_offset + node.child1])
                 w = 1.0f0 - u - v
                 bary = SVector{3, Float32}(w, u, v)
-                return (true, tri, t, bary, inst_idx)
+                return (true, tri, t, bary, custom_index(inst))
             end
         end
 
@@ -2324,7 +2369,10 @@ end
 """
     update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform)
 
-Update the transform of a single instance. Call `refit_tlas!` after updating transforms.
+Update the transform of the instance at position `instance_idx` of
+`tlas.instances`, in the instance and in its batch's record
+([`instance_buffer`](@ref)) alike, keeping its id and mask. The next `sync!`
+refits the BVH over it. An `ArgumentError` for a position no live instance has.
 
 # Arguments
 - `tlas`: The TLAS to update
@@ -2332,23 +2380,44 @@ Update the transform of a single instance. Call `refit_tlas!` after updating tra
 - `transform`: New local-to-world transform — `Mat4f` or canonical Vulkan row-major 3×4 (`Mat3x4f`)
 """
 function update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat3x4f)
-    @allowscalar begin
-        old_inst = tlas.instances[instance_idx]
-        tlas.instances[instance_idx] = InstanceDescriptor(
-            old_inst.blas_index,
-            old_inst.instance_id,
-            transform,
-            mat3x4_inverse(transform),
-            old_inst.flags,
-            old_inst.mask
-        )
+    for (handle, records) in tlas.records
+        range = tlas.handle_to_range[handle]
+        instance_idx in range || continue
+        i = instance_idx - first(range) + 1
+        @allowscalar begin
+            r = records[i]
+            records[i] = InstanceRecord(transform, r.id, r.mask)
+            inst = tlas.instances[instance_idx]
+            tlas.instances[instance_idx] = InstanceDescriptor(inst.blas_index, inst.instance_id, transform,
+                                                              mat3x4_inverse(transform), inst.flags, inst.mask)
+        end
+        tlas.transforms_dirty = true
+        return nothing
     end
-    tlas.transforms_dirty = true
-    return nothing
+    throw(ArgumentError("update_instance_transform!: no live instance at position $instance_idx"))
 end
 
 update_instance_transform!(tlas::TLAS, instance_idx::Integer, transform::Mat4f) =
     update_instance_transform!(tlas, instance_idx, mat4_to_mat3x4(transform))
+
+"""
+    update_instance_transforms!(tlas::TLAS, transforms, n_to_update[, first_idx = 1])
+
+The flat-index form of [`update_transforms!`](@ref): the instances
+`first_idx:first_idx + n_to_update - 1` of `tlas.instances`, which must be
+exactly one batch, written in the instances and in the batch's records alike.
+`Mantle.HWTLAS` answers the same form with the same rule. Any other range is an
+`ArgumentError`: a range that splits a batch has no records of its own to write.
+"""
+function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector,
+                                     n_to_update::Integer, first_idx::Integer = 1)
+    wanted = first_idx:(first_idx + n_to_update - 1)
+    for handle in keys(tlas.records)
+        tlas.handle_to_range[handle] == wanted && return update_transforms!(tlas, handle, transforms)
+    end
+    throw(ArgumentError("update_instance_transforms!: instances $wanted are not one batch; " *
+                        "address the batch by its handle (update_transforms!)"))
+end
 
 """
     refit_tlas!(tlas::TLAS)
@@ -2385,33 +2454,6 @@ function refit_tlas!(tlas::TLAS)
     tlas.transforms_dirty = false
     return tlas
 end
-
-function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3x4f}, n_to_update::Integer)
-    backend = KA.get_backend(transforms)
-    kernel! = update_instance_transforms_kernel!(backend)
-    kernel!(tlas.instances, transforms, Int32(n_to_update), ndrange=n_to_update)
-    KA.synchronize(backend)
-    tlas.transforms_dirty = true
-    return nothing
-end
-
-# Mat4f convenience: convert host-side and re-dispatch.  GPU-resident Mat4f
-# arrays are converted via a CPU map; that's fine for the only known caller
-# (RayMakie's mesh.jl, which builds a 1-element CPU array per update).
-update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer) =
-    update_instance_transforms!(tlas, map(mat4_to_mat3x4, transforms), n_to_update)
-
-function update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat3x4f}, n_to_update::Integer, first_idx::Integer)
-    backend = KA.get_backend(transforms)
-    kernel! = update_instance_transforms_offset_kernel!(backend)
-    kernel!(tlas.instances, transforms, Int32(n_to_update), Int32(first_idx), ndrange=n_to_update)
-    KA.synchronize(backend)
-    tlas.transforms_dirty = true
-    return nothing
-end
-
-update_instance_transforms!(tlas::TLAS, transforms::AbstractVector{Mat4f}, n_to_update::Integer, first_idx::Integer) =
-    update_instance_transforms!(tlas, map(mat4_to_mat3x4, transforms), n_to_update, first_idx)
 
 
 # ==============================================================================
@@ -2593,15 +2635,15 @@ export INVALID_NODE
 # TLAS Handle API — the only user-facing mutation interface.
 #
 # Design contract: mutations write directly to the backing buffers
-# (`tlas.instances` / `tlas.nodes`), set `dirty` or `transforms_dirty`, and
-# return.  `sync!` is the single commit boundary that decides
-# rebuild-vs-refit and runs it.  No staging, no caches keyed on
-# `objectid(tlas)`, no global mutable state — every piece of mutable state
-# lives on a TLAS instance and dies with it.
+# (`tlas.instances` and the batch's records / `tlas.nodes`), set `dirty` or
+# `transforms_dirty`, and return.  `sync!` is the single commit boundary that
+# decides rebuild-vs-refit and runs it; `refit!` first copies the records,
+# which a kernel may have written, into `tlas.instances`.  No staging, no caches keyed on `objectid(tlas)`, no
+# global mutable state — every piece of mutable state lives on a TLAS instance
+# and dies with it.
 #
 # `refit_tlas!` / `update_instance_transform!` / `update_instance_transforms!`
-# are internal helpers used by the public methods; they must not be called
-# directly by user code.
+# are internal helpers; they must not be called directly by user code.
 export TLASHandle
 export n_instances, n_geometries, get_instance, get_instances
 export update_transform!, update_transforms!, is_valid

@@ -13,7 +13,7 @@ The demo below builds the same scene twice, into a software `Raycore.TLAS` and i
 |       Tracing code | a KA `@kernel` calling `Raycore.closest_hit(accel, ray)` |                                              the same kernel |
 |           Use when | portability, no RT hardware, CPU backends |                                                 RT hardware |
 
-Both satisfy `Raycore.AbstractAccel`: `push!`, `delete!`, `update_transform!` (one transform for every instance of a handle), `update_transforms!`, `set_visible!`, `sync!`, `n_instances`, `n_geometries`, `world_bound` and `wait_for_gpu!` mean the same on both. So do the per-instance cull masks (`push!(…; instance_mask)`, traced with `closest_hit(accel, ray, mask)`) and `Raycore.refit!(accel)`. Two differences remain: only the hardware structure hands out instance records a kernel may write (`instance_buffer(accel, handle)`, then `Raycore.refit!`), and the hit itself differs: on hardware `closest_hit` returns the triangle in world space and, as its fifth value, the instance's custom index (`instance_id`); on `Raycore.TLAS` the triangle is in its BLAS's space and the fifth value is the instance's position in `accel.instances`, whose transform moves the hit to world space. The distance `t` means the same on both.
+Both satisfy `Raycore.AbstractAccel`: `push!`, `delete!`, `update_transform!` (one transform for every instance of a handle), `update_transforms!`, `set_visible!`, `sync!`, `n_instances`, `n_geometries`, `world_bound` and `wait_for_gpu!` mean the same on both. So do the per-instance cull masks (`push!(…; instance_mask)`, traced with `closest_hit(accel, ray, mask)`), the instance records a kernel may write (`instance_buffer(accel, handle)`, then `Raycore.refit!(accel)`), and the hit itself: `closest_hit` and `any_hit` return the triangle in world space, the distance `t`, and as their fifth value the instance's custom index (`instance_id` at `push!`, low 24 bits), on both.
 
 ## When hardware RT helps
 
@@ -48,7 +48,7 @@ meshes = build_meshes()
 sw = Raycore.TLAS(backend)
 hw = Mantle.HWTLAS{Raycore.Triangle{UInt32}}(backend)
 for (i, m) in enumerate(meshes)
-    push!(sw, m)
+    push!(sw, m; instance_id = UInt32(i))
     push!(hw, m; instance_id = UInt32(i))
 end
 Raycore.sync!(sw)
