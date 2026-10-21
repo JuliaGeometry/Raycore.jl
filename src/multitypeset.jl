@@ -341,6 +341,10 @@ maybe_convert_field(dhv::MultiTypeSet, arr::A) where A<:AbstractArray = store_te
 maybe_convert_field(::MultiTypeSet, arr::StaticArrays.StaticArray) = arr  # Keep StaticArrays inline
 # Don't re-convert already converted refs
 maybe_convert_field(::MultiTypeSet, ref::TextureRef) = ref
+# Tuples and named tuples element by element: neither is rebuilt from its fields by
+# its type's wrapper, as `convert_to_texturerefs` rebuilds a struct.
+maybe_convert_field(dhv::MultiTypeSet, item::Tuple) = map(x -> maybe_convert_field(dhv, x), item)
+maybe_convert_field(dhv::MultiTypeSet, item::NamedTuple) = map(x -> maybe_convert_field(dhv, x), item)
 # Default: recurse into structs, pass through primitives
 function maybe_convert_field(dhv::MultiTypeSet, item::T) where T
     # Recurse into struct types to convert nested arrays

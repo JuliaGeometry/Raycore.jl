@@ -81,6 +81,7 @@ Aqua.test_all(Raycore; ambiguities=(; broken=true))
     end
     @testset "MultiTypeSet" begin
         include("test_multitypeset.jl")
+        include("test_tuple_textures.jl")
     end
     @testset "Mesh Update" begin
         include("test_mesh_update.jl")
