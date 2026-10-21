@@ -1,8 +1,9 @@
 """
 Raycore on Metal: the one device intrinsic the BVH refit needs.
 
-`Raycore.bvh_publish_fence` defaults to a no-op, which is right for `KA.CPU()`
-and wrong for every GPU. This supplies Metal's.
+`Raycore.bvh_publish_fence` defaults to a no-op where the counter's explicit
+acquire/release ordering is preserved. Atomix's Metal operations are relaxed,
+so this supplies the device fences needed around their publication handoff.
 
 Why it cannot live in `src/`: the fence is a Metal intrinsic and Raycore does
 not depend on Metal. Why it cannot live in Metal.jl: Metal does not depend on

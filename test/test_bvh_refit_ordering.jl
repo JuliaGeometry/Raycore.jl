@@ -7,9 +7,9 @@
 # arriver reads BOTH child nodes and stores their boxes into the parent. That
 # is a release/acquire handoff — the first arriver's store to `nodes[child]`
 # has to be visible to the thread that later sees the counter reach 2 — and an
-# atomic RMW on the counter does not by itself supply the ordering. Raycore
-# states it explicitly via `bvh_publish_fence`, which each GPU backend
-# implements with its own device fence.
+# relaxed atomic RMW on the counter does not by itself supply the ordering.
+# Raycore uses explicit acquire/release RMWs and `bvh_publish_fence` where the
+# backend's Atomix implementation emits relaxed operations (Metal).
 #
 # What it looked like when the fence was missing: a BVH that is *mostly* right.
 # On a 4,032-triangle mesh, 33 of 8,062 interior nodes came out with boxes too

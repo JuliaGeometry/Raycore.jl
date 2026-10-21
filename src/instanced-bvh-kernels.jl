@@ -256,8 +256,10 @@ Based on RadeonRays Refit kernel.
 # BOTH children and writes their boxes into the parent. That handoff is a
 # release/acquire pair — the writing thread's store to `nodes[child]` must be
 # visible to whichever thread later observes the counter reach 2 — and an atomic
-# RMW on the counter alone does not supply it. `Atomix.@atomic` carries no
-# ordering that survives to every backend (Atomix's Metal extension opens with
+# RMW uses explicit acquire/release ordering: the second arrival acquires the
+# first arrival's published child and releases its own child. There is no
+# algorithmic dependency on a global total order across different counters.
+# That ordering does not survive to every backend (Atomix's Metal extension has
 # `# TODO: respect ordering` and emits `memory_order_relaxed`), so the ordering
 # has to be stated here, once, for everyone.
 #
@@ -268,9 +270,8 @@ Based on RadeonRays Refit kernel.
 # scattered light. It is also non-deterministic, so two builds of the same scene
 # disagree.
 #
-# The default is a no-op, which is correct for the CPU backend: `KA.CPU()` runs
-# each workitem to completion on one thread, so the handoff is already ordered.
-# GPU backends override this with their own device fence.
+# The default is a no-op where the counter RMW preserves acquire/release.
+# Backends whose Atomix operations are relaxed override this with a device fence.
 @inline bvh_publish_fence() = nothing
 
 KA.@kernel function refit_aabbs_kernel!(
@@ -293,7 +294,7 @@ KA.@kernel function refit_aabbs_kernel!(
         # Release: everything this thread wrote to `nodes[...]` above must be
         # visible before the counter below tells the sibling it may be read.
         bvh_publish_fence()
-        new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
+        new_value = @inbounds @atomic :acquire_release update_flags[parent_idx] += UInt32(1)
 
         if new_value == UInt32(2)
             # Acquire: pair with the sibling's release before reading its node.
@@ -436,7 +437,7 @@ KA.@kernel function refit_tlas_aabbs_kernel!(
         # Release: everything this thread wrote to `nodes[...]` above must be
         # visible before the counter below tells the sibling it may be read.
         bvh_publish_fence()
-        new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
+        new_value = @inbounds @atomic :acquire_release update_flags[parent_idx] += UInt32(1)
 
         if new_value == UInt32(2)
             # Acquire: pair with the sibling's release before reading its node.
