@@ -614,7 +614,11 @@ function update_item(dhv::MultiTypeSet, old::NamedTuple{K}, new::NamedTuple{K}) 
     return NamedTuple{K}(new_fields)
 end
 
-function update_item(dhv::MultiTypeSet, old, new)
+# This is a host-side reflective walk. Inferring every combination of nested
+# stored/unstored field types (two NanoVDB grids per air term, for example)
+# costs minutes on the first update. Keep a dynamic barrier at this fallback;
+# the typed texture-copy methods and device kernels remain specialized.
+Base.@nospecializeinfer function update_item(dhv::MultiTypeSet, @nospecialize(old), @nospecialize(new))
     T_old = typeof(old)
     # A value of the stored type with no texture slot in it is already in
     # stored form: it IS the update. Rebuilding it field by field went through
@@ -670,6 +674,7 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
         else
             # Compare the device pointer before/after to see whether the
             # surrounding isbits table needs one slot refreshed.
+            old_array = arr
             old_ptr = get_isbits_ptr(dhv.backend, arr)
             arr = resized(arr, size(new_data))
             dhv.texture_gpu_arrays[k] = arr
@@ -680,7 +685,20 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
                 # slot of the shader-visible isbits buffer — no rebuild, no
                 # dirty flag, no sync.  A later `get_static` that finds
                 # `dirty == false` sees a tuple that's already consistent.
-                @allowscalar dhv.static.textures[AT_slot][ref.idx] = new_ptr
+                if arr === old_array
+                    # Adapt may retain the same array for multiple texture
+                    # slots. Resizing that object changes every alias, so all
+                    # their shader descriptors must follow its new storage.
+                    index = 0
+                    for candidate in dhv.texture_gpu_arrays
+                        typeof(candidate) === AT || continue
+                        index += 1
+                        candidate === arr || continue
+                        @allowscalar dhv.static.textures[AT_slot][index] = new_ptr
+                    end
+                else
+                    @allowscalar dhv.static.textures[AT_slot][ref.idx] = new_ptr
+                end
             end
         end
         return

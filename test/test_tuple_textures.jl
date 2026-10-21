@@ -6,6 +6,12 @@ using Test, Raycore, Adapt, KernelAbstractions
         fields.named.gain * Raycore.deref(set, fields.named.density)[i]
 end
 
+struct TupleTextureRecord{T,N}
+    terms::T
+    named::N
+    gain::Float32
+end
+
 function test_tuple_textures(backend)
     @testset "Nested tuples retain texture fields and names" begin
         set = Raycore.MultiTypeSet(backend)
@@ -22,6 +28,30 @@ function test_tuple_textures(backend)
         read_tuple_textures!(backend, 64)(output, Adapt.adapt(backend, set.static), converted;
             ndrange = length(values))
         @test Array(output) == 5f0 .* values
+
+        # Exercise the reflective host fallback as well as tuple conversion:
+        # native volume records have nested tuples, texture slots and scalars.
+        for device_source in (false,true)
+            source = device_source ? Adapt.adapt(backend,copy(values)) : copy(values)
+            records = Raycore.MultiTypeSet(backend)
+            key = push!(records,TupleTextureRecord(((source,2f0),),(;density=source,gain=3f0),1f0))
+            old = records[key]
+            slots = length(records.texture_gpu_arrays)
+            replacement = Float32[1,3,5,7,9]
+            fresh = TupleTextureRecord(((replacement,2f0),),
+                (;density=replacement,gain=4f0),2.5f0)
+            Raycore.update!(records,key,fresh)
+            updated = records[key]
+            @test typeof(updated)===typeof(old)
+            @test updated.gain==2.5f0
+            @test updated.terms[1][1]===old.terms[1][1]
+            @test updated.named.density===old.named.density
+            @test length(records.texture_gpu_arrays)==slots
+            output = KernelAbstractions.zeros(backend,Float32,length(replacement))
+            read_tuple_textures!(backend,64)(output,Adapt.adapt(backend,records.static),updated;
+                ndrange=length(replacement))
+            @test Array(output)==6f0.*replacement
+        end
     end
 end
 
