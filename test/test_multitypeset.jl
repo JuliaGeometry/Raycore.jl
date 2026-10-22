@@ -195,3 +195,21 @@ end
         @test isempty(set)
     end
 end
+
+@testset "layout moves only where a buffer may have" begin
+    set = MultiTypeSet(backend)
+    l0 = set.layout
+    key = push!(set, MaterialWith2(0.5f0, rand(Float32, 4, 4)))
+    l1 = set.layout
+    @test l1 > l0
+    # Same type and texture shape: written into the buffers a plan was packed
+    # with, so nothing moved.
+    update!(set, key, MaterialWith2(0.9f0, rand(Float32, 4, 4)))
+    @test set.layout == l1
+    # A texture of another shape is a new allocation.
+    update!(set, key, MaterialWith2(0.9f0, rand(Float32, 64, 64)))
+    @test set.layout > l1
+    l2 = set.layout
+    push!(set, MaterialWith2(0.1f0, rand(Float32, 4, 4)))
+    @test set.layout > l2
+end
