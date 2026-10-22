@@ -32,6 +32,29 @@ struct _MTSItem
     b::Float32
 end
 
+struct _FailingTextureInput <: AbstractVector{Float32}
+    n::Int
+end
+Base.size(a::_FailingTextureInput)=(a.n,)
+Base.IndexStyle(::Type{_FailingTextureInput})=IndexLinear()
+Base.getindex(::_FailingTextureInput,::Int)=error("deliberate host payload failure")
+
+@testset "A failed texture upload leaves descriptors ready for a same-shape retry" begin
+    set=Raycore.MultiTypeSet(test_backend())
+    key=push!(set,(;values=Float32[1,2,3]))
+    ref=set[key].values
+    n=65536
+    @test_throws ErrorException Raycore.update!(set,key,(;values=_FailingTextureInput(n)))
+    owner=first(set.texture_gpu_arrays)
+    @test size(owner)==(n,)
+    descriptor=Raycore.@allowscalar Raycore.deref(set.static,ref)
+    @test descriptor===Raycore.get_isbits_ptr(set.backend,owner)
+    expected=Float32.(1:n)
+    Raycore.update!(set,key,(;values=expected))
+    @test first(set.texture_gpu_arrays)===owner
+    @test Array(owner)==expected
+end
+
 @testset "MultiTypeSet does not duplicate on append" begin
     backend = test_backend()
 

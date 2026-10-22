@@ -691,7 +691,6 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
             old_ptr = get_isbits_ptr(dhv.backend, arr)
             arr = resized(arr, size(new_data))
             dhv.texture_gpu_arrays[k] = arr
-            copyto!(arr, new_data)
             new_ptr = get_isbits_ptr(dhv.backend, arr)
             if new_ptr != old_ptr
                 # Pointer moved (grow past capacity).  Refresh just this one
@@ -713,6 +712,9 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
                     @allowscalar dhv.static.textures[AT_slot][ref.idx] = new_ptr
                 end
             end
+            # Keep the table consistent even when the payload copy throws.
+            # A retry may have the same shape and therefore skip this branch.
+            copyto!(arr, new_data)
         end
         return
     end
