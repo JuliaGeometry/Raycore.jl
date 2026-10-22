@@ -273,6 +273,11 @@ mutable struct MultiTypeSet{Backend} <: AbstractVector{Any}
     # genuinely expensive; MultiTypeSet's element-level updates are cheap
     # (one scalar GPU write) and pay no amortisation benefit from batching.
     static::StaticMultiTypeSet
+    # Bumped wherever a buffer of `static` (or a texture behind it) may have
+    # moved: a new slot, a grown slot, a reshaped texture, `free!`. A plan
+    # packed with `static`'s addresses is still right while this is unchanged,
+    # which is what an in-place `update!` leaves it.
+    layout::Int
 end
 
 Base.size(set::MultiTypeSet) = (length(set),)
@@ -300,6 +305,7 @@ function MultiTypeSet(backend)
         DataType[],
         Any[],
         StaticMultiTypeSet(),
+        0,
     )
 end
 
@@ -403,6 +409,7 @@ function store_texture(dhv::MultiTypeSet, arr::AbstractArray{T}) where T
         @allowscalar slot[old_len + 1] = isbits_ptr
         vec_idx = old_len + 1
     end
+    dhv.layout += 1
     return TextureRef{AT, eltype(AT), ndims(AT), type_idx}(vec_idx)
 end
 
@@ -446,6 +453,7 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
         end
         vec_idx = old_len + 1
     end
+    dhv.layout += 1
     return SetKey(UInt32(type_idx), UInt32(vec_idx))
 end
 
@@ -502,6 +510,7 @@ function Base.append!(dhv::MultiTypeSet, items)::Vector{SetKey}
             keys[i] = SetKey(UInt32(type_idx), UInt32(base + k))
         end
     end
+    dhv.layout += 1
     return keys
 end
 
@@ -677,6 +686,7 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
                 # dirty flag, no sync.  A later `get_static` that finds
                 # `dirty == false` sees a tuple that's already consistent.
                 @allowscalar dhv.static.textures[AT_slot][ref.idx] = new_ptr
+                dhv.layout += 1
             end
         end
         return
@@ -794,5 +804,6 @@ function free!(set::MultiTypeSet)
         finalize(arr)
     end
     set.static = StaticMultiTypeSet()
+    set.layout += 1
     return nothing
 end
