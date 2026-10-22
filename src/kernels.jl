@@ -5,7 +5,7 @@ struct RayHit{TMetadata}
 end
 
 # Access all triangles from a StaticTLAS
-_primitives(tlas::StaticTLAS) = tlas.all_blas_prims
+primitives(tlas::StaticTLAS) = tlas.all_blas_prims
 
 function generate_ray_grid(tlas, ray_direction::Vec3f, grid_size::Int)
     direction = normalize(ray_direction)
@@ -58,7 +58,7 @@ end
 function hits_from_grid(tlas, viewdir; grid_size=32)
     ray_direction = normalize(viewdir)
     ray_origins = generate_ray_grid(tlas, ray_direction, grid_size)
-    prims = _primitives(tlas)
+    prims = primitives(tlas)
     TMetadata = eltype(prims).parameters[1]
     result = similar(ray_origins, RayHit{TMetadata})
     Threads.@threads for idx in CartesianIndices(ray_origins)
@@ -72,13 +72,13 @@ function hits_from_grid(tlas, viewdir; grid_size=32)
 end
 
 function view_factors(tlas; rays_per_triangle=10000)
-    prims = _primitives(tlas)
+    prims = primitives(tlas)
     result = zeros(UInt32, length(prims), length(prims))
     return view_factors!(result, tlas, rays_per_triangle)
 end
 
 function view_factors!(result, tlas, rays_per_triangle=10000)
-    prims = _primitives(tlas)
+    prims = primitives(tlas)
     Threads.@threads for idx in eachindex(prims)
         @inbounds begin
             triangle = prims[idx]
@@ -111,7 +111,7 @@ end
 
 function get_illumination(tlas, viewdir; grid_size=1000)
     hits = hits_from_grid(tlas, viewdir; grid_size=grid_size)
-    prims = _primitives(tlas)
+    prims = primitives(tlas)
     result = Dict{Int, Float32}()
     for hit in hits
         if hit.hit

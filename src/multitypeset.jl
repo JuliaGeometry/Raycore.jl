@@ -75,9 +75,9 @@ n_slots(smv::StaticMultiTypeSet) = length(smv.data)
 get_static(smv::StaticMultiTypeSet) = smv
 
 # Convert to a flat Tuple of all elements (preserves concrete element types)
-_concat_to_tuple() = ()
-_concat_to_tuple(v::AbstractVector, rest...) = (v..., _concat_to_tuple(rest...)...)
-to_tuple(smv::StaticMultiTypeSet) = _concat_to_tuple(smv.data...)
+concat_to_tuple() = ()
+concat_to_tuple(v::AbstractVector, rest...) = (v..., concat_to_tuple(rest...)...)
+to_tuple(smv::StaticMultiTypeSet) = concat_to_tuple(smv.data...)
 
 # ============================================================================
 # foreach_element - Type-stable iteration over all elements
@@ -128,15 +128,15 @@ end
 @inline function Base.mapreduce(
         f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, args...; init
     ) where {F,Op,Data<:Tuple,Textures}
-    _mapreduce(f, op, smv, init, args...)
+    typedmapreduce(f, op, smv, init, args...)
 end
 @inline function Base.mapreduce(
     f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, args::Vararg{Union{Base.AbstractBroadcasted,AbstractArray}}; init
 ) where {F,Op,Data<:Tuple,Textures}
-    _mapreduce(f, op, smv, init, args...)
+    typedmapreduce(f, op, smv, init, args...)
 end
 
-@inline @generated function _mapreduce(
+@inline @generated function typedmapreduce(
      f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, init, args...) where {F, Op, Data<:Tuple, Textures}
     N = length(Data.parameters)
 
