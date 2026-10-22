@@ -276,6 +276,19 @@ mutable struct MultiTypeSet{Backend} <: AbstractVector{Any}
 end
 
 Base.size(set::MultiTypeSet) = (length(set),)
+
+"Resolve a host set's texture reference to its owning array."
+function deref(set::MultiTypeSet, ref::TextureRef{AT}) where AT
+    index = 0
+    for array in set.texture_gpu_arrays
+        typeof(array) === AT || continue
+        index += 1
+        index == ref.idx && return array
+    end
+    error("GPU array not found for TextureRef(idx=$(ref.idx))")
+end
+deref(::MultiTypeSet, array::AbstractArray) = array
+
 function Base.length(set::MultiTypeSet)
     return sum(length, values(set.data_vectors); init=0)
 end
