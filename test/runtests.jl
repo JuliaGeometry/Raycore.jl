@@ -35,7 +35,7 @@ end
 const TEST_BACKEND = if RAYCORE_TEST_BACKEND == "cpu"
     KA.CPU()
 elseif RAYCORE_TEST_BACKEND == "lava"
-    Mantle.LavaBackend()
+    Mantle.Device()
 elseif RAYCORE_TEST_BACKEND == "lavapipe"
     Mantle.backend(Mantle.defaultdevice!("lavapipe"))
 elseif RAYCORE_TEST_BACKEND == "metal"
