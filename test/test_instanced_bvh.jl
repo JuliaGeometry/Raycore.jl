@@ -41,6 +41,11 @@ end
     tris[1] = tri
 end
 
+# `transparent_hits` of one ray, keeping four, in a kernel on the structure's backend.
+@kernel function transparent_kernel!(out, tlas, ray, limit)
+    out[1] = transparent_hits(tlas, ray, 0xff, Val(4), limit)
+end
+
 # Instance records written on the device, as a simulation would: record `i`
 # gets `transforms[i]`, `ids[i]` and `mask`.
 @kernel function write_records_kernel!(records, @Const(transforms), @Const(ids), mask)
@@ -641,6 +646,54 @@ end
     @test !shoot(70.5, 0.25).hit
     @test !shoot(80.5, 0.25).hit
     @test_throws ArgumentError instance_buffer(tlas, Raycore.TLASHandle(UInt32(999)))
+end
+
+@testset "TLAS - transparent_hits records what is not opaque" begin
+    # Six see-through layers and an opaque floor under them, pushed out of order:
+    # what a shadow ray through foliage onto the ground meets.
+    backend = test_backend()
+    quad(z) = GeometryBasics.normal_mesh(GeometryBasics.Mesh(
+        [Point3f(-1, -1, z), Point3f(1, -1, z), Point3f(1, 1, z), Point3f(-1, 1, z)],
+        [GLTriangleFace(1, 2, 3), GLTriangleFace(1, 3, 4)]))
+    tlas = Raycore.TLAS(backend)
+    layers = Dict(z => push!(tlas, quad(Float32(z)), Mat4f(I); instance_id = UInt32(10 + z), opaque = false)
+                  for z in (2, 5, 0, 3, 1, 4))
+    push!(tlas, quad(-3f0), Mat4f(I); instance_id = UInt32(99))
+    sync!(tlas)
+
+    function shoot(; t_min = 0f0, t_max = 12f0, limit = 10)
+        out = Adapt.adapt(backend, [TransparentHits{4}()])
+        transparent_kernel!(backend)(out, tlas.static_tlas, Raycore.Ray(o = Point3f(0.1, 0.2, 10), d = Vec3f(0, 0, -1),
+                                                                         t_min = t_min, t_max = t_max),
+                                     limit; ndrange = 1)
+        KA.synchronize(backend)
+        return only(Array(out))
+    end
+    kept(th) = [(h.t, h.custom) for h in th.hits[1:min(th.count, 4)]]
+
+    th = shoot()                              # down to z = -2: the floor is past the end
+    @test !th.blocked && th.count >= 4        # four kept; there may be more
+    @test kept(th) == [(5f0, 15), (6f0, 14), (7f0, 13), (8f0, 12)]
+    @test all(h -> h.kind == Raycore.HIT_TRIANGLE, th.hits)
+    th = shoot(t_min = nextfloat(8f0))       # on from the last kept hit
+    @test !th.blocked && kept(th) == [(9f0, 11), (10f0, 10)]
+    @test shoot(t_max = 20f0).blocked         # the floor
+    @test shoot(limit = 3).blocked            # four layers are more than three
+    # Closest hits stop at the top layer, see-through or not.
+    out = Adapt.adapt(backend, [(false, 0f0, UInt32(99))])
+    tris = Adapt.adapt(backend, [Raycore.empty_triangle(Raycore.Triangle{UInt32})])
+    whole_hit_kernel!(backend)(out, tris, tlas.static_tlas, Point3f(0.1, 0.2, 10), Vec3f(0, 0, -1),
+                               UInt32(0xff), closest_hit; ndrange = 1)
+    KA.synchronize(backend)
+    @test only(Array(out)) == (true, 5f0, UInt32(15))
+
+    # Made opaque, a layer stops the ray; made see-through again, it is recorded.
+    @test set_opaque!(tlas, layers[2], true)
+    @test shoot().blocked
+    @test set_opaque!(tlas, layers[2], false)
+    @test !shoot().blocked
+    delete!(tlas, layers[2])
+    @test !set_opaque!(tlas, layers[2], true)
 end
 
 @testset "TLAS - set_visible! keeps the instance" begin

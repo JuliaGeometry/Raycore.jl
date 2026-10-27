@@ -28,7 +28,7 @@ using Raycore, Mantle, GeometryBasics, LinearAlgebra, Adapt
 import KernelAbstractions as KA
 using KernelAbstractions: @kernel, @index, @Const
 
-backend = Mantle.LavaBackend()        # Vulkan; on a Mac: `using Metal; Metal.MetalBackend()`
+backend = Mantle.defaultbackend()     # the platform's device: Vulkan, or Metal on a Mac
 Mantle.supports_hwtlas(backend)       # true on an RT-capable device
 ```
 

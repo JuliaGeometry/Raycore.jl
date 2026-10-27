@@ -23,7 +23,8 @@ Concrete implementations:
 # Mutation API
 - `push!(accel, mesh, transform)`: add geometry, return a `TLASHandle`.
 - `delete!(accel, handle)`, `update_transform!(accel, handle, transform)`,
-  `update_transforms!(accel, handle, transforms)`.
+  `update_transforms!(accel, handle, transforms)`, `set_visible!(accel, handle, visible)`,
+  `set_opaque!(accel, handle, opaque)`.
 
 # Lifecycle
 - `sync!(accel)` — sole owner of `accel.static_tlas`. Rebuilds in place
@@ -36,13 +37,19 @@ Concrete implementations:
   violation.
 
 # Query
+- `closest_hit_record(adapted, ray, mask = 0xff) -> HitRecord` and
+  `any_hit_record(adapted, ray, mask = 0xff) -> HitRecord`: what every adapted
+  structure implements, with `hit_primitive(adapted, rec)` and
+  `miss_primitive(adapted)`. A [`HitRecord`](@ref) is small enough to queue and
+  expand later.
+- `transparent_hits(adapted, ray, mask, Val(N), limit) -> TransparentHits{N}`: the
+  nearest `N` hits on instances that are not opaque, until an opaque one blocks the
+  ray. Closest and any hits take every instance as opaque.
 - `closest_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_id)`
 - `any_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_id)` — the SAME
   shape as `closest_hit`, not a `Bool`. Only the traversal differs: it stops at
   the first accepted hit, so `t`/`tri` are *an* intersection, not the nearest.
-  This said `-> Bool`, and all three implementations (software `StaticTLAS`,
-  Vulkan, Metal) return the tuple — a backend written to the doc would break
-  every caller, and a caller written to it gets a device-side type error.
+  Both are derived from the records once, for every structure.
 - `mask` is the ray's cull mask: an instance is seen only when its mask
   (`instance_mask` at `push!`, or the record's `mask`) shares a bit with it. Low
   8 bits, on every implementation.
@@ -115,7 +122,7 @@ export build_triangle, is_degenerate_face
 
 # TLAS (GPU two-level acceleration structure)
 export TLASHandle, StaticTLAS, INVALID_HANDLE
-export sync!, update!, n_total_instances, set_visible!
+export sync!, update!, n_total_instances, set_visible!, set_opaque!
 
 # BVH4 types (HIPRT-style 4-wide nodes)
 export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
@@ -123,6 +130,7 @@ export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 # Ray intersection functions
 export AbstractAccel, AbstractAdaptedAccel
 export closest_hit, any_hit, world_bound, trace_rays
+export HitRecord, closest_hit_record, any_hit_record, hit_primitive, TransparentHits, transparent_hits
 export n_instances, n_geometries, wait_for_gpu!
 
 # RT transport types (used by Mantle.HWTLAS and consumers)

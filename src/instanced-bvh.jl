@@ -86,7 +86,9 @@ Fields:
 - `transform`: Local-to-world transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `inv_transform`: World-to-local transform (Vulkan row-major 3×4, `Mat3x4f`)
 - `flags`: Instance flags. `INSTANCE_HIDDEN` keeps the instance out of every
-  ray's way (`set_visible!`); the other bits are reserved.
+  ray's way (`set_visible!`); `INSTANCE_NON_OPAQUE` makes
+  [`transparent_hits`](@ref) record its hits instead of stopping at them
+  (`opaque` at `push!`, `set_opaque!`); the other bits are reserved.
 - `mask`: the instance's cull mask. A ray traced with mask `m` sees the instance
   only when `mask & m != 0`; see [`closest_hit`](@ref). Only the low 8 bits count,
   as on the hardware structures. The 5-argument constructor gives `0xff`, which
@@ -694,7 +696,7 @@ end
 
 """
     push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
-          instance_id::UInt32=UInt32(0), instance_mask::UInt8=0xff) -> TLASHandle
+          instance_id::UInt32=UInt32(0), instance_mask::UInt8=0xff, opaque=true) -> TLASHandle
 
 Add a GeometryBasics.Mesh to the TLAS. Per-face metadata is read from the mesh's
 `face_meta` attribute (if present). If no `face_meta` attribute exists, each
@@ -708,35 +710,36 @@ per-triangle interface — see `InstanceDescriptor` for semantics.
 only when `instance_mask & m != 0` (see [`closest_hit`](@ref)). The same keyword,
 with the same meaning, as a hardware structure's `push!`.
 
+`opaque = false` makes [`transparent_hits`](@ref) record the mesh's hits rather
+than stop at them; see [`set_opaque!`](@ref).
+
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transform::Mat4f=Mat4f(I);
-                    instance_id::UInt32=UInt32(0), instance_mask::UInt8=UInt8(0xff),
-                    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
+                    instance_id::UInt32=UInt32(0), instance_mask::UInt8=UInt8(0xff), opaque::Bool=true)
     blas_idx = build_and_append_blas!(tlas, mesh)
     t = mat4_to_mat3x4(transform)
-    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), UInt32(0),
+    cpu_descriptors = [InstanceDescriptor(blas_idx, instance_id, t, mat3x4_inverse(t), opacityflags(opaque),
                                           UInt32(instance_mask))]
     return append_instances_with_handle!(tlas, cpu_descriptors)
 end
 
 """
     push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
-          instance_ids = nothing, instance_mask::UInt8 = 0xff) -> TLASHandle
+          instance_ids = nothing, instance_mask::UInt8 = 0xff, opaque = true) -> TLASHandle
 
 Add a GeometryBasics.Mesh to the TLAS with multiple transforms (instancing).
 Builds BLAS once, creates `length(transforms)` InstanceDescriptors.
 
 `instance_ids` (if given) must match `length(transforms)` and supplies the
 per-instance interface override.  When `nothing`, every instance gets `0`
-(inherit from triangle metadata). Every instance gets `instance_mask`.
+(inherit from triangle metadata). Every instance gets `instance_mask` and `opaque`.
 
 Returns a stable handle for later reference.
 """
 function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractVector{Mat4f};
                     instance_ids::Union{Nothing, AbstractVector{<:Integer}}=nothing,
-                    instance_mask::UInt8=UInt8(0xff),
-                    sbt_offset::UInt32=UInt32(0))  # ignored on SW; matches HWTLAS kwarg
+                    instance_mask::UInt8=UInt8(0xff), opaque::Bool=true)
     if instance_ids !== nothing && length(instance_ids) != length(transforms)
         throw(ArgumentError("instance_ids length $(length(instance_ids)) != transforms length $(length(transforms))"))
     end
@@ -746,7 +749,7 @@ function Base.push!(tlas::TLAS, mesh::GeometryBasics.Mesh, transforms::AbstractV
     cpu_descriptors = map(enumerate(transforms)) do (i, transform)
         t = mat4_to_mat3x4(transform)
         iid = instance_ids === nothing ? UInt32(0) : UInt32(instance_ids[i])
-        InstanceDescriptor(blas_idx, iid, t, mat3x4_inverse(t), UInt32(0), UInt32(instance_mask))
+        InstanceDescriptor(blas_idx, iid, t, mat3x4_inverse(t), opacityflags(opaque), UInt32(instance_mask))
     end
     return append_instances_with_handle!(tlas, cpu_descriptors)
 end
@@ -846,7 +849,12 @@ update_transform!(tlas::TLAS, handle::TLASHandle, transform::Mat4f) =
 """The `InstanceDescriptor.flags` bit of an instance no ray hits."""
 const INSTANCE_HIDDEN = UInt32(1)
 
+"""The `InstanceDescriptor.flags` bit of an instance whose hits [`transparent_hits`](@ref) records."""
+const INSTANCE_NON_OPAQUE = UInt32(2)
+
 @inline is_hidden(inst::InstanceDescriptor) = inst.flags & INSTANCE_HIDDEN != UInt32(0)
+@inline is_opaque(inst::InstanceDescriptor) = inst.flags & INSTANCE_NON_OPAQUE == UInt32(0)
+opacityflags(opaque::Bool) = opaque ? UInt32(0) : INSTANCE_NON_OPAQUE
 
 # Whether a ray traced with cull mask `mask` enters `inst`: not hidden, and the
 # two masks share a bit. `% UInt32` rather than `UInt32(...)`: the checked
@@ -866,12 +874,30 @@ structure, with its geometry, its index and its transform; no ray hits it.
 Showing it again costs no rebuild of its geometry. Returns `false` for a handle
 that names nothing.
 """
-function set_visible!(tlas::TLAS, handle::TLASHandle, visible::Bool)
+set_visible!(tlas::TLAS, handle::TLASHandle, visible::Bool) =
+    setflag!(tlas, handle, INSTANCE_HIDDEN, !visible)
+
+"""
+    set_opaque!(accel, handle::TLASHandle, opaque::Bool) -> Bool
+
+Whether [`transparent_hits`](@ref) stops at the instances of `handle` (`true`, the
+default at `push!`) or records their hits and goes on. Closest and any hits treat
+every instance as opaque either way. Returns `false` for a handle that names
+nothing.
+"""
+function set_opaque! end
+
+set_opaque!(tlas::TLAS, handle::TLASHandle, opaque::Bool) =
+    setflag!(tlas, handle, INSTANCE_NON_OPAQUE, !opaque)
+
+# Set or clear `bit` in the flags of every instance of `handle`, in place: the
+# traversal reads the flags from the instances, so nothing is rebuilt.
+function setflag!(tlas::TLAS, handle::TLASHandle, bit::UInt32, on::Bool)
     haskey(tlas.handle_to_range, handle) || return false
     handle in tlas.deleted_handles && return false
     @allowscalar for i in tlas.handle_to_range[handle]
         inst = tlas.instances[i]
-        flags = visible ? inst.flags & ~INSTANCE_HIDDEN : inst.flags | INSTANCE_HIDDEN
+        flags = on ? inst.flags | bit : inst.flags & ~bit
         tlas.instances[i] = InstanceDescriptor(inst.blas_index, inst.instance_id,
                                                inst.transform, inst.inv_transform, flags, inst.mask)
     end
@@ -2063,34 +2089,120 @@ Matches HLSL IntersectLeafNode.
 end
 
 """
-    closest_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_id)
+    HitRecord
 
-Traverse two-level BVH to find closest ray intersection.
+What [`closest_hit_record`](@ref) and [`any_hit_record`](@ref) found, small
+enough to keep in a queue and expand later with [`hit_primitive`](@ref).
+
+`kind` is `HIT_MISS`, `HIT_TRIANGLE` or `HIT_GENERATED` (an intersection a
+procedural payload committed). `t` is the hit's distance along the ray. For a
+triangle `a[1]` and `a[2]` are the barycentrics of its second and third vertex;
+for a generated hit `a` is the payload's running best, packed. `instance` is the
+instance's index in build order and `primitive` the primitive's index in its
+BLAS, both 0-based; `custom` is the instance's custom index (`instance_id` at
+`push!`, the record's `id`), low 24 bits.
+"""
+struct HitRecord
+    t::Float32
+    a::NTuple{4,Float32}
+    instance::UInt32
+    primitive::UInt32
+    custom::UInt32
+    kind::UInt32
+end
+
+const HIT_MISS = UInt32(0)
+const HIT_TRIANGLE = UInt32(1)
+const HIT_GENERATED = UInt32(2)
+
+HitRecord() = HitRecord(0f0, (0f0, 0f0, 0f0, 0f0), UInt32(0), UInt32(0), UInt32(0), HIT_MISS)
+# A triangle hit, from its distance, barycentrics and indices.
+HitRecord(t::Real, u::Real, v::Real, instance::Integer, primitive::Integer, custom::Integer) =
+    HitRecord(Float32(t), (Float32(u), Float32(v), 0f0, 0f0), UInt32(instance), UInt32(primitive),
+              UInt32(custom), HIT_TRIANGLE)
+
+"""
+    TransparentHits{N}
+
+What [`transparent_hits`](@ref) found along a ray.
+
+- `hits`: the nearest `min(count, N)` hits on instances that are not opaque,
+  nearest first.
+- `count`: how many such hits were found, each primitive once. A structure may stop
+  looking once it has `N`; so when `count` reaches `N`, hits past `hits[N]` may
+  exist: trace on from `hits[N].t`.
+- `blocked`: the ray met an opaque instance, or more than `limit` others were found.
+"""
+struct TransparentHits{N}
+    hits::NTuple{N,HitRecord}
+    count::UInt32
+    blocked::Bool
+end
+
+# An empty slot is farther than any hit, so a hit always goes before it. A triangle
+# record, so that without generated hits every slot's `kind` is the same constant.
+TransparentHits{N}() where {N} = TransparentHits{N}(
+    ntuple(_ -> HitRecord(Inf32, (0f0, 0f0, 0f0, 0f0), UInt32(0), UInt32(0), UInt32(0), HIT_TRIANGLE), Val(N)),
+    UInt32(0), false)
+
+@inline blocked(th::TransparentHits{N}) where {N} = TransparentHits{N}(th.hits, th.count, true)
+
+"""
+    record(th::TransparentHits, rec::HitRecord, limit) -> TransparentHits
+
+`th` with the hit `rec` counted and kept, if among the nearest `N`; past `limit`
+counted hits, `blocked`. A primitive already kept is not counted again: a
+traversal may offer one twice. What every structure's [`transparent_hits`](@ref)
+calls at a hit it does not stop at, as Cycles' `bvh_shadow_all_anyhit_filter`.
+"""
+@inline function record(th::TransparentHits{N}, rec::HitRecord, limit::Integer) where {N}
+    hits = th.hits
+    kept = min(th.count, UInt32(N))
+    seen = any(ntuple(k -> (k <= kept) & (hits[k].instance == rec.instance) & (hits[k].primitive == rec.primitive), Val(N)))
+    seen && return th
+    count = th.count + UInt32(1)
+    count > limit && return TransparentHits{N}(hits, count, true)
+    # In order of distance; a full buffer drops its farthest.
+    at = 1 + sum(ntuple(k -> Int(hits[k].t <= rec.t), Val(N)))
+    return TransparentHits{N}(ntuple(k -> k < at ? hits[k] : k == at ? rec : hits[k - 1], Val(N)), count, false)
+end
+
+"""
+    traverse(visit, state, tlas::StaticTLAS, ray::AbstractRay, mask, enters = everything) -> state
+
+Walk the two-level BVH along `ray` and hand every triangle it intersects to
+`visit(state, t, u, v, instance, primitive, custom) -> (state, t_max, done)`: the
+hit's distance and barycentrics, the instance's index (0-based) and the
+primitive's in its BLAS, and the instance's custom index. The walk goes on with
+`t_max` as the ray's far end, until `done` or the end of the BVH, and returns the
+last `state`. What [`closest_hit_record`](@ref), [`any_hit_record`](@ref) and
+[`transparent_hits`](@ref) differ in is their `visit` and which instances they
+enter.
 
 `mask` is the ray's cull mask: an instance takes part only when its own mask
 (`instance_mask` at `push!`) shares a bit with it, so `0xff` sees every instance
 and `0x00` none. The same rule as the hardware structures, which only count
-the low 8 bits, as this does.
+the low 8 bits, as this does. Of those, the walk enters only the instances
+`enters(instance_descriptor)` accepts.
 
-The hit is what a hardware structure (`Mantle.HWTLAS`) returns for the same
-scene: `primitive` is the triangle in world space, moved by its instance's
-transform ([`transform`](@ref)), and `instance_id` the instance's custom index
-(`instance_id` at `push!`, the record's `id`), its low 24 bits. On a miss,
-`primitive` is the empty triangle and `instance_id` is `0`.
+The state lives in registers for the whole walk, so it must stay small: four
+recorded hits carried through it made a shadow ray three times slower on an RTX
+4000 Ada, with nothing ever recorded.
 
-Algorithm:
+Algorithm (HLSL TraceRays):
 1. Traverse TLAS to find candidate instances
 2. Transform ray to local space
 3. Traverse BLAS for geometry intersection
-4. Transform back to world space
-5. Return closest hit across all instances
+4. Report each hit in the ray's own parameter
 """
-@inline function closest_hit(tlas::StaticTLAS, ray::AbstractRay, mask::Integer)
-    # Initialize traversal state - matches HLSL TraceRays
+@inline everything(::InstanceDescriptor) = true
+
+@inline function traverse(visit::F, state, tlas::StaticTLAS, ray::AbstractRay, mask::Integer,
+                          enters::E = everything) where {F, E}
     ray = check_direction(ray)
     ray_o::Point3f = ray.o
     ray_d::Vec3f = ray.d
-    ray_mint::Float32 = ray.t_min  # Minimum t for intersection
+    ray_mint::Float32 = ray.t_min
     ray_maxt::Float32 = ray.t_max
     ray_inv_d::Vec3f = safe_invdir(ray_d)  # Use safe inversion to avoid division by zero
 
@@ -2101,19 +2213,14 @@ Algorithm:
 
     # Traversal state - use Int32 for indices to avoid UInt32 arithmetic issues
     current_instance::Int32 = Int32(-1)  # -1 means no instance (top level)
-    closest_instance::Int32 = Int32(-1)
-    closest_prim::UInt32 = INVALID_NODE
-    hit_u::Float32 = 0.0f0
-    hit_v::Float32 = 0.0f0
+    current_custom::UInt32 = UInt32(0)
 
     # Cached BLAS offset for current instance (avoids repeated descriptor lookup)
     current_blas_offset::UInt32 = UInt32(0)
 
-    # Get typed references to avoid repeated field access
     tlas_nodes = tlas.nodes
     tlas_instances = tlas.instances
     tlas_blas_nodes = tlas.all_blas_nodes
-    tlas_blas_prims = tlas.all_blas_prims
     tlas_blas_descs = tlas.blas_descriptors
 
     # Entry point is node 1 (1-indexed in Julia). A structure with no instances
@@ -2149,11 +2256,12 @@ Algorithm:
             end
         elseif current_instance < Int32(0)
             # Top-level leaf - transition to instance, unless the ray does not
-            # see it (hidden, or no mask bit in common): then it is popped like
-            # a missed node.
+            # see it (hidden, or no mask bit in common) or the walk does not
+            # enter it: then it is popped like a missed node.
             inst = tlas_instances[node.child1 + UInt32(1)]
-            if sees(inst, mask)
+            if sees(inst, mask) && enters(inst)
                 current_instance = Int32(node.child1)  # 0-indexed instance index
+                current_custom = custom_index(inst)
 
                 # Push sentinel
                 stack_ptr += Int32(1)
@@ -2172,12 +2280,9 @@ Algorithm:
             # Bottom-level leaf - test triangle
             hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
             if hit
-                # Update closest hit
-                ray_maxt = t
-                closest_instance = current_instance
-                closest_prim = node.child1
-                hit_u = u
-                hit_v = v
+                state, ray_maxt, done = visit(state, t, u, v, UInt32(current_instance), node.child1,
+                                              current_custom)
+                done && return state
             end
         end
 
@@ -2198,153 +2303,157 @@ Algorithm:
             ray_inv_d = safe_invdir(ray_d)
         end
     end
-
-    # Fill in hit output - matches HLSL
-    @inbounds if closest_instance >= Int32(0)
-        inst_idx = UInt32(closest_instance + Int32(1))
-        inst = tlas_instances[inst_idx]
-        desc = tlas_blas_descs[inst.blas_index]
-        # The BLAS stores the triangle in object space; the caller shades in the
-        # ray's (world) space.
-        tri = transform(inst.transform, tlas_blas_prims[desc.primitives_offset + closest_prim])
-        w = 1.0f0 - hit_u - hit_v
-        bary = SVector{3, Float32}(w, hit_u, hit_v)
-        return (true, tri, ray_maxt, bary, custom_index(inst))
-    else
-        # No hit - return zero sentinel
-        dummy_tri = empty_triangle(eltype(tlas_blas_prims))
-        bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-        return (false, dummy_tri, 0.0f0, bary, UInt32(0))
-    end
+    return state
 end
 
 """
-    any_hit(tlas::StaticTLAS, ray::AbstractRay, mask = 0xff) -> (hit, primitive, distance, barycentric, instance_id)
+    closest_hit_record(tlas::StaticTLAS, ray::AbstractRay, mask) -> HitRecord
 
-Traverse two-level BVH to find ANY ray intersection (returns on first hit).
-Faster than closest_hit when only occlusion testing is needed. `mask` is the
-ray's cull mask, and the hit means what it does for [`closest_hit`](@ref).
-
-Matches HLSL TraceRays with ANY_HIT defined.
+The ray's closest intersection, every instance taken as opaque; `mask` is the
+ray's cull mask (see [`traverse`](@ref)).
 """
-@inline function any_hit(tlas::StaticTLAS, ray::AbstractRay, mask::Integer)
-    # Initialize traversal state - matches HLSL TraceRays
-    ray = check_direction(ray)
-    ray_o::Point3f = ray.o
-    ray_d::Vec3f = ray.d
-    ray_mint::Float32 = 0.0f0
-    ray_maxt::Float32 = ray.t_max
-    ray_inv_d::Vec3f = safe_invdir(ray_d)
+@inline closest_hit_record(tlas::StaticTLAS, ray::AbstractRay, mask::Integer) =
+    closest_hit_record(tlas, ray, mask, everything)
 
-    # Stack for traversal (32 entries sufficient for typical BVH depths of ~20 levels)
-    stack = MVector{32, UInt32}(undef)
-    stack_ptr::Int32 = Int32(1)
-    @inbounds stack[stack_ptr] = INVALID_NODE
-
-    # Traversal state - use Int32 for indices to avoid UInt32 arithmetic issues
-    current_instance::Int32 = Int32(-1)  # -1 means no instance (top level)
-    current_blas_offset::UInt32 = UInt32(0)
-
-    # Get typed references to avoid repeated field access
-    tlas_nodes = tlas.nodes
-    tlas_instances = tlas.instances
-    tlas_blas_nodes = tlas.all_blas_nodes
-    tlas_blas_prims = tlas.all_blas_prims
-    tlas_blas_descs = tlas.blas_descriptors
-
-    # Entry point is node 1 (1-indexed in Julia); none in an empty structure, as
-    # in `closest_hit`.
-    node_index::UInt32 = isempty(tlas_nodes) ? INVALID_NODE : UInt32(1)
-
-    @inbounds while node_index != INVALID_NODE
-        # Fetch node based on current level
-        node::BVHNode2 = if current_instance < Int32(0)
-            tlas_nodes[node_index]
-        else
-            tlas_blas_nodes[current_blas_offset + node_index]
-        end
-
-        is_leaf::Bool = (node.child0 == INVALID_NODE)
-
-        if !is_leaf
-            # Interior node - test both children and get ordered traversal
-            near_child, far_child = intersect_internal_node(node, ray_inv_d, ray_o, ray_mint, ray_maxt)
-
-            # Push far child if valid
-            if far_child != INVALID_NODE
-                stack_ptr += Int32(1)
-                stack[stack_ptr] = far_child
-            end
-
-            # Visit near child if valid
-            if near_child != INVALID_NODE
-                node_index = near_child
-                continue
-            end
-        elseif current_instance < Int32(0)
-            # Top-level leaf - transition to instance, unless the ray does not
-            # see it (hidden, or no mask bit in common): then it is popped like
-            # a missed node.
-            inst = tlas_instances[node.child1 + UInt32(1)]
-            if sees(inst, mask)
-                current_instance = Int32(node.child1)  # 0-indexed instance index
-
-                # Push sentinel
-                stack_ptr += Int32(1)
-                stack[stack_ptr] = TOP_LEVEL_SENTINEL
-
-                # Transform the ray into the instance
-                node_index = UInt32(1)  # Start at root of BLAS
-                desc = tlas_blas_descs[inst.blas_index]
-                current_blas_offset = desc.nodes_offset
-                ray_o = transform_point(inst.inv_transform, ray.o)
-                ray_d = transform_direction(inst.inv_transform, ray.d)
-                ray_inv_d = safe_invdir(ray_d)
-                continue
-            end
-        else
-            # Bottom-level leaf - test triangle
-            hit, t, u, v = intersect_leaf_node(node, ray_d, ray_o, ray_mint, ray_maxt)
-            if hit
-                # ANY_HIT: return immediately on first hit
-                inst_idx = UInt32(current_instance + Int32(1))
-                inst = tlas_instances[inst_idx]
-                desc = tlas_blas_descs[inst.blas_index]
-                tri = transform(inst.transform, tlas_blas_prims[desc.primitives_offset + node.child1])
-                w = 1.0f0 - u - v
-                bary = SVector{3, Float32}(w, u, v)
-                return (true, tri, t, bary, custom_index(inst))
-            end
-        end
-
-        # Pop from stack
-        node_index = stack[stack_ptr]
-        stack_ptr -= Int32(1)
-
-        # Check for level transition
-        if node_index == TOP_LEVEL_SENTINEL
-            # Return to top level
-            node_index = stack[stack_ptr]
-            stack_ptr -= Int32(1)
-            current_instance = Int32(-1)
-
-            # Restore original ray
-            ray_o = ray.o
-            ray_d = ray.d
-            ray_inv_d = safe_invdir(ray_d)
-        end
+@inline closest_hit_record(tlas::StaticTLAS, ray::AbstractRay, mask::Integer, enters) =
+    traverse(HitRecord(), tlas, ray, mask, enters) do _, t, u, v, inst, prim, custom
+        (HitRecord(t, u, v, inst, prim, custom), t, false)
     end
 
-    # No hit found. The same sentinel as `closest_hit`'s: `tlas_blas_prims[1]`
-    # stood here, which an empty structure does not have.
-    dummy_tri = empty_triangle(eltype(tlas_blas_prims))
-    bary = SVector{3, Float32}(0.0f0, 0.0f0, 0.0f0)
-    return (false, dummy_tri, 0.0f0, bary, UInt32(0))
+"""
+    any_hit_record(tlas::StaticTLAS, ray::AbstractRay, mask) -> HitRecord
+
+An intersection of the ray, the first the traversal finds, every instance taken
+as opaque. Faster than [`closest_hit_record`](@ref) when only occlusion matters.
+"""
+@inline any_hit_record(tlas::StaticTLAS, ray::AbstractRay, mask::Integer) =
+    any_hit_record(tlas, ray, mask, everything)
+
+@inline any_hit_record(tlas::StaticTLAS, ray::AbstractRay, mask::Integer, enters) =
+    traverse(HitRecord(), tlas, ray, mask, enters) do _, t, u, v, inst, prim, custom
+        (HitRecord(t, u, v, inst, prim, custom), t, true)
+    end
+
+@inline see_through(inst::InstanceDescriptor) = !is_opaque(inst)
+
+# In passes, each with a state as small as a closest hit's: whether an opaque
+# instance blocks the ray, then the nearest hit on the others past the last one,
+# until `N` are kept. The kept hits stay out of the walks.
+@inline function transparent_hits(tlas::StaticTLAS, ray::AbstractRay, mask::Integer, ::Val{N},
+                                  limit::Integer) where {N}
+    th = TransparentHits{N}()
+    any_hit_record(tlas, ray, mask, is_opaque).kind == HIT_MISS || return blocked(th)
+    r = Ray(o = ray.o, d = ray.d, t_min = Float32(ray.t_min), t_max = Float32(ray.t_max))
+    for _ in 1:N
+        rec = closest_hit_record(tlas, r, mask, see_through)
+        rec.kind == HIT_MISS && return th
+        th = record(th, rec, limit)
+        th.blocked && return th
+        r = Ray(r; t_min = nextfloat(rec.t))
+    end
+    return th
 end
+
+# The BLAS stores the triangle in object space; the caller shades in the ray's
+# (world) space.
+@inline function hit_primitive(tlas::StaticTLAS, r::HitRecord)
+    @inbounds inst = tlas.instances[r.instance + UInt32(1)]
+    @inbounds desc = tlas.blas_descriptors[inst.blas_index]
+    return @inbounds transform(inst.transform, tlas.all_blas_prims[desc.primitives_offset + r.primitive])
+end
+
+@inline miss_primitive(tlas::StaticTLAS) = empty_triangle(eltype(tlas.all_blas_prims))
+
+# ==============================================================================
+# Hit records, and the queries every adapted structure answers through them
+# ==============================================================================
+
+"""
+    closest_hit_record(adapted, ray, mask = 0xff) -> HitRecord
+
+The ray's nearest intersection. Every adapted structure implements the
+three-argument method; [`closest_hit`](@ref) is derived from it.
+"""
+function closest_hit_record end
+
+"""
+    any_hit_record(adapted, ray, mask = 0xff) -> HitRecord
+
+An intersection of the ray, the first traversal accepts. Every adapted structure
+implements the three-argument method; [`any_hit`](@ref) is derived from it.
+"""
+function any_hit_record end
+
+"""
+    transparent_hits(adapted, ray, mask, Val(N), limit) -> TransparentHits{N}
+
+The hits of `ray` on instances that are not opaque (`opaque = false` at `push!`,
+[`set_opaque!`](@ref)), the nearest `N` of them kept, until a hit on an opaque
+instance blocks the ray. Nothing decides about a hit during the traversal: a
+caller shades the kept hits in order, and traces on from the last of them when
+`count >= N`. Cycles' shadow rays through transparent surfaces
+(`scene_intersect_shadow_all`). Every adapted structure implements it.
+"""
+function transparent_hits end
+
+"""
+    hit_primitive(adapted, rec::HitRecord) -> primitive
+
+The primitive `rec` hit, in world space (moved by its instance's transform).
+Every adapted structure implements it, for the records it returns.
+"""
+function hit_primitive end
+
+"""
+    miss_primitive(adapted) -> primitive
+
+What [`closest_hit`](@ref) returns as the primitive of a miss: the empty one of
+the structure's primitive type.
+"""
+function miss_primitive end
+
+"""
+    hit_barycentric(adapted, rec::HitRecord) -> SVector{3,Float32}
+
+The barycentrics of the hit on [`hit_primitive`](@ref)'s primitive. A structure
+with generated hits answers those itself.
+"""
+@inline hit_barycentric(::AbstractAdaptedAccel, r::HitRecord) =
+    SVector{3,Float32}(1f0 - r.a[1] - r.a[2], r.a[1], r.a[2])
+
+"""
+    hit_result(adapted, rec::HitRecord) -> (hit, primitive, t, bary, instance_id)
+
+A record as the tuple [`closest_hit`](@ref) and [`any_hit`](@ref) return.
+"""
+@inline function hit_result(accel::AbstractAdaptedAccel, r::HitRecord)
+    r.kind == HIT_MISS && return (false, miss_primitive(accel), 0f0, SVector{3,Float32}(1f0, 0f0, 0f0), UInt32(0))
+    return (true, hit_primitive(accel, r), r.t, hit_barycentric(accel, r), r.custom)
+end
+
+"""
+    closest_hit(adapted, ray, mask = 0xff) -> (hit, primitive, t, bary, instance_id)
+
+The nearest intersection, expanded: `primitive` is the hit triangle in world
+space and `instance_id` the instance's custom index; the empty primitive and `0`
+on a miss. The same on every adapted structure, software and hardware.
+"""
+@inline closest_hit(accel::AbstractAdaptedAccel, ray::AbstractRay, mask::Integer) =
+    hit_result(accel, closest_hit_record(accel, ray, mask))
+
+"""
+    any_hit(adapted, ray, mask = 0xff) -> (hit, primitive, t, bary, instance_id)
+
+The SAME shape as [`closest_hit`](@ref), not a `Bool`: only the traversal
+differs, stopping at the first accepted hit.
+"""
+@inline any_hit(accel::AbstractAdaptedAccel, ray::AbstractRay, mask::Integer) =
+    hit_result(accel, any_hit_record(accel, ray, mask))
 
 # The two-argument forms trace with mask `0xff`, which every instance pushed
-# with the default mask matches. On every adapted structure, hardware ones
-# included: a backend implements the three-argument method only.
+# with the default mask matches.
+@inline closest_hit_record(accel::AbstractAdaptedAccel, ray::AbstractRay) = closest_hit_record(accel, ray, 0xff)
+@inline any_hit_record(accel::AbstractAdaptedAccel, ray::AbstractRay) = any_hit_record(accel, ray, 0xff)
 @inline closest_hit(accel::AbstractAdaptedAccel, ray::AbstractRay) = closest_hit(accel, ray, 0xff)
 @inline any_hit(accel::AbstractAdaptedAccel, ray::AbstractRay) = any_hit(accel, ray, 0xff)
 

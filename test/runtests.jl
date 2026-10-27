@@ -37,7 +37,7 @@ const TEST_BACKEND = if RAYCORE_TEST_BACKEND == "cpu"
 elseif RAYCORE_TEST_BACKEND == "lava"
     Mantle.Device()
 elseif RAYCORE_TEST_BACKEND == "lavapipe"
-    Mantle.backend(Mantle.defaultdevice!("lavapipe"))
+    Mantle.defaultdevice!("lavapipe")
 elseif RAYCORE_TEST_BACKEND == "metal"
     Metal.MetalBackend()
 else
