@@ -259,6 +259,8 @@ mutable struct MultiTypeSet{Backend} <: AbstractVector{Any}
     # Material storage - CPU vectors for accumulation (the authoritative data).
     data_vectors::Dict{DataType, Any}  # Type -> Vector{Type}
     data_order::Vector{DataType}
+    # Slots `delete!` vacated, by stored type: the next `push!` of that type takes one.
+    vacant::Dict{DataType, Vector{UInt32}}
     # Texture type order.  The shader-visible table of isbits device pointers
     # lives only in `static.textures[slot]` — no parallel CPU mirror.
     texture_order::Vector{DataType}
@@ -295,7 +297,7 @@ end
 deref(::MultiTypeSet, array::AbstractArray) = array
 
 function Base.length(set::MultiTypeSet)
-    return sum(length, values(set.data_vectors); init=0)
+    return sum(length, values(set.data_vectors); init=0) - sum(length, values(set.vacant); init=0)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", set::MultiTypeSet)
@@ -315,6 +317,7 @@ function MultiTypeSet(backend)
         backend,
         Dict{DataType, Any}(),
         DataType[],
+        Dict{DataType, Vector{UInt32}}(),
         DataType[],
         Any[],
         StaticMultiTypeSet(),
@@ -443,7 +446,13 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
     CT = typeof(converted_item)
 
     type_idx = findfirst(==(CT), dhv.data_order)
-    if type_idx === nothing
+    vacant = get(dhv.vacant, CT, nothing)
+    if vacant !== nothing && !isempty(vacant)
+        # A slot `delete!` vacated: written where it lies, so no buffer moves.
+        key = SetKey(UInt32(type_idx), pop!(vacant))
+        write_slot!(dhv, key, converted_item)
+        return key
+    elseif type_idx === nothing
         # New material type: extend `static.data` by one slot.
         dhv.data_vectors[CT] = [converted_item]
         push!(dhv.data_order, CT)
@@ -557,14 +566,58 @@ function update!(dhv::MultiTypeSet, key::SetKey, new_item)
     # no-op, not an error — the caller's intent ("refresh what's stored")
     # is vacuously satisfied.
     is_invalid(key) && return nothing
-    CT = dhv.data_order[key.type_idx]
-    old_converted = dhv.data_vectors[CT][key.vec_idx]
-    updated = update_item(dhv, old_converted, new_item)
-    if updated !== old_converted
-        # Keep CPU and GPU consistent in one go — surgical single-element write.
-        dhv.data_vectors[CT][key.vec_idx] = updated
-        @allowscalar dhv.static.data[key.type_idx][key.vec_idx] = updated
+    old = dhv[key]
+    updated = update_item(dhv, old, new_item)
+    updated isa typeof(old) || throw(ArgumentError(
+        "update!: a $(typeof(new_item)) is stored as another type than the $(typeof(old)) under the key; " *
+        "`store!` it to move it to a slot of its own type"))
+    updated === old || write_slot!(dhv, key, updated)
+    return nothing
+end
+
+"""
+    store!(dhv::MultiTypeSet, key::SetKey, item) -> SetKey
+
+Store `item` in place of the item under `key` and return the key it is stored under now: `key`
+when `item` updates that item in place (`update_item` gives a value of its stored type, see
+[`update!`](@ref)), else a slot of `item`'s own type, `push!`ed, with `key` vacated (`delete!`).
+An invalid `key` (nothing stored) is a `push!`.
+
+A material swapped for another kind of material is the second case: its type is not the slot's,
+so it cannot be written there.
+"""
+function store!(dhv::MultiTypeSet, key::SetKey, item)
+    is_invalid(key) && return push!(dhv, item)
+    old = dhv[key]
+    updated = update_item(dhv, old, item)
+    if updated isa typeof(old)
+        updated === old || write_slot!(dhv, key, updated)
+        return key
     end
+    delete!(dhv, key)
+    return push!(dhv, item)
+end
+
+"""
+    delete!(dhv::MultiTypeSet, key::SetKey)
+
+Vacate the slot under `key`: the next `push!` of an item of its stored type takes it. The item
+stays where it is until then, so no buffer moves and plans packed with the set stay valid; the
+caller makes sure nothing reads `key` any more. An invalid key is a no-op.
+"""
+function Base.delete!(dhv::MultiTypeSet, key::SetKey)
+    is_invalid(key) && return dhv
+    push!(get!(Vector{UInt32}, dhv.vacant, dhv.data_order[key.type_idx]), key.vec_idx)
+    return dhv
+end
+
+# The item under `key`, host mirror and device slot in one go: a surgical single-element write.
+function write_slot!(dhv::MultiTypeSet, key::SetKey, item)
+    host = dhv.data_vectors[dhv.data_order[key.type_idx]]
+    slot = dhv.static.data[key.type_idx]
+    host[key.vec_idx] = item
+    # On `KA.CPU()` the slot IS the host mirror (see `push!`).
+    slot === host || @allowscalar slot[key.vec_idx] = item
     return nothing
 end
 
@@ -577,7 +630,7 @@ those slots instead of uploading the arrays again.
 """
 Base.getindex(dhv::MultiTypeSet, key::SetKey) = dhv.data_vectors[dhv.data_order[key.type_idx]][key.vec_idx]
 
-public update_item, copyto_texture!
+public update_item, copyto_texture!, store!
 
 """
     update_item(dhv::MultiTypeSet, old, new)

@@ -213,3 +213,45 @@ end
     push!(set, MaterialWith2(0.1f0, rand(Float32, 4, 4)))
     @test set.layout > l2
 end
+
+# A material swapped for another kind of material cannot be written into its slot: the slot holds
+# items of one stored type. `update!` refused it with a `convert` error deep in `setindex!`, so
+# RayMakie could not change a plot's material to another kind at all. `store!` moves it to a slot
+# of its own type and vacates the old one, which the next item of that type takes.
+@testset "store! moves an item of another type, and a vacated slot is reused" begin
+    set = MultiTypeSet(backend)
+    a = push!(set, SimpleMaterial(0.5f0))
+    b = push!(set, SimpleMaterial(0.6f0))
+    @test_throws ArgumentError update!(set, a, GlassMaterial(1.5f0))
+    @test set[a] == SimpleMaterial(0.5f0)
+
+    # Same stored type: in place, the key stays.
+    @test Raycore.store!(set, a, SimpleMaterial(0.7f0)) == a
+    @test set[a] == SimpleMaterial(0.7f0)
+
+    # Another type: a slot of its own, and `a`'s is vacant.
+    l = set.layout
+    g = Raycore.store!(set, a, GlassMaterial(1.5f0))
+    @test g != a && set[g] == GlassMaterial(1.5f0)
+    @test set.layout > l               # a new type is a new buffer
+    @test length(set) == 2
+
+    # The vacancy is filled before the slot grows, and nothing moves.
+    l = set.layout
+    c = push!(set, SimpleMaterial(0.9f0))
+    @test c == a
+    @test set.layout == l
+    @test length(set) == 3
+    @test Array(Raycore.get_static(set).data[a.type_idx]) == [SimpleMaterial(0.9f0), SimpleMaterial(0.6f0)]
+
+    # Back to the first type: `g`'s slot is vacated, and the item lands in a fresh one.
+    s = Raycore.store!(set, g, SimpleMaterial(0.1f0))
+    @test s.type_idx == a.type_idx && s.vec_idx == 3
+    @test length(set) == 3
+    @test set[b] == SimpleMaterial(0.6f0)
+
+    # An invalid key holds nothing: storing there is a push, deleting it a no-op.
+    @test Raycore.store!(set, SetKey(), GlassMaterial(1.2f0)) == g
+    delete!(set, SetKey())
+    @test length(set) == 4
+end

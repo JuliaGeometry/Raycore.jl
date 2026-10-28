@@ -107,6 +107,7 @@ include("kernels.jl")
 include("collision.jl")
 include("soa.jl")
 include("multitypeset.jl")
+include("setview.jl")
 include("unrolled.jl")
 include("rt_transport.jl")
 
@@ -200,7 +201,7 @@ export @get, @set, similar_soa
 export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, getindex_unrolled
 
 # MultiTypeSet - type-stable heterogeneous collections
-export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
+export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef, SetView, setview
 export is_invalid, is_valid, with_index, with_texture, n_slots, deref, get_static, to_tuple
 export maybe_convert_field, store_texture
 export free!
