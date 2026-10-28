@@ -690,6 +690,10 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
         count += 1
         count == ref.idx || continue
 
+        # A producer that owns the slot's storage and wrote it in place hands
+        # the same array back: there is nothing to copy (and a buffer copied
+        # onto itself is an overlapping copy, which Vulkan leaves undefined).
+        arr === new_data && return
         if size(arr) == size(new_data)
             # Same shape: pointer cannot move — one copyto!, done.
             copyto!(arr, new_data)
