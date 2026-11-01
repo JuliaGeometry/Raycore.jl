@@ -29,8 +29,10 @@ function Makie.convert_arguments(::Type{Makie.Mesh}, tlas::Union{Raycore.TLAS, R
         end
     end
 
-    for blas in tlas.blas_array
-        for prim in blas.primitives
+    # TLAS.blas_array holds device views; the owning arrays support host copies.
+    blases = tlas isa Raycore.TLAS ? tlas.blas_storage : tlas.blas_array
+    for blas in blases
+        for prim in Array(blas.primitives)
             start_idx = length(vertices)
             color_val = get_color_for_metadata(prim.metadata)
             for (v, n) in zip(prim.vertices, prim.normals)
