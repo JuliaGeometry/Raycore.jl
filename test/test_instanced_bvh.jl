@@ -41,9 +41,9 @@ end
     tris[1] = tri
 end
 
-# `transparent_hits` of one ray, keeping four, in a kernel on the structure's backend.
-@kernel function transparent_kernel!(out, tlas, ray, limit)
-    out[1] = transparent_hits(tlas, ray, 0xff, Val(4), limit)
+# `transparent_hits` of one ray, keeping `n` hits, in a kernel on the structure's backend.
+@kernel function transparent_kernel!(out, tlas, ray, limit, n)
+    out[1] = transparent_hits(tlas, ray, 0xff, n, limit)
 end
 
 # Instance records written on the device, as a simulation would: record `i`
@@ -661,15 +661,15 @@ end
     push!(tlas, quad(-3f0), Mat4f(I); instance_id = UInt32(99))
     sync!(tlas)
 
-    function shoot(; t_min = 0f0, t_max = 12f0, limit = 10)
-        out = Adapt.adapt(backend, [TransparentHits{4}()])
+    function shoot(; t_min = 0f0, t_max = 12f0, limit = 10, keep = 4)
+        out = Adapt.adapt(backend, [TransparentHits{keep}()])
         transparent_kernel!(backend)(out, tlas.static_tlas, Raycore.Ray(o = Point3f(0.1, 0.2, 10), d = Vec3f(0, 0, -1),
                                                                          t_min = t_min, t_max = t_max),
-                                     limit; ndrange = 1)
+                                     limit, Val(keep); ndrange = 1)
         KA.synchronize(backend)
         return only(Array(out))
     end
-    kept(th) = [(h.t, h.custom) for h in th.hits[1:min(th.count, 4)]]
+    kept(th) = [(h.t, h.custom) for h in th.hits[1:min(th.count, length(th.hits))]]
 
     th = shoot()                              # down to z = -2: the floor is past the end
     @test !th.blocked && th.count >= 4        # four kept; there may be more
@@ -679,6 +679,14 @@ end
     @test !th.blocked && kept(th) == [(9f0, 11), (10f0, 10)]
     @test shoot(t_max = 20f0).blocked         # the floor
     @test shoot(limit = 3).blocked            # four layers are more than three
+    # One kept: whether anything see-through lies on the way at all, on every
+    # structure (the software walk counts only the hits it keeps). What Hikari's
+    # shading asks of a shadow ray before it queues one for the whole trace.
+    th = shoot(keep = 1, limit = typemax(UInt32))
+    @test !th.blocked && th.count >= 1 && kept(th)[1:1] == [(5f0, 15)]
+    @test shoot(keep = 1, limit = typemax(UInt32), t_max = 20f0).blocked
+    th = shoot(keep = 1, limit = typemax(UInt32), t_max = 4f0)
+    @test !th.blocked && th.count == 0
     # Closest hits stop at the top layer, see-through or not.
     out = Adapt.adapt(backend, [(false, 0f0, UInt32(99))])
     tris = Adapt.adapt(backend, [Raycore.empty_triangle(Raycore.Triangle{UInt32})])
