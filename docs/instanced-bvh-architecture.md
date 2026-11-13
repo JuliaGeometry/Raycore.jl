@@ -203,8 +203,8 @@ end
 
 # Propagate AABBs upward
 for i in (n-1):-1:1
-    child0_aabb = get_node_aabb(nodes[nodes[i].child0])
-    child1_aabb = get_node_aabb(nodes[nodes[i].child1])
+    child0_aabb = node_aabb(TriangleLeaves(), nodes[nodes[i].child0], nodes[i].child0 < n)
+    child1_aabb = node_aabb(TriangleLeaves(), nodes[nodes[i].child1], nodes[i].child1 < n)
     nodes[i] = create_interior(child0_aabb ∪ child1_aabb, ...)
 end
 ```
@@ -282,13 +282,9 @@ All functions must be **type-stable** to generate efficient GPU kernels:
 
 ```julia
 # ✓ Type-stable
-@inline function get_node_aabb(node::BVHNode2, is_interior::Bool)::Bounds3
-    if is_interior
-        Bounds3(min.(node.aabb0_min, node.aabb1_min),
-                max.(node.aabb0_max, node.aabb1_max))
-    else
-        Bounds3(node.aabb0_min, node.aabb0_max)
-    end
+@inline function node_aabb(leaves, node::BVHNode2, is_interior::Bool)::Bounds3
+    is_interior || return leaf_aabb(leaves, node)
+    return Bounds3(min.(node.aabb0_min, node.aabb1_min), max.(node.aabb0_max, node.aabb1_max))
 end
 
 # ✗ NOT type-stable (return type depends on runtime value)
@@ -310,7 +306,7 @@ using Test
     node = BVHNode2(...)
 
     # Should infer return type at compile time
-    result = @inferred get_node_aabb(node, true)
+    result = @inferred node_aabb(BoxLeaves(), node, true)
     @test result isa Bounds3
 end
 ```

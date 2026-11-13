@@ -85,7 +85,7 @@ function view_factors!(result, tlas, rays_per_triangle=10000)
             tri_idx = triangle.metadata
             n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
             normal = normalize(n)
-            u, v = get_orthogonal_basis(normal)
+            u, v = coordinate_system(normal)
             for i in 1:rays_per_triangle
                 point_on_triangle = random_triangle_point(triangle)
                 o = point_on_triangle .+ (normal .* 0.01f0)

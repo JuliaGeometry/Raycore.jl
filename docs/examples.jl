@@ -112,7 +112,7 @@ using AMDGPU
 prim_info = map(bvh.primitives) do triangle
     n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
     normal = normalize(Vec3f(n))
-    u, v = Raycore.get_orthogonal_basis(normal)
+    u, v = Raycore.coordinate_system(normal)
     return triangle, u, v, normal
 end
 bvh_gpu = Raycore.to_gpu(ROCArray, bvh)
@@ -161,7 +161,7 @@ final_rays / 10^6
 prim_info = map(bvh.primitives) do triangle
     n = GB.orthogonal_vector(Vec3f, GB.Triangle(triangle.vertices...))
     normal = normalize(Vec3f(n))
-    u, v = Raycore.get_orthogonal_basis(normal)
+    u, v = Raycore.coordinate_system(normal)
     return triangle, u, v, normal
 end
 

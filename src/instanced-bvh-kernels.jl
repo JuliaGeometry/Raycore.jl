@@ -42,33 +42,14 @@ kernels read nothing else of a BLAS, so they take either the BLASes themselves
 @inline rootbounds(b::BLAS) = b.root_aabb
 @inline rootbounds(b::Bounds3) = b
 
-"""
-Compute world AABB for a single instance by transforming local AABB corners.
-Returns (min_point, max_point) as two Point3f values.
-"""
-@inline function compute_instance_world_aabb(
-    inst::InstanceDescriptor,
-    blas_array::AbstractVector
-)
+"""The world-space box of instance `inst`: its BLAS's box with all 8 corners transformed."""
+@inline function instance_world_aabb(inst::InstanceDescriptor, blas_array::AbstractVector)::Bounds3
     local_aabb = rootbounds(blas_array[inst.blas_index])
-
-    # Initialize with first corner
-    corner1 = transform_point(inst.transform, corner(local_aabb, 1))
-    min_p = corner1
-    max_p = corner1
-
-    # Expand to include all 8 corners
-    for c in 2:8
-        world_corner = transform_point(inst.transform, corner(local_aabb, c))
-        min_p = Point3f(min(min_p[1], world_corner[1]),
-                        min(min_p[2], world_corner[2]),
-                        min(min_p[3], world_corner[3]))
-        max_p = Point3f(max(max_p[1], world_corner[1]),
-                        max(max_p[2], world_corner[2]),
-                        max(max_p[3], world_corner[3]))
+    world_aabb = Bounds3()
+    for c in 1:8
+        world_aabb = world_aabb ∪ Bounds3(transform_point(inst.transform, corner(local_aabb, c)))
     end
-
-    return (min_p, max_p)
+    return world_aabb
 end
 
 """GPU kernel: Compute world AABBs for all instances, storing min/max points separately."""
@@ -80,10 +61,9 @@ KA.@kernel function compute_instance_aabbs_kernel!(
 )
     i = @index(Global, Linear)
     @inbounds begin
-        inst = instances[i]
-        min_p, max_p = compute_instance_world_aabb(inst, blas_array)
-        aabb_mins[i] = min_p
-        aabb_maxs[i] = max_p
+        b = instance_world_aabb(instances[i], blas_array)
+        aabb_mins[i] = b.p_min
+        aabb_maxs[i] = b.p_max
     end
 end
 
@@ -277,7 +257,8 @@ Based on RadeonRays Refit kernel.
 KA.@kernel function refit_aabbs_kernel!(
     nodes,
     update_flags,
-    n_prims::Int32
+    n_prims::Int32,
+    leaves
 )
     prim_idx = @index(Global, Linear)
 
@@ -308,8 +289,8 @@ KA.@kernel function refit_aabbs_kernel!(
                 is_child0_internal = child0 < n_prims
                 is_child1_internal = child1 < n_prims
 
-                aabb0 = get_node_aabb(nodes[child0], is_child0_internal)
-                aabb1 = get_node_aabb(nodes[child1], is_child1_internal)
+                aabb0 = node_aabb(leaves, nodes[child0], is_child0_internal)
+                aabb1 = node_aabb(leaves, nodes[child1], is_child1_internal)
 
                 # Update this node's AABBs
                 updated_node = BVHNode2(
@@ -380,15 +361,7 @@ Create TLAS leaf node for one instance (stores world-space AABB, not triangle ve
 )::BVHNode2
     # Get original instance index (sorted_indices maps sorted position -> original position)
     original_idx = sorted_indices[sorted_leaf_idx]
-    inst = instances[original_idx]
-    local_aabb = rootbounds(blas_array[inst.blas_index])
-
-    # Transform AABB to world space (8 corners)
-    world_aabb = Bounds3()
-    for c in 1:8
-        world_corner = transform_point(inst.transform, corner(local_aabb, c))
-        world_aabb = world_aabb ∪ Bounds3(world_corner)
-    end
+    world_aabb = instance_world_aabb(instances[original_idx], blas_array)
 
     return BVHNode2(
         world_aabb.p_min, world_aabb.p_max, Point3f(0), Point3f(0),
@@ -412,64 +385,6 @@ KA.@kernel function create_tlas_leaf_nodes_kernel!(
         @inbounds nodes[leaf_node_idx] = create_tlas_leaf_for_instance(
             i, sorted_indices, instances, blas_array, parent
         )
-    end
-end
-
-"""
-Parallel bottom-up AABB refit for TLAS using atomic counters.
-Uses get_tlas_node_aabb which treats leaves as storing AABBs directly (not triangle vertices).
-"""
-KA.@kernel function refit_tlas_aabbs_kernel!(
-    nodes,
-    update_flags,
-    n_instances::Int32
-)
-    inst_idx = @index(Global, Linear)
-
-    # Start at parent of this leaf
-    leaf_idx = Int(n_instances) - 1 + inst_idx
-    @inbounds parent_idx = nodes[leaf_idx].parent
-
-    # Walk up the tree
-    while parent_idx != INVALID_NODE
-        # Atomic increment: mark this node as visited
-        # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
-        # Release: everything this thread wrote to `nodes[...]` above must be
-        # visible before the counter below tells the sibling it may be read.
-        bvh_publish_fence()
-        new_value = @inbounds @atomic :acquire_release update_flags[parent_idx] += UInt32(1)
-
-        if new_value == UInt32(2)
-            # Acquire: pair with the sibling's release before reading its node.
-            bvh_publish_fence()
-            # Second thread arrived - compute AABB from both children
-            @inbounds begin
-                node = nodes[parent_idx]
-                child0 = node.child0
-                child1 = node.child1
-
-                is_child0_internal = child0 < n_instances
-                is_child1_internal = child1 < n_instances
-
-                # Use TLAS-specific AABB computation (leaves store AABBs, not vertices)
-                aabb0 = get_tlas_node_aabb(nodes[child0], is_child0_internal)
-                aabb1 = get_tlas_node_aabb(nodes[child1], is_child1_internal)
-
-                # Update this node's AABBs
-                updated_node = BVHNode2(
-                    aabb0.p_min, aabb0.p_max,
-                    aabb1.p_min, aabb1.p_max,
-                    node.child0, node.child1, node.parent
-                )
-                nodes[parent_idx] = updated_node
-
-                # Move to parent
-                parent_idx = node.parent
-            end
-        else
-            # First thread - bail out
-            break
-        end
     end
 end
 
@@ -542,7 +457,7 @@ end
 GPU kernel: Update TLAS leaf node AABBs from instance transforms.
 
 After transforms are updated, this kernel recomputes world-space AABBs for
-all leaf nodes. Must be called before refit_tlas_aabbs_kernel!.
+all leaf nodes. Must run before the refit (`refit_lbvh!`).
 
 NOTE: Leaf nodes are Morton-sorted, so we must use the stored instance index
 (child1) to look up the correct instance.
@@ -560,16 +475,7 @@ KA.@kernel function update_tlas_leaf_aabbs_kernel!(
             old_node = nodes[leaf_node_idx]
 
             # Get the actual instance index from the leaf node (stored as 0-indexed in child1)
-            inst_idx = Int(old_node.child1) + 1
-            inst = instances[inst_idx]
-            local_aabb = rootbounds(blas_array[inst.blas_index])
-
-            # Transform AABB to world space (8 corners)
-            world_aabb = Bounds3()
-            for c in 1:8
-                world_corner = transform_point(inst.transform, corner(local_aabb, c))
-                world_aabb = world_aabb ∪ Bounds3(world_corner)
-            end
+            world_aabb = instance_world_aabb(instances[Int(old_node.child1) + 1], blas_array)
 
             # Update leaf node with new AABB (preserve topology)
             nodes[leaf_node_idx] = BVHNode2(
@@ -628,7 +534,7 @@ end
 
 # Export kernel helper functions for testing
 export calculate_morton_code_for_prim, build_topology_for_node
-export set_parents_for_node, create_leaf_for_prim, refit_node_aabb
+export set_parents_for_node, create_leaf_for_prim
 export calculate_tlas_morton_code, create_tlas_leaf_for_instance
 export update_instance_transforms_offset_kernel!, apply_instance_records_kernel!, update_tlas_leaf_aabbs_kernel!
 export update_particle_materials_kernel!

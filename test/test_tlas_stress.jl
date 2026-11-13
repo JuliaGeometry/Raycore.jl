@@ -596,10 +596,10 @@ end
     @test !Raycore.is_valid(tlas, h)
 
     # Every mutation / inspection API must reject the handle loudly.
-    @test_throws ErrorException Raycore.update_transform!(tlas, h, stress_xlat(1, 0, 0))
-    @test_throws ErrorException Raycore.update_transforms!(tlas, h, [stress_xlat(1, 0, 0)])
-    @test_throws ErrorException Raycore.get_instance(tlas, h)
-    @test_throws ErrorException Raycore.get_instances(tlas, h)
+    @test_throws ArgumentError Raycore.update_transform!(tlas, h, stress_xlat(1, 0, 0))
+    @test_throws ArgumentError Raycore.update_transforms!(tlas, h, [stress_xlat(1, 0, 0)])
+    @test_throws ArgumentError Raycore.get_instance(tlas, h)
+    @test_throws ArgumentError Raycore.get_instances(tlas, h)
     @test Raycore.delete!(tlas, h) === false   # idempotent
 
     # Pre-compaction path: deleted but not yet sync!'d.
@@ -607,8 +607,8 @@ end
     Raycore.sync!(tlas)
     Raycore.delete!(tlas, h2)
     @test !Raycore.is_valid(tlas, h2)
-    @test_throws ErrorException Raycore.update_transform!(tlas, h2, stress_xlat(1, 0, 0))
-    @test_throws ErrorException Raycore.update_transforms!(tlas, h2, [stress_xlat(1, 0, 0)])
+    @test_throws ArgumentError Raycore.update_transform!(tlas, h2, stress_xlat(1, 0, 0))
+    @test_throws ArgumentError Raycore.update_transforms!(tlas, h2, [stress_xlat(1, 0, 0)])
 
     # update_transform! sets every instance of a handle; update_transforms! wants
     # exactly one transform per instance.
@@ -617,7 +617,7 @@ end
     Raycore.update_transform!(tlas, h3, stress_xlat(2, 0, 0))
     @test all(==(Raycore.mat4_to_mat3x4(stress_xlat(2, 0, 0))),
               [inst.transform for inst in Raycore.get_instances(tlas, h3)])
-    @test_throws ErrorException Raycore.update_transforms!(tlas, h3,
+    @test_throws ArgumentError Raycore.update_transforms!(tlas, h3,
         [stress_xlat(0,0,0), stress_xlat(1,0,0), stress_xlat(2,0,0)])                          # 3 vs 2
 end
 

@@ -204,7 +204,7 @@ end
     @test is_interior(interior_node)
 
     # Test AABB extraction
-    aabb = Raycore.get_node_aabb(interior_node, true)
+    aabb = Raycore.node_aabb(Raycore.TriangleLeaves(), interior_node, true)
     @test aabb isa Bounds3
     @test aabb.p_min == Point3f(0, 0, 0)
     @test aabb.p_max == Point3f(1, 1, 1)

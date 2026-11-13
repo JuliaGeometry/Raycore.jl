@@ -22,9 +22,12 @@ Concrete implementations:
 
 # Mutation API
 - `push!(accel, mesh, transform)`: add geometry, return a `TLASHandle`.
-- `delete!(accel, handle)`, `update_transform!(accel, handle, transform)`,
-  `update_transforms!(accel, handle, transforms)`, `set_visible!(accel, handle, visible)`,
-  `set_opaque!(accel, handle, opaque)`.
+- `delete!(accel, handle)`, `update_transforms!(accel, handle, transforms)`,
+  `set_visible!(accel, handle, visible)`, `set_opaque!(accel, handle, opaque)`.
+- `instancecount(accel, handle)` and `instanceranges(accel)`, on which
+  `update_transform!(accel, handle, transform)` and
+  `update_instance_transforms!(accel, transforms, n, first)` are written once.
+  An unknown or deleted handle is an `ArgumentError` everywhere.
 
 # Lifecycle
 - `sync!(accel)` — sole owner of `accel.static_tlas`. Rebuilds in place
