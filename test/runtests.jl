@@ -15,7 +15,6 @@ using GeometryBasics
 using LinearAlgebra
 using StaticArrays
 using Raycore
-using JET
 using Aqua
 using KernelAbstractions
 const KA = KernelAbstractions

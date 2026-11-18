@@ -1956,6 +1956,8 @@ calls at a hit it does not stop at, as Cycles' `bvh_shadow_all_anyhit_filter`.
     return TransparentHits{N}(ntuple(k -> k < at ? hits[k] : k == at ? rec : hits[k - 1], Val(N)), count, false)
 end
 
+@inline everything(::InstanceDescriptor) = true
+
 """
     traverse(visit, state, tlas::StaticTLAS, ray::AbstractRay, mask, enters = everything) -> state
 
@@ -1984,8 +1986,6 @@ Algorithm (HLSL TraceRays):
 3. Traverse BLAS for geometry intersection
 4. Report each hit in the ray's own parameter
 """
-@inline everything(::InstanceDescriptor) = true
-
 @inline function traverse(visit::F, state, tlas::StaticTLAS, ray::AbstractRay, mask::Integer,
                           enters::E = everything) where {F, E}
     ray = check_direction(ray)

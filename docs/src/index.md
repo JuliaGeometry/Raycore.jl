@@ -7,7 +7,7 @@ High-performance ray-triangle intersection engine with TLAS/BLAS acceleration fo
 - **Fast TLAS/BLAS acceleration** for ray-triangle intersection
 - **CPU and GPU support** via KernelAbstractions.jl
 - **MultiTypeSet**: GPU-safe heterogeneous collections with compile-time type-stable dispatch for materials, textures, lights, etc.
-- **GPU TLAS**: `Raycore.TLAS` is software, backend-agnostic (any KA backend). For hardware ray tracing on Vulkan, use `Lava.HWTLAS` — a drop-in `AbstractAccel` implemented via `VK_KHR_ray_tracing_pipeline`. See [Hardware Ray Tracing with Lava](@ref).
+- **GPU TLAS**: `Raycore.TLAS` is software, backend-agnostic (any KA backend). For hardware ray tracing on Vulkan and Metal, use `Mantle.HWTLAS`, a drop-in `AbstractAccel`. See [Hardware Ray Tracing with Mantle](@ref).
 - **Analysis tools**: centroid calculation, illumination analysis, view factors for radiosity
 - **Makie integration** for visualization
 
@@ -39,11 +39,11 @@ Port the ray tracer to the GPU with KernelAbstractions.jl. Learn about kernel op
 
 ### Hardware RT Acceleration
 
-Use dedicated GPU ray tracing hardware (RT cores / Ray Accelerators) for transparent BVH acceleration via Vulkan.
+Use dedicated GPU ray tracing hardware (RT cores / Ray Accelerators) for transparent BVH acceleration via Vulkan and Metal.
 
 ![Hardware RT](hw-accel-materials.png)
 
-[Hardware Ray Tracing with Lava](@ref)
+[Hardware Ray Tracing with Mantle](@ref)
 
 ### View Factors Analysis
 
