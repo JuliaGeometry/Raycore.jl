@@ -1608,7 +1608,7 @@ function build_tlas(
 
     all_nodes, all_prims, descriptors = flatten_blas(blas_array, [b.root_aabb for b in blas_array])
 
-    return StaticTLAS(nodes, backend_instances, all_nodes, all_prims, descriptors, root_aabb)
+    return StaticTLAS(nodes, backend_instances, all_nodes, all_prims, Adapt.adapt(backend, descriptors), root_aabb)
 end
 
 

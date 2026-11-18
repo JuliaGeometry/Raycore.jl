@@ -20,7 +20,7 @@
 # right up until the emissive triangles were counted by hand.
 #
 # Backend-independent by construction: the assertion is that the set holds what
-# was put into it, checked on whatever backend the matrix selected.
+# was put into it, checked on whatever device the suite runs on.
 
 using Test
 using Raycore

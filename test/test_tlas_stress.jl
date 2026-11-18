@@ -844,14 +844,14 @@ end
 # surfaces later as a confusing GPUCompiler "non-bitstype argument" inside
 # kernel compilation. Pin the loud-at-the-API-boundary contract.
 
-# A KA backend no TLAS here is built on: the second backend the check is handed
-# where the backend under test is the host one.
+# A KA backend no TLAS here is built on.
 struct ElsewhereBackend <: KA.Backend end
 
 @testset "TLAS stress — cross-backend adapt errors loudly" begin
-    # Built on the host and on the backend under test (the same one on the cpu
-    # entry), each handed to every backend there is here.
-    built_on = unique([KA.CPU(), STRESS_BACKEND])
+    # Built on the device under test and on lavapipe (the same one where there is no
+    # GPU), each handed to every device there is here: two devices of one type
+    # differ by identity.
+    built_on = unique([STRESS_BACKEND, Mantle.Device("lavapipe")])
     for on in built_on
         tlas = Raycore.TLAS(on)
         push!(tlas, stress_sphere(8))

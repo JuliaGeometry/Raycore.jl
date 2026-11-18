@@ -18,8 +18,8 @@
 # geometry that was really there. Nothing threw.
 #
 # The assertions below are deliberately backend-independent. The invariant is a
-# property of the tree, so it is checked on whatever backend the matrix
-# selected rather than against a reference image or a reference driver.
+# property of the tree, so it is checked on whatever device the suite
+# runs on rather than against a reference image or a reference driver.
 
 using Test
 using Raycore
