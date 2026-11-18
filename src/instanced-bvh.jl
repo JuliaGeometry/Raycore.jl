@@ -1842,11 +1842,15 @@ Matches HLSL fast_intersect_bbox.
     f = bbox.p_max .* ray_inv_d .+ oxinvdir
     n = bbox.p_min .* ray_inv_d .+ oxinvdir
 
-    tmax_vec = max.(f, n)
-    tmin_vec = min.(f, n)
+    # `min_fast`/`max_fast` (`@fastmath min`): the native minimum on every backend. Julia's
+    # `min`, which propagates NaN and orders -0.0 before 0.0, costs 40-80% of a Hikari frame
+    # on Metal, and the slab test needs neither: a NaN only arises for a ray parallel to a
+    # face that starts on its plane (0 * Inf), where any answer is acceptable.
+    tmax_vec = max_fast.(f, n)
+    tmin_vec = min_fast.(f, n)
 
-    max_t = min(minimum(tmax_vec), t_max)
-    min_t = max(maximum(tmin_vec), t_min)
+    max_t = min_fast(min_fast(min_fast(tmax_vec[1], tmax_vec[2]), tmax_vec[3]), t_max)
+    min_t = max_fast(max_fast(max_fast(tmin_vec[1], tmin_vec[2]), tmin_vec[3]), t_min)
 
     return (min_t, max_t)
 end

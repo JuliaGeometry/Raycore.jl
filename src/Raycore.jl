@@ -8,6 +8,8 @@ import GeometryBasics as GB
 using Statistics
 using Adapt
 using GPUArraysCore: @allowscalar
+# the slab tests' min/max: native minNum on every backend, see `fast_intersect_bbox`
+using Base.FastMath: min_fast, max_fast
 
 abstract type AbstractRay end
 abstract type Primitive end

@@ -528,11 +528,12 @@ Test ray against one child AABB of a BVH4 node.
     f = aabb.p_max .* ray_inv_d .+ oxinvdir
     n = aabb.p_min .* ray_inv_d .+ oxinvdir
 
-    tmax_vec = max.(f, n)
-    tmin_vec = min.(f, n)
+    # see `fast_intersect_bbox`
+    tmax_vec = max_fast.(f, n)
+    tmin_vec = min_fast.(f, n)
 
-    max_t = min(minimum(tmax_vec), t_max)
-    min_t = max(maximum(tmin_vec), t_min)
+    max_t = min_fast(min_fast(min_fast(tmax_vec[1], tmax_vec[2]), tmax_vec[3]), t_max)
+    min_t = max_fast(max_fast(max_fast(tmin_vec[1], tmin_vec[2]), tmin_vec[3]), t_min)
 
     return (min_t <= max_t, min_t)
 end
