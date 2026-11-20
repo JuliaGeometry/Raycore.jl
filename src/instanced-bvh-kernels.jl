@@ -32,33 +32,24 @@ end
 # ==============================================================================
 
 """
-Compute world AABB for a single instance by transforming local AABB corners.
-Returns (min_point, max_point) as two Point3f values.
+    rootbounds(x) -> Bounds3
+
+The bounds of what an instance instances, in its own space. The TLAS management
+kernels read nothing else of a BLAS, so they take either the BLASes themselves
+(the dynamic TLAS keeps a device array of isbits ones) or only their root bounds
+(`build_tlas`, whose BLASes are host structs of arrays, which no kernel can take).
 """
-@inline function compute_instance_world_aabb(
-    inst::InstanceDescriptor,
-    blas_array::AbstractVector{<:BLAS}
-)
-    blas = blas_array[inst.blas_index]
-    local_aabb = blas.root_aabb
+@inline rootbounds(b::BLAS) = b.root_aabb
+@inline rootbounds(b::Bounds3) = b
 
-    # Initialize with first corner
-    corner1 = transform_point(inst.transform, corner(local_aabb, 1))
-    min_p = corner1
-    max_p = corner1
-
-    # Expand to include all 8 corners
-    for c in 2:8
-        world_corner = transform_point(inst.transform, corner(local_aabb, c))
-        min_p = Point3f(min(min_p[1], world_corner[1]),
-                        min(min_p[2], world_corner[2]),
-                        min(min_p[3], world_corner[3]))
-        max_p = Point3f(max(max_p[1], world_corner[1]),
-                        max(max_p[2], world_corner[2]),
-                        max(max_p[3], world_corner[3]))
+"""The world-space box of instance `inst`: its BLAS's box with all 8 corners transformed."""
+@inline function instance_world_aabb(inst::InstanceDescriptor, blas_array::AbstractVector)::Bounds3
+    local_aabb = rootbounds(blas_array[inst.blas_index])
+    world_aabb = Bounds3()
+    for c in 1:8
+        world_aabb = world_aabb ∪ Bounds3(transform_point(inst.transform, corner(local_aabb, c)))
     end
-
-    return (min_p, max_p)
+    return world_aabb
 end
 
 """GPU kernel: Compute world AABBs for all instances, storing min/max points separately."""
@@ -70,10 +61,9 @@ KA.@kernel function compute_instance_aabbs_kernel!(
 )
     i = @index(Global, Linear)
     @inbounds begin
-        inst = instances[i]
-        min_p, max_p = compute_instance_world_aabb(inst, blas_array)
-        aabb_mins[i] = min_p
-        aabb_maxs[i] = max_p
+        b = instance_world_aabb(instances[i], blas_array)
+        aabb_mins[i] = b.p_min
+        aabb_maxs[i] = b.p_max
     end
 end
 
@@ -236,10 +226,39 @@ Each thread starts at a leaf and walks up the tree. Uses atomic operations
 to ensure each internal node is updated exactly once after both children are ready.
 Based on RadeonRays Refit kernel.
 """
+#     bvh_publish_fence()
+#
+# Device-scope memory fence ordering a BVH node's AABB store against the atomic
+# counter that publishes it.
+#
+# The bottom-up refit kernels below are Karras' scheme: each of a node's two
+# children increments the parent's arrival counter, the second arriver reads
+# BOTH children and writes their boxes into the parent. That handoff is a
+# release/acquire pair — the writing thread's store to `nodes[child]` must be
+# visible to whichever thread later observes the counter reach 2 — and an atomic
+# RMW uses explicit acquire/release ordering: the second arrival acquires the
+# first arrival's published child and releases its own child. There is no
+# algorithmic dependency on a global total order across different counters.
+# That ordering does not survive to every backend (Atomix's Metal extension has
+# `# TODO: respect ordering` and emits `memory_order_relaxed`), so the ordering
+# has to be stated here, once, for everyone.
+#
+# Without it the second arriver can read a child node the first arriver has
+# written but not yet published, and the parent inherits a stale or zero box.
+# The symptom is a BVH that is *mostly* right: a handful of interior nodes get
+# boxes too small, rays miss geometry that is really there, and the render loses
+# scattered light. It is also non-deterministic, so two builds of the same scene
+# disagree.
+#
+# The default is a no-op where the counter RMW preserves acquire/release.
+# Backends whose Atomix operations are relaxed override this with a device fence.
+@inline bvh_publish_fence() = nothing
+
 KA.@kernel function refit_aabbs_kernel!(
     nodes,
     update_flags,
-    n_prims::Int32
+    n_prims::Int32,
+    leaves
 )
     prim_idx = @index(Global, Linear)
 
@@ -253,9 +272,14 @@ KA.@kernel function refit_aabbs_kernel!(
         # If new_value == 1: we're first thread (was 0), bail out
         # If new_value == 2: we're second thread (was 1), update AABB and continue
         # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
-        new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
+        # Release: everything this thread wrote to `nodes[...]` above must be
+        # visible before the counter below tells the sibling it may be read.
+        bvh_publish_fence()
+        new_value = @inbounds @atomic :acquire_release update_flags[parent_idx] += UInt32(1)
 
         if new_value == UInt32(2)
+            # Acquire: pair with the sibling's release before reading its node.
+            bvh_publish_fence()
             # Second thread arrived - compute AABB from both children
             @inbounds begin
                 node = nodes[parent_idx]
@@ -265,8 +289,8 @@ KA.@kernel function refit_aabbs_kernel!(
                 is_child0_internal = child0 < n_prims
                 is_child1_internal = child1 < n_prims
 
-                aabb0 = get_node_aabb(nodes[child0], is_child0_internal)
-                aabb1 = get_node_aabb(nodes[child1], is_child1_internal)
+                aabb0 = node_aabb(leaves, nodes[child0], is_child0_internal)
+                aabb1 = node_aabb(leaves, nodes[child1], is_child1_internal)
 
                 # Update this node's AABBs
                 updated_node = BVHNode2(
@@ -295,13 +319,12 @@ Calculate Morton code for a single instance centroid.
 @inline function calculate_tlas_morton_code(
     inst_idx::Int,
     instances::AbstractVector{InstanceDescriptor},
-    blas_array::AbstractVector{<:BLAS},
+    blas_array::AbstractVector,
     scene_min::Point3f,
     scene_extent::Vec3f
 )::UInt32
     inst = instances[inst_idx]
-    blas = blas_array[inst.blas_index]
-    local_aabb = blas.root_aabb
+    local_aabb = rootbounds(blas_array[inst.blas_index])
 
     # Transform centroid to world space
     local_center = 0.5f0 * (local_aabb.p_min + local_aabb.p_max)
@@ -333,21 +356,12 @@ Create TLAS leaf node for one instance (stores world-space AABB, not triangle ve
     sorted_leaf_idx::Int,
     sorted_indices::AbstractVector{<:Integer},
     instances::AbstractVector{InstanceDescriptor},
-    blas_array::AbstractVector{<:BLAS},
+    blas_array::AbstractVector,
     parent::UInt32
 )::BVHNode2
     # Get original instance index (sorted_indices maps sorted position -> original position)
     original_idx = sorted_indices[sorted_leaf_idx]
-    inst = instances[original_idx]
-    blas = blas_array[inst.blas_index]
-    local_aabb = blas.root_aabb
-
-    # Transform AABB to world space (8 corners)
-    world_aabb = Bounds3()
-    for c in 1:8
-        world_corner = transform_point(inst.transform, corner(local_aabb, c))
-        world_aabb = world_aabb ∪ Bounds3(world_corner)
-    end
+    world_aabb = instance_world_aabb(instances[original_idx], blas_array)
 
     return BVHNode2(
         world_aabb.p_min, world_aabb.p_max, Point3f(0), Point3f(0),
@@ -374,86 +388,18 @@ KA.@kernel function create_tlas_leaf_nodes_kernel!(
     end
 end
 
-"""
-Parallel bottom-up AABB refit for TLAS using atomic counters.
-Uses get_tlas_node_aabb which treats leaves as storing AABBs directly (not triangle vertices).
-"""
-KA.@kernel function refit_tlas_aabbs_kernel!(
-    nodes,
-    update_flags,
-    n_instances::Int32
-)
-    inst_idx = @index(Global, Linear)
-
-    # Start at parent of this leaf
-    leaf_idx = Int(n_instances) - 1 + inst_idx
-    @inbounds parent_idx = nodes[leaf_idx].parent
-
-    # Walk up the tree
-    while parent_idx != INVALID_NODE
-        # Atomic increment: mark this node as visited
-        # Note: @atomicswap doesn't work on OpenCL, so we use @atomic += instead
-        new_value = @inbounds @atomic update_flags[parent_idx] += UInt32(1)
-
-        if new_value == UInt32(2)
-            # Second thread arrived - compute AABB from both children
-            @inbounds begin
-                node = nodes[parent_idx]
-                child0 = node.child0
-                child1 = node.child1
-
-                is_child0_internal = child0 < n_instances
-                is_child1_internal = child1 < n_instances
-
-                # Use TLAS-specific AABB computation (leaves store AABBs, not vertices)
-                aabb0 = get_tlas_node_aabb(nodes[child0], is_child0_internal)
-                aabb1 = get_tlas_node_aabb(nodes[child1], is_child1_internal)
-
-                # Update this node's AABBs
-                updated_node = BVHNode2(
-                    aabb0.p_min, aabb0.p_max,
-                    aabb1.p_min, aabb1.p_max,
-                    node.child0, node.child1, node.parent
-                )
-                nodes[parent_idx] = updated_node
-
-                # Move to parent
-                parent_idx = node.parent
-            end
-        else
-            # First thread - bail out
-            break
-        end
-    end
-end
-
 # ==============================================================================
 # GPU Dynamic Update Kernels
 # ==============================================================================
 
-KA.@kernel function update_instance_transforms_kernel!(
-    instances,
-    @Const(transforms),
-    n_particles::Int32
-)
-    i = @index(Global, Linear)
-    if i <= n_particles
-        @inbounds begin
-            old_inst = instances[i]
-            transform = transforms[i]
-            instances[i] = InstanceDescriptor(
-                old_inst.blas_index,
-                old_inst.instance_id,
-                transform,
-                mat3x4_inverse(transform),
-                old_inst.flags
-            )
-        end
-    end
-end
-
+"""
+GPU kernel: the transforms of one batch, `transforms[i]` for its instance `i`,
+into its instance `first_idx + i - 1` and its record `records[i]`. Each keeps
+its geometry, flags, id and mask.
+"""
 KA.@kernel function update_instance_transforms_offset_kernel!(
     instances,
+    records,
     @Const(transforms),
     n_particles::Int32,
     first_idx::Int32
@@ -469,7 +415,39 @@ KA.@kernel function update_instance_transforms_offset_kernel!(
                 old_inst.instance_id,
                 transform,
                 mat3x4_inverse(transform),
-                old_inst.flags
+                old_inst.flags,
+                old_inst.mask
+            )
+            old_record = records[i]
+            records[i] = InstanceRecord(transform, old_record.id, old_record.mask)
+        end
+    end
+end
+
+"""
+GPU kernel: the records of one batch, as a kernel may have written them, into
+its instances: record `i` becomes instance `first_idx + i - 1`'s transform, its
+inverse, its id and its mask. The instance keeps its geometry and its flags.
+"""
+KA.@kernel function apply_instance_records_kernel!(
+    instances,
+    @Const(records),
+    n::Int32,
+    first_idx::Int32
+)
+    i = @index(Global, Linear)
+    if i <= n
+        @inbounds begin
+            inst_idx = first_idx + i - Int32(1)
+            old_inst = instances[inst_idx]
+            r = records[i]
+            instances[inst_idx] = InstanceDescriptor(
+                old_inst.blas_index,
+                r.id,
+                r.transform,
+                mat3x4_inverse(r.transform),
+                old_inst.flags,
+                r.mask
             )
         end
     end
@@ -479,7 +457,7 @@ end
 GPU kernel: Update TLAS leaf node AABBs from instance transforms.
 
 After transforms are updated, this kernel recomputes world-space AABBs for
-all leaf nodes. Must be called before refit_tlas_aabbs_kernel!.
+all leaf nodes. Must run before the refit (`refit_lbvh!`).
 
 NOTE: Leaf nodes are Morton-sorted, so we must use the stored instance index
 (child1) to look up the correct instance.
@@ -497,17 +475,7 @@ KA.@kernel function update_tlas_leaf_aabbs_kernel!(
             old_node = nodes[leaf_node_idx]
 
             # Get the actual instance index from the leaf node (stored as 0-indexed in child1)
-            inst_idx = Int(old_node.child1) + 1
-            inst = instances[inst_idx]
-            blas = blas_array[inst.blas_index]
-            local_aabb = blas.root_aabb
-
-            # Transform AABB to world space (8 corners)
-            world_aabb = Bounds3()
-            for c in 1:8
-                world_corner = transform_point(inst.transform, corner(local_aabb, c))
-                world_aabb = world_aabb ∪ Bounds3(world_corner)
-            end
+            world_aabb = instance_world_aabb(instances[Int(old_node.child1) + 1], blas_array)
 
             # Update leaf node with new AABB (preserve topology)
             nodes[leaf_node_idx] = BVHNode2(
@@ -566,7 +534,7 @@ end
 
 # Export kernel helper functions for testing
 export calculate_morton_code_for_prim, build_topology_for_node
-export set_parents_for_node, create_leaf_for_prim, refit_node_aabb
+export set_parents_for_node, create_leaf_for_prim
 export calculate_tlas_morton_code, create_tlas_leaf_for_instance
-export update_instance_transforms_kernel!, update_instance_transforms_offset_kernel!, update_tlas_leaf_aabbs_kernel!
+export update_instance_transforms_offset_kernel!, apply_instance_records_kernel!, update_tlas_leaf_aabbs_kernel!
 export update_particle_materials_kernel!

@@ -120,14 +120,14 @@ for_unrolled(add_light!, lights, total, ray)
 """
 @inline function for_unrolled(f::F, tuple::Tuple, args...) where F
     fc = FastClosure(f, args)
-    _for_unrolled(fc, tuple)
+    for_unrolled(fc, tuple)
     return nothing
 end
 
-@inline _for_unrolled(_fc, ::Tuple{}) = nothing
-@inline function _for_unrolled(fc, tuple::Tuple)
+@inline for_unrolled(_fc, ::Tuple{}) = nothing
+@inline function for_unrolled(fc, tuple::Tuple)
     fc(first(tuple))
-    _for_unrolled(fc, Base.tail(tuple))
+    for_unrolled(fc, Base.tail(tuple))
     return nothing
 end
 
@@ -139,13 +139,13 @@ Iterate from 1 to N at compile-time, calling `f(i, args...)` for each index.
 """
 @inline function for_unrolled(f::F, ::Val{N}, args...) where {F, N}
     fc = FastClosure(f, args)
-    _for_unrolled_n(fc, Val(N))
+    for_unrolled_n(fc, Val(N))
     return nothing
 end
 
-@inline _for_unrolled_n(_fc, ::Val{0}) = nothing
-@inline function _for_unrolled_n(fc, ::Val{N}) where N
-    _for_unrolled_n(fc, Val(N-1))
+@inline for_unrolled_n(_fc, ::Val{0}) = nothing
+@inline function for_unrolled_n(fc, ::Val{N}) where N
+    for_unrolled_n(fc, Val(N-1))
     fc(N % Int32)
     return nothing
 end
@@ -170,13 +170,13 @@ contributions = map_unrolled(compute_light, lights, hit_point, normal)
 """
 @inline function map_unrolled(f::F, tuple::Tuple, args...) where F
     fc = FastClosure(f, args)
-    return _map_unrolled(fc, tuple)
+    return map_unrolled(fc, tuple)
 end
 
-@inline _map_unrolled(_fc, ::Tuple{}) = ()
+@inline map_unrolled(_fc, ::Tuple{}) = ()
 
 # Use @generated to avoid tuple splatting which causes allocations
-@generated function _map_unrolled(fc, tup::T) where T <: Tuple
+@generated function map_unrolled(fc, tup::T) where T <: Tuple
     N = length(T.parameters)
     exprs = [:(fc(tup[$i])) for i in 1:N]
     return :(($(exprs...),))
@@ -202,17 +202,17 @@ total = reduce_unrolled(add_light_contribution, lights, RGBSpectrum(0f0), ray, h
 """
 @inline function reduce_unrolled(f::F, tuple::Tuple, init, args...) where F
     fc = FastClosure(f, args)
-    return _reduce_unrolled(fc, tuple, init)
+    return reduce_unrolled(fc, tuple, init)
 end
 
-@inline _reduce_unrolled(_fc, ::Tuple{}, acc) = acc
-@inline function _reduce_unrolled(fc, tuple::Tuple, acc)
+@inline reduce_unrolled(_fc, ::Tuple{}, acc) = acc
+@inline function reduce_unrolled(fc, tuple::Tuple, acc)
     new_acc = fc(acc, first(tuple))
-    return _reduce_unrolled(fc, Base.tail(tuple), new_acc)
+    return reduce_unrolled(fc, Base.tail(tuple), new_acc)
 end
 
 # StaticMultiTypeSet support: compile-time unrolled reduction over type slots
-@inline @generated function _reduce_unrolled(fc, smv::StaticMultiTypeSet{Data}, acc) where {Data<:Tuple}
+@inline @generated function reduce_unrolled(fc, smv::StaticMultiTypeSet{Data}, acc) where {Data<:Tuple}
     N = length(Data.parameters)
     if N == 0
         return :(acc)
@@ -238,7 +238,7 @@ end
 
 @inline function reduce_unrolled(f::F, smv::StaticMultiTypeSet, init, args...) where F
     fc = FastClosure(f, args)
-    return _reduce_unrolled(fc, smv, init)
+    return reduce_unrolled(fc, smv, init)
 end
 
 # ============================================================================
@@ -259,13 +259,13 @@ total = sum_unrolled(le, lights, ray)
 """
 @inline function sum_unrolled(f::F, tuple::Tuple, args...) where F
     fc = FastClosure(f, args)
-    return _sum_unrolled(fc, tuple)
+    return sum_unrolled(fc, tuple)
 end
 
-@inline _sum_unrolled(_fc, ::Tuple{}) = nothing  # Empty tuple - caller should handle
-@inline _sum_unrolled(fc, tuple::Tuple{T}) where T = fc(first(tuple))
-@inline function _sum_unrolled(fc, tuple::Tuple)
-    return fc(first(tuple)) + _sum_unrolled(fc, Base.tail(tuple))
+@inline sum_unrolled(_fc, ::Tuple{}) = nothing  # Empty tuple - caller should handle
+@inline sum_unrolled(fc, tuple::Tuple{T}) where T = fc(first(tuple))
+@inline function sum_unrolled(fc, tuple::Tuple)
+    return fc(first(tuple)) + sum_unrolled(fc, Base.tail(tuple))
 end
 
 # ============================================================================

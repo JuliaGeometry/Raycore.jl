@@ -8,12 +8,53 @@ using GeometryBasics
 using StaticArrays
 using LinearAlgebra
 using KernelAbstractions
+import Adapt
 
 # Use qualified names to avoid conflicts with other packages
 const RTriangle = Raycore.Triangle   # Conflicts with GeometryBasics.Triangle
 const RBLAS = Raycore.BLAS           # Conflicts with LinearAlgebra.BLAS
 const is_leaf = Raycore.is_leaf
 const is_interior = Raycore.is_interior
+
+# Host data on the suite's device, where the structures are built.
+ondevice(x) = Adapt.adapt(test_backend(), x)
+
+# A vector whose every read is bounds-checked, whatever `@inbounds` the caller
+# wrote: an out-of-range read throws here instead of reading whatever memory
+# follows, which on a device is undefined.
+struct BoundsChecked{T, A <: AbstractVector{T}} <: AbstractVector{T}
+    data::A
+end
+Base.size(v::BoundsChecked) = size(v.data)
+Base.getindex(v::BoundsChecked, i::Integer) = v.data[i]
+
+# One ray traced with cull mask `mask`, in a kernel on the structure's backend.
+@kernel function masked_hit_kernel!(hits, distances, tlas, origin, direction, mask)
+    hit, _, dist, _, _ = closest_hit(tlas, Ray(o = origin, d = direction), mask)
+    hits[1] = hit
+    distances[1] = dist
+end
+
+# One ray traced with `trace` (`closest_hit` or `any_hit`) and cull mask `mask`,
+# in a kernel on the structure's backend: whether it hit, the distance, the
+# fifth value, and the triangle.
+@kernel function whole_hit_kernel!(out, tris, tlas, origin, direction, mask, trace)
+    hit, tri, t, _, id = trace(tlas, Ray(o = origin, d = direction), mask)
+    out[1] = (hit, t, id)
+    tris[1] = tri
+end
+
+# `transparent_hits` of one ray, keeping `n` hits, in a kernel on the structure's backend.
+@kernel function transparent_kernel!(out, tlas, ray, limit, n)
+    out[1] = transparent_hits(tlas, ray, 0xff, n, limit)
+end
+
+# Instance records written on the device, as a simulation would: record `i`
+# gets `transforms[i]`, `ids[i]` and `mask`.
+@kernel function write_records_kernel!(records, @Const(transforms), @Const(ids), mask)
+    i = @index(Global)
+    @inbounds records[i] = InstanceRecord(transforms[i], ids[i], mask)
+end
 
 @testset "Instanced BVH" begin
 
@@ -48,13 +89,14 @@ end
     )
 
     primitives = [tri]
-    blas = build_blas(primitives)
+    blas = build_blas(ondevice(primitives))
 
     @test blas isa RBLAS
     @test length(blas.nodes) == 1  # Single triangle = 1 node (leaf)
     @test length(blas.primitives) == 1
-    @test is_leaf(blas.nodes[1])
-    @test blas.nodes[1].child1 == UInt32(1)  # Points to primitive 1
+    root = Array(blas.nodes)[1]
+    @test is_leaf(root)
+    @test root.child1 == UInt32(1)  # Points to primitive 1
 end
 
 @testset "BLAS Construction - Multiple Triangles" begin
@@ -81,14 +123,14 @@ end
     )
 
     primitives = [tri1, tri2]
-    blas = build_blas(primitives)
+    blas = build_blas(ondevice(primitives))
 
     @test blas isa RBLAS
     @test length(blas.nodes) == 3  # 2 leaves + 1 interior = 3 nodes
     @test length(blas.primitives) == 2
 
     # Check root is interior node
-    @test is_interior(blas.nodes[1])
+    @test is_interior(Array(blas.nodes)[1])
 
     # Check root AABB contains all primitives
     root_aabb = blas.root_aabb
@@ -115,7 +157,7 @@ end
     primitives = [tri]
 
     # build_blas should be type-stable
-    result_type = @inferred build_blas(primitives)
+    result_type = @inferred build_blas(ondevice(primitives))
     @test result_type isa RBLAS
 end
 
@@ -166,7 +208,7 @@ end
     @test is_interior(interior_node)
 
     # Test AABB extraction
-    aabb = Raycore.get_node_aabb(interior_node, true)
+    aabb = Raycore.node_aabb(Raycore.TriangleLeaves(), interior_node, true)
     @test aabb isa Bounds3
     @test aabb.p_min == Point3f(0, 0, 0)
     @test aabb.p_max == Point3f(1, 1, 1)
@@ -214,7 +256,7 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
     identity = Mat4f(I)
     instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
 
@@ -237,7 +279,7 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
 
     # Create two instances with different transforms
     identity = Mat4f(I)
@@ -282,14 +324,14 @@ end
         UInt32(42)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
     identity = Mat4f(I)
     instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
     tlas = build_tlas([blas], instances)
 
     # Ray pointing down at center of triangle
     ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-    hit, prim, dist, bary, inst_id = closest_hit(tlas, ray)
+    hit, prim, dist, bary, inst_id = traced(closest_hit, tlas, ray)
 
     @test hit == true
     @test dist ≈ 1.0f0
@@ -297,7 +339,7 @@ end
 
     # Ray missing the triangle
     ray_miss = Ray(o=Point3f(2, 2, 1.0), d=Vec3f(0, 0, -1))
-    hit_miss, _, _, _, _ = closest_hit(tlas, ray_miss)
+    hit_miss, _, _, _, _ = traced(closest_hit, tlas, ray_miss)
     @test hit_miss == false
 end
 
@@ -312,7 +354,7 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
 
     # Translate instance by (10, 0, 0)
     translation = Mat4f(
@@ -328,12 +370,12 @@ end
 
     # Ray at original position should miss
     ray_miss = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-    hit_miss, _, _, _, _ = closest_hit(tlas, ray_miss)
+    hit_miss, _, _, _, _ = traced(closest_hit, tlas, ray_miss)
     @test hit_miss == false
 
     # Ray at translated position should hit
     ray_hit = Ray(o=Point3f(10.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-    hit, _, dist, _, _ = closest_hit(tlas, ray_hit)
+    hit, _, dist, _, _ = traced(closest_hit, tlas, ray_hit)
     @test hit == true
     @test dist ≈ 1.0f0
 end
@@ -349,7 +391,7 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
     identity = Mat4f(I)
 
     # Two instances: one at z=0, one at z=-5 (further from camera)
@@ -370,7 +412,7 @@ end
 
     # Ray should hit the closer one (z=0)
     ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-    hit, _, dist, _, inst_id = closest_hit(tlas, ray)
+    hit, _, dist, _, inst_id = traced(closest_hit, tlas, ray)
 
     @test hit == true
     @test dist ≈ 1.0f0  # Distance to z=0 plane
@@ -388,20 +430,299 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
     identity = Mat4f(I)
     instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
     tlas = build_tlas([blas], instances)
 
     # Ray hitting triangle
     ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
-    hit, _, _, _, _ = any_hit(tlas, ray)
+    hit, _, _, _, _ = traced(any_hit, tlas, ray)
     @test hit == true
 
     # Ray missing triangle
     ray_miss = Ray(o=Point3f(2, 2, 1.0), d=Vec3f(0, 0, -1))
-    hit_miss, _, _, _, _ = any_hit(tlas, ray_miss)
+    hit_miss, _, _, _, _ = traced(any_hit, tlas, ray_miss)
     @test hit_miss == false
+end
+
+@testset "TLAS - an empty structure is traced without reading a node" begin
+    # A TLAS with no instances has no nodes, and the traversal started at node 1
+    # regardless: a read past the end of an empty array, under `@inbounds`. On the
+    # host it read whatever followed; on lavapipe a ray against the drained TLAS of
+    # the stress suite never finished. Built on the device, its arrays read back to
+    # the host, where every read is checked.
+    tlas = Raycore.TLAS(test_backend())
+    sync!(tlas)
+    st = tlas.static_tlas
+    checked = Raycore.StaticTLAS(BoundsChecked(Array(st.nodes)), BoundsChecked(Array(st.instances)),
+                                 BoundsChecked(Array(st.all_blas_nodes)), BoundsChecked(Array(st.all_blas_prims)),
+                                 BoundsChecked(Array(st.blas_descriptors)), st.root_aabb)
+    ray = Ray(o = Point3f(0, 0, 5), d = Vec3f(0, 0, -1))
+    @test !closest_hit(checked, ray)[1]
+    @test !any_hit(checked, ray)[1]
+end
+
+@testset "TLAS - a hidden instance is not hit" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(1)
+    )
+    blas = build_blas(ondevice([tri]))
+    identity = Mat4f(I)
+    back = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1)
+    # The front instance hidden: the ray passes it and meets the one behind.
+    instances = [
+        InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, Raycore.INSTANCE_HIDDEN),
+        InstanceDescriptor(UInt32(1), UInt32(2), back, Mat4f(inv(back)), UInt32(0))
+    ]
+    tlas = build_tlas([blas], instances)
+    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+    hit, _, dist, _, inst_id = traced(closest_hit, tlas, ray)
+    @test hit
+    @test dist ≈ 6.0f0
+    @test inst_id == UInt32(2)
+    # Only the hidden one in the ray's way: nothing is hit.
+    only_front = build_tlas([blas], instances[1:1])
+    @test !traced(closest_hit, only_front, ray)[1]
+    @test !traced(any_hit, only_front, ray)[1]
+end
+
+@testset "TLAS - a ray sees an instance only through a common mask bit" begin
+    v1, v2, v3 = Point3f(0, 0, 0), Point3f(1, 0, 0), Point3f(0, 1, 0)
+    tri = RTriangle(
+        SVector(v1, v2, v3),
+        SVector(Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)),
+        SVector(Vec3f(0), Vec3f(0), Vec3f(0)),
+        SVector(Point2f(0, 0), Point2f(1, 0), Point2f(0, 1)),
+        UInt32(1)
+    )
+    blas = build_blas(ondevice([tri]))
+    identity = Mat4f(I)
+    back = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -5, 1)
+    # The front instance has mask 0x01, the one behind it 0x02.
+    instances = [
+        InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0), UInt32(0x01)),
+        InstanceDescriptor(UInt32(1), UInt32(2), back, Mat4f(inv(back)), UInt32(0), UInt32(0x02))
+    ]
+    tlas = build_tlas([blas], instances)
+    ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
+    for trace in (closest_hit, any_hit)
+        # The two-argument form is mask 0xff and sees both: the nearer one for
+        # `closest_hit`, either for `any_hit`.
+        @test traced(trace, tlas, ray)[1]
+        hit, _, dist, _, inst = traced(trace, tlas, ray, 0x01)
+        @test hit && dist ≈ 1.0f0 && inst == UInt32(1)
+        hit, _, dist, _, inst = traced(trace, tlas, ray, UInt32(0x02))
+        @test hit && dist ≈ 6.0f0 && inst == UInt32(2)
+        @test !traced(trace, tlas, ray, 0x04)[1]
+        # Only the low 8 bits count, as on the hardware structures.
+        @test !traced(trace, tlas, ray, 0x100)[1]
+    end
+    @test traced(closest_hit, tlas, ray)[3] ≈ 1.0f0
+end
+
+@testset "TLAS - push! takes an instance mask, refit! takes rewritten instances" begin
+    backend = test_backend()
+    tlas = Raycore.TLAS(backend)
+    mesh = GeometryBasics.normal_mesh(Rect3f(Point3f(-1), Vec3f(2)))
+    h = push!(tlas, mesh, Mat4f(I); instance_mask = 0x04)
+    sync!(tlas)
+    static = tlas.static_tlas
+    # (hit, distance) of one ray down the z axis, traced where the structure lives.
+    function trace(mask)
+        hits, distances = KA.zeros(backend, Bool, 1), KA.zeros(backend, Float32, 1)
+        masked_hit_kernel!(backend)(hits, distances, tlas.static_tlas, Point3f(0, 0, 5),
+                                    Vec3f(0, 0, -1), mask; ndrange = 1)
+        KA.synchronize(backend)
+        return Array(hits)[1], Array(distances)[1]
+    end
+    @test trace(0x04)[1]
+    @test !trace(0x03)[1]
+    # Move the instance by rewriting its record, as a kernel would, and refit.
+    moved = Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -2, 1)
+    copyto!(instance_buffer(tlas, h), [InstanceRecord(moved, UInt32(0), UInt32(0x04))])
+    @test Raycore.refit!(tlas) === tlas
+    @test tlas.static_tlas === static          # refit in place
+    hit, dist = trace(0x04)
+    @test hit && dist ≈ 6.0f0                  # the top face moved from z = 1 to z = -1
+    # The mask survives a transform update, which rebuilds each descriptor.
+    Raycore.update_transforms!(tlas, h, [Mat4f(I)])
+    sync!(tlas)
+    @test only(Array(tlas.instances)).mask == UInt32(0x04)
+end
+
+@testset "TLAS - the hit a hardware structure returns, records a kernel writes" begin
+    # What `Mantle.HWTLAS` returns, asserted here on the software structure and
+    # compared with the hardware one ray by ray in Mantle's
+    # `test_tlas_same_hit.jl`: the triangle in world space, the custom index.
+    backend = test_backend()
+    tri_mesh(z) = GeometryBasics.normal_mesh(GeometryBasics.Mesh(
+        [Point3f(0, 0, z), Point3f(1, 0, z), Point3f(0, 1, z)], [GLTriangleFace(1, 2, 3)]))
+    # Scale x by 2, move to (x, y): the vertices move, the normal stays +z.
+    at(x, y) = Mat4f(2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, x, y, 0, 1)
+    tlas = Raycore.TLAS(backend)
+    h1 = push!(tlas, tri_mesh(0f0), [at(10, 0), at(20, 0)]; instance_ids = UInt32[101, 102])
+    # An id past 24 bits: a hit reports its low 24, as a hardware record holds.
+    h2 = push!(tlas, tri_mesh(-1f0), at(30, 0); instance_id = UInt32(0x01000005))
+    h3 = push!(tlas, tri_mesh(0f0), at(80, 0); instance_id = UInt32(7))
+    set_visible!(tlas, h3, false)
+    sync!(tlas)
+
+    function shoot(x, y; mask = 0xff, trace = closest_hit)
+        out = Adapt.adapt(backend, [(false, 0f0, UInt32(99))])
+        tris = Adapt.adapt(backend, [Raycore.empty_triangle(Raycore.Triangle{UInt32})])
+        whole_hit_kernel!(backend)(out, tris, tlas.static_tlas, Point3f(x, y, 5), Vec3f(0, 0, -1),
+                                   UInt32(mask), trace; ndrange = 1)
+        KA.synchronize(backend)
+        hit, t, id = only(Array(out))
+        return (; hit, t, id, tri = only(Array(tris)))
+    end
+
+    for trace in (closest_hit, any_hit)
+        r = shoot(20.5, 0.25; trace)
+        @test r.hit && r.t ≈ 5f0 && r.id == UInt32(102)
+        @test all(r.tri.vertices .≈ [Point3f(20, 0, 0), Point3f(22, 0, 0), Point3f(20, 1, 0)])
+        @test all(n -> Vec3f(n) ≈ Vec3f(0, 0, 1), r.tri.normals)
+        r = shoot(30.5, 0.25; trace)
+        @test r.hit && r.t ≈ 6f0 && r.id == UInt32(5)
+        @test all(r.tri.vertices .≈ [Point3f(30, 0, -1), Point3f(32, 0, -1), Point3f(30, 1, -1)])
+        r = shoot(100, 100; trace)
+        @test !r.hit && r.id == UInt32(0)
+    end
+    @test !shoot(80.5, 0.25).hit      # hidden
+
+    # The records `push!` made, one per instance.
+    @test Array(instance_buffer(tlas, h1)) ==
+          [InstanceRecord(at(10, 0), UInt32(101), UInt32(0xff)), InstanceRecord(at(20, 0), UInt32(102), UInt32(0xff))]
+    @test Array(instance_buffer(tlas, h3)) == [InstanceRecord(at(80, 0), UInt32(7), UInt32(0xff))]
+
+    # A kernel writes new transforms, ids and a mask into h1's records: the
+    # structure takes them at `refit!`, not before.
+    write_records_kernel!(backend)(instance_buffer(tlas, h1),
+                                   Adapt.adapt(backend, Raycore.mat4_to_mat3x4.([at(40, 0), at(50, 0)])),
+                                   Adapt.adapt(backend, UInt32[201, 202]), UInt32(0x02); ndrange = 2)
+    KA.synchronize(backend)
+    @test shoot(20.5, 0.25).hit
+    static = tlas.static_tlas
+    @test Raycore.refit!(tlas) === tlas
+    @test tlas.static_tlas === static           # refit in place
+    @test !shoot(20.5, 0.25).hit                # nothing left at the old place
+    r = shoot(50.5, 0.25)
+    @test r.hit && r.id == UInt32(202) && r.tri.vertices[1] ≈ Point3f(50, 0, 0)
+    @test shoot(40.5, 0.25).id == UInt32(201)
+    @test !shoot(40.5, 0.25; mask = 0x01).hit   # the mask the kernel wrote
+    @test shoot(40.5, 0.25; mask = 0x02).hit
+    @test !shoot(80.5, 0.25).hit                # a refit keeps an instance hidden
+
+    # A host transform update writes the records too, keeping id and mask.
+    update_transforms!(tlas, h1, [at(60, 0), at(70, 0)])
+    @test Array(instance_buffer(tlas, h1)) ==
+          [InstanceRecord(at(60, 0), UInt32(201), UInt32(0x02)), InstanceRecord(at(70, 0), UInt32(202), UInt32(0x02))]
+    sync!(tlas)
+    @test shoot(70.5, 0.25).id == UInt32(202)
+    # ...so a refit after it does not put the instances back.
+    Raycore.refit!(tlas)
+    @test shoot(70.5, 0.25).id == UInt32(202)
+    # The position forms write the records as well: one instance, or a whole
+    # batch by its range; a range that splits a batch is refused.
+    first1 = first(tlas.handle_to_range[h1])
+    Raycore.update_instance_transform!(tlas, first1 + 1, at(75, 0))
+    @test Array(instance_buffer(tlas, h1))[2] == InstanceRecord(at(75, 0), UInt32(202), UInt32(0x02))
+    Raycore.update_instance_transforms!(tlas, [at(60, 0), at(70, 0)], 2, first1)
+    @test Array(instance_buffer(tlas, h1))[2] == InstanceRecord(at(70, 0), UInt32(202), UInt32(0x02))
+    @test_throws ArgumentError Raycore.update_instance_transforms!(tlas, [at(60, 0)], 1, first1)
+    Raycore.refit!(tlas)
+    @test shoot(70.5, 0.25).id == UInt32(202)
+
+    # The records of a deleted handle go with it; the others still name their
+    # own instances once the structure has compacted around the hole.
+    delete!(tlas, h1)
+    @test_throws ArgumentError instance_buffer(tlas, h1)
+    sync!(tlas)
+    copyto!(instance_buffer(tlas, h2), [InstanceRecord(at(90, 0), UInt32(55), UInt32(0xff))])
+    Raycore.refit!(tlas)
+    r = shoot(90.5, 0.25)
+    @test r.hit && r.t ≈ 6f0 && r.id == UInt32(55)
+    @test !shoot(70.5, 0.25).hit
+    @test !shoot(80.5, 0.25).hit
+    @test_throws ArgumentError instance_buffer(tlas, Raycore.TLASHandle(UInt32(999)))
+end
+
+@testset "TLAS - transparent_hits records what is not opaque" begin
+    # Six see-through layers and an opaque floor under them, pushed out of order:
+    # what a shadow ray through foliage onto the ground meets.
+    backend = test_backend()
+    quad(z) = GeometryBasics.normal_mesh(GeometryBasics.Mesh(
+        [Point3f(-1, -1, z), Point3f(1, -1, z), Point3f(1, 1, z), Point3f(-1, 1, z)],
+        [GLTriangleFace(1, 2, 3), GLTriangleFace(1, 3, 4)]))
+    tlas = Raycore.TLAS(backend)
+    layers = Dict(z => push!(tlas, quad(Float32(z)), Mat4f(I); instance_id = UInt32(10 + z), opaque = false)
+                  for z in (2, 5, 0, 3, 1, 4))
+    push!(tlas, quad(-3f0), Mat4f(I); instance_id = UInt32(99))
+    sync!(tlas)
+
+    function shoot(; t_min = 0f0, t_max = 12f0, limit = 10, keep = 4)
+        out = Adapt.adapt(backend, [TransparentHits{keep}()])
+        transparent_kernel!(backend)(out, tlas.static_tlas, Raycore.Ray(o = Point3f(0.1, 0.2, 10), d = Vec3f(0, 0, -1),
+                                                                         t_min = t_min, t_max = t_max),
+                                     limit, Val(keep); ndrange = 1)
+        KA.synchronize(backend)
+        return only(Array(out))
+    end
+    kept(th) = [(h.t, h.custom) for h in th.hits[1:min(th.count, length(th.hits))]]
+
+    th = shoot()                              # down to z = -2: the floor is past the end
+    @test !th.blocked && th.count >= 4        # four kept; there may be more
+    @test kept(th) == [(5f0, 15), (6f0, 14), (7f0, 13), (8f0, 12)]
+    @test all(h -> h.kind == Raycore.HIT_TRIANGLE, th.hits)
+    th = shoot(t_min = nextfloat(8f0))       # on from the last kept hit
+    @test !th.blocked && kept(th) == [(9f0, 11), (10f0, 10)]
+    @test shoot(t_max = 20f0).blocked         # the floor
+    @test shoot(limit = 3).blocked            # four layers are more than three
+    # One kept: whether anything see-through lies on the way at all, on every
+    # structure (the software walk counts only the hits it keeps). What Hikari's
+    # shading asks of a shadow ray before it queues one for the whole trace.
+    th = shoot(keep = 1, limit = typemax(UInt32))
+    @test !th.blocked && th.count >= 1 && kept(th)[1:1] == [(5f0, 15)]
+    @test shoot(keep = 1, limit = typemax(UInt32), t_max = 20f0).blocked
+    th = shoot(keep = 1, limit = typemax(UInt32), t_max = 4f0)
+    @test !th.blocked && th.count == 0
+    # Closest hits stop at the top layer, see-through or not.
+    out = Adapt.adapt(backend, [(false, 0f0, UInt32(99))])
+    tris = Adapt.adapt(backend, [Raycore.empty_triangle(Raycore.Triangle{UInt32})])
+    whole_hit_kernel!(backend)(out, tris, tlas.static_tlas, Point3f(0.1, 0.2, 10), Vec3f(0, 0, -1),
+                               UInt32(0xff), closest_hit; ndrange = 1)
+    KA.synchronize(backend)
+    @test only(Array(out)) == (true, 5f0, UInt32(15))
+
+    # Made opaque, a layer stops the ray; made see-through again, it is recorded.
+    @test set_opaque!(tlas, layers[2], true)
+    @test shoot().blocked
+    @test set_opaque!(tlas, layers[2], false)
+    @test !shoot().blocked
+    delete!(tlas, layers[2])
+    @test !set_opaque!(tlas, layers[2], true)
+end
+
+@testset "TLAS - set_visible! keeps the instance" begin
+    tlas = Raycore.TLAS(test_backend())
+    mesh = GeometryBasics.normal_mesh(Sphere(Point3f(0), 1f0))
+    h = push!(tlas, mesh, Mat4f(I))
+    sync!(tlas)
+    hidden(t) = Raycore.is_hidden(only(Raycore.get_instances(t, h)))
+    @test !hidden(tlas)
+    @test set_visible!(tlas, h, false)
+    @test hidden(tlas)
+    @test Raycore.n_instances(tlas) == 1
+    @test set_visible!(tlas, h, true)
+    @test !hidden(tlas)
+    delete!(tlas, h)
+    @test !set_visible!(tlas, h, true)
 end
 
 # ==============================================================================
@@ -424,7 +745,7 @@ end
         [Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)]
     )
 
-    tlas, handles = TLAS([mesh1, mesh2])
+    tlas, handles = TLAS([mesh1, mesh2]; backend = test_backend())
 
     @test length(handles) == 2
     @test handles[1] isa TLASHandle
@@ -455,7 +776,7 @@ end
         Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 0, 0, 1)
     ]
 
-    tlas = Raycore.TLAS(KernelAbstractions.CPU())
+    tlas = Raycore.TLAS(test_backend())
     h1 = push!(tlas, mesh1, transforms)
     h2 = push!(tlas, mesh2)
     sync!(tlas)
@@ -477,7 +798,7 @@ end
         [Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)]
     )
 
-    tlas, handles = TLAS([mesh1, mesh2])
+    tlas, handles = TLAS([mesh1, mesh2]; backend = test_backend())
 
     @test n_geometries(tlas) == 2
     @test n_instances(tlas) == 2
@@ -494,7 +815,7 @@ end
         [Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)]
     )
 
-    tlas, handles = TLAS([mesh])
+    tlas, handles = TLAS([mesh]; backend = test_backend())
 
     new_transform = Mat4f(
         1, 0, 0, 0,
@@ -518,7 +839,7 @@ end
 
     # Create with 3 transforms using multi-transform push!
     initial_transforms = [Mat4f(I), Mat4f(I), Mat4f(I)]
-    tlas = Raycore.TLAS(KernelAbstractions.CPU())
+    tlas = Raycore.TLAS(test_backend())
     h = push!(tlas, mesh, initial_transforms)
     sync!(tlas)
     handles = [h]
@@ -547,7 +868,7 @@ end
         [Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)]
     )
 
-    tlas, handles = TLAS([mesh1])
+    tlas, handles = TLAS([mesh1]; backend = test_backend())
 
     @test n_geometries(tlas) == 1
     @test n_instances(tlas) == 1
@@ -571,7 +892,7 @@ end
         [Normal3f(0, 0, 1), Normal3f(0, 0, 1), Normal3f(0, 0, 1)]
     )
 
-    tlas, handles = TLAS([mesh1, mesh2])
+    tlas, handles = TLAS([mesh1, mesh2]; backend = test_backend())
 
     @test n_instances(tlas) == 2
     @test is_valid(tlas, handles[1])
@@ -603,24 +924,20 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
     identity = Mat4f(I)
     instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
     tlas = build_tlas([blas], instances)
 
     ray = Ray(o=Point3f(0.25, 0.25, 1.0), d=Vec3f(0, 0, -1))
 
-    # Test type stability of closest_hit
-    result_type = @inferred closest_hit(tlas, ray)
-    @test result_type[1] isa Bool
-    @test result_type[2] isa RTriangle{UInt32}
-    @test result_type[3] isa Float32
-    @test result_type[4] isa SVector{3, Float32}
-    @test result_type[5] isa UInt32
-
-    # Test type stability of any_hit
-    result_type_any = @inferred any_hit(tlas, ray)
-    @test result_type_any[1] isa Bool
+    # The inferred result is concrete, and what a kernel computes has that type.
+    T = Base.promote_op(closest_hit, typeof(tlas), typeof(ray))
+    @test T == Tuple{Bool, RTriangle{UInt32}, Float32, SVector{3, Float32}, UInt32}
+    @test traced(closest_hit, tlas, ray) isa T
+    T_any = Base.promote_op(any_hit, typeof(tlas), typeof(ray))
+    @test isconcretetype(T_any) && fieldtype(T_any, 1) === Bool
+    @test traced(any_hit, tlas, ray) isa T_any
 end
 
 @testset "TLAS eltype" begin
@@ -634,7 +951,7 @@ end
         UInt32(1)
     )
 
-    blas = build_blas([tri])
+    blas = build_blas(ondevice([tri]))
     identity = Mat4f(I)
     instances = [InstanceDescriptor(UInt32(1), UInt32(1), identity, identity, UInt32(0))]
     tlas = build_tlas([blas], instances)
@@ -650,7 +967,7 @@ end
 
     # 5 instances of same geometry using multi-transform push!
     transforms = [Mat4f(I) for _ in 1:5]
-    tlas = Raycore.TLAS(KernelAbstractions.CPU())
+    tlas = Raycore.TLAS(test_backend())
     push!(tlas, mesh, transforms)
     sync!(tlas)
 
@@ -661,11 +978,10 @@ end
 end # main testset "Instanced BVH"
 
 # ==============================================================================
-# KernelAbstractions Dynamic Scene Tests (Lava backend)
+# KernelAbstractions Dynamic Scene Tests (the backend under test)
 # ==============================================================================
 
 # Load packages at top-level (required for KA.@kernel macro)
-using Lava
 import KernelAbstractions as KA
 using KernelAbstractions: @index, @Const
 import Adapt
@@ -767,22 +1083,22 @@ else
         return GeometryBasics.mesh(verts, faces; normal=norms)
     end
 
-    @testset "TLAS adapt to LavaArray" begin
+    @testset "TLAS adapt moves the nodes onto the backend" begin
         mesh = make_triangle_mesh()
         tlas, handles = TLAS([mesh]; backend=cl_backend)
 
-        # Adapt TLAS to Lava arrays (GPU-first: backend must match)
+        # GPU-first: adapt must put the storage where the kernels run.
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         @test cl_tlas isa Raycore.StaticTLAS
-        # GPU arrays (LavaArray) are not isbits on the host — KA handles
-        # the device pointer conversion during kernel launch.
-        # The kernel tests below verify that the TLAS works correctly on GPU.
-        if cl_backend isa KA.CPU
-            @test cl_tlas.nodes isa Vector
-        else
-            @test cl_tlas.nodes isa LavaArray
-        end
+        # `get_backend`, not a named array type. This asserted `isa LavaArray`,
+        # which is a driver type — so the whole branch errored the first time
+        # the suite ran on anything else. What is being claimed is where the
+        # storage LIVES, and that is the portable way to ask it.
+        #
+        # A device array is not isbits on the host; KA converts the pointer at
+        # launch, and the kernel tests below are what prove that end works.
+        @test KA.get_backend(cl_tlas.nodes) == cl_backend
     end
 
     @testset "TLAS sync with many instances" begin
@@ -872,16 +1188,16 @@ else
     @testset "closest_hit_instance_id_kernel! - instance identification" begin
         mesh = make_triangle_mesh()
 
-        # Three instances at different positions. Traversal returns the
-        # 1-based instance array index; here we push 3 instances so each
-        # ray hits position 1, 2, 3.
+        # Three instances at different positions, each with its own custom
+        # index, which is what the traversal returns: not the instance's
+        # position in the structure (1, 2, 3).
         transforms = [
             Mat4f(I),  # Instance 1 at origin
             Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 5, 0, 0, 1),   # Instance 2 at x=5
             Mat4f(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 5, 0, 1)    # Instance 3 at y=5
         ]
         tlas_tmp = Raycore.TLAS(cl_backend)
-        push!(tlas_tmp, mesh, transforms)
+        push!(tlas_tmp, mesh, transforms; instance_ids = UInt32[11, 12, 13])
         sync!(tlas_tmp)
         tlas = tlas_tmp
         cl_tlas = Adapt.adapt(cl_backend, tlas)
@@ -909,10 +1225,8 @@ else
         instance_ids_cpu = Array(instance_ids)
 
         @test all(hits_cpu)
-        # closest_hit returns the 1-based instance array index
-        @test instance_ids_cpu[1] == UInt32(1)
-        @test instance_ids_cpu[2] == UInt32(2)
-        @test instance_ids_cpu[3] == UInt32(3)
+        # closest_hit returns the instance's custom index
+        @test instance_ids_cpu == UInt32[11, 12, 13]
     end
 
     @testset "closest_hit_metadata_kernel! - primitive metadata" begin
@@ -995,9 +1309,12 @@ else
         mesh1 = make_triangle_mesh(Vec3f(0, 0, 0))
         mesh2 = make_triangle_mesh(Vec3f(5, 0, 0))
 
-        # Two default-override (inherit) instances; closest_hit returns
-        # their 1-based array positions (1 and 2).
-        tlas, _ = TLAS([mesh1, mesh2]; backend=cl_backend)
+        # Two instances with the custom indices 7 and 9, which closest_hit
+        # returns.
+        tlas = Raycore.TLAS(cl_backend)
+        push!(tlas, mesh1; instance_id = UInt32(7))
+        push!(tlas, mesh2; instance_id = UInt32(9))
+        sync!(tlas)
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
         n = 3
@@ -1032,8 +1349,9 @@ else
         @test distances_cpu[1] ≈ 2.0f0
         @test distances_cpu[2] ≈ 3.0f0
 
-        @test instance_ids_cpu[1] == UInt32(1)
-        @test instance_ids_cpu[2] == UInt32(2)
+        @test instance_ids_cpu[1] == UInt32(7)
+        @test instance_ids_cpu[2] == UInt32(9)
+        @test instance_ids_cpu[3] == UInt32(0)    # a miss
 
         # Barycentrics are (w, u, v) where w = 1-u-v
         # For hit at (0.25, 0.25): u=0.25, v=0.25, w=0.5
@@ -1164,13 +1482,13 @@ else
 
         cl_tlas = Adapt.adapt(cl_backend, tlas)
 
-        # Verify fields land on the right backend after adapt.
-        ArrayType = cl_backend isa KA.CPU ? Vector : LavaArray
-        @test cl_tlas.nodes isa ArrayType
-        @test cl_tlas.instances isa ArrayType
-        @test cl_tlas.all_blas_nodes isa ArrayType
-        @test cl_tlas.all_blas_prims isa ArrayType
-        @test cl_tlas.blas_descriptors isa ArrayType
+        # Verify fields land on the right backend after adapt. Every one of
+        # them, not just `nodes`: a partial adapt is the failure this catches,
+        # and it reads the same on every backend because it names none.
+        for f in (:nodes, :instances, :all_blas_nodes, :all_blas_prims,
+                  :blas_descriptors)
+            @test KA.get_backend(getfield(cl_tlas, f)) == cl_backend
+        end
         # root_aabb stays isbits (not an array)
         @test isbitstype(typeof(cl_tlas.root_aabb))
     end

@@ -57,15 +57,27 @@ StaticMultiTypeSet() = StaticMultiTypeSet((), ())
 
 Base.isempty(smv::StaticMultiTypeSet) = isempty(smv.data)
 Base.length(smv::StaticMultiTypeSet) = sum(length, smv.data; init=0)
+# An `AbstractVector` with no `size` could not be printed, and neither could
+# anything holding one: a failing test's operands, a render state, a plan. The
+# slots are usually device arrays, so `show` names them and never reads them.
+Base.size(smv::StaticMultiTypeSet) = (length(smv),)
+function Base.show(io::IO, ::MIME"text/plain", smv::StaticMultiTypeSet)
+    print(io, "StaticMultiTypeSet with $(n_slots(smv)) type(s), $(length(smv)) element(s)")
+    for v in smv.data
+        print(io, "\n  ", length(v), "× ", eltype(v))
+    end
+end
+Base.show(io::IO, smv::StaticMultiTypeSet) =
+    print(io, "StaticMultiTypeSet(", n_slots(smv), " types, ", length(smv), " elements)")
 n_slots(smv::StaticMultiTypeSet) = length(smv.data)
 
 # Get the static version - identity for StaticMultiTypeSet, .static field for MultiTypeSet
 get_static(smv::StaticMultiTypeSet) = smv
 
 # Convert to a flat Tuple of all elements (preserves concrete element types)
-_concat_to_tuple() = ()
-_concat_to_tuple(v::AbstractVector, rest...) = (v..., _concat_to_tuple(rest...)...)
-to_tuple(smv::StaticMultiTypeSet) = _concat_to_tuple(smv.data...)
+concat_to_tuple() = ()
+concat_to_tuple(v::AbstractVector, rest...) = (v..., concat_to_tuple(rest...)...)
+to_tuple(smv::StaticMultiTypeSet) = concat_to_tuple(smv.data...)
 
 # ============================================================================
 # foreach_element - Type-stable iteration over all elements
@@ -116,15 +128,15 @@ end
 @inline function Base.mapreduce(
         f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, args...; init
     ) where {F,Op,Data<:Tuple,Textures}
-    _mapreduce(f, op, smv, init, args...)
+    typedmapreduce(f, op, smv, init, args...)
 end
 @inline function Base.mapreduce(
     f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, args::Vararg{Union{Base.AbstractBroadcasted,AbstractArray}}; init
 ) where {F,Op,Data<:Tuple,Textures}
-    _mapreduce(f, op, smv, init, args...)
+    typedmapreduce(f, op, smv, init, args...)
 end
 
-@inline @generated function _mapreduce(
+@inline @generated function typedmapreduce(
      f::F, op::Op, smv::StaticMultiTypeSet{Data,Textures}, init, args...) where {F, Op, Data<:Tuple, Textures}
     N = length(Data.parameters)
 
@@ -174,6 +186,38 @@ end
 @inline function deref(smv::StaticMultiTypeSet{Data,Textures}, tref::TextureRef{ReferencedArrayType,T,N,TIdx}) where {Data<:Tuple,Textures<:Tuple,ReferencedArrayType,T,N,TIdx}
     @inbounds smv.textures[TIdx][tref.idx]
 end
+
+"""
+    with_texture(f, smv::StaticMultiTypeSet, slot::Integer, idx::Integer, args...)
+
+Call `f(texture_array, args...)` for the texture at a RUNTIME `(slot, idx)`.
+
+`deref` indexes `smv.textures[TIdx]` with `TIdx` taken from the `TextureRef`
+TYPE, so a texture reference cannot be type-erased: two image maps in different
+type slots are different Julia types, and any struct holding one inherits that.
+For materials that is the whole constant-vs-texture type explosion.
+
+This is the escape hatch: the slot is a runtime value and the dispatch is an
+if-elseif chain over the tuple, like `with_index`. Each arm is MONOMORPHIC, so
+as long as `f` returns the same type from every arm (sample-and-convert rather
+than returning the array) the call is type-stable and GPU-safe. Returning the
+array itself would produce a union and is not supported by design.
+"""
+@inline @generated function with_texture(
+    f::F, smv::StaticMultiTypeSet{Data, Textures}, slot::Integer, idx::Integer, args...
+) where {F, Data<:Tuple, Textures<:Tuple}
+    N = length(Textures.parameters)
+    N == 0 && return :(f(nothing, args...))
+    expr = :(@inbounds f(smv.textures[$N][idx], args...))
+    for i in (N - 1):-1:1
+        expr = Expr(:if, :(slot == $i),
+                    :(@inbounds f(smv.textures[$i][idx], args...)),
+                    expr)
+    end
+    return quote
+        $expr
+    end
+end
 # ============================================================================
 # Dummy kernel for argconvert (same pattern as kernel-abstractions.jl)
 # ============================================================================
@@ -215,6 +259,8 @@ mutable struct MultiTypeSet{Backend} <: AbstractVector{Any}
     # Material storage - CPU vectors for accumulation (the authoritative data).
     data_vectors::Dict{DataType, Any}  # Type -> Vector{Type}
     data_order::Vector{DataType}
+    # Slots `delete!` vacated, by stored type: the next `push!` of that type takes one.
+    vacant::Dict{DataType, Vector{UInt32}}
     # Texture type order.  The shader-visible table of isbits device pointers
     # lives only in `static.textures[slot]` — no parallel CPU mirror.
     texture_order::Vector{DataType}
@@ -229,11 +275,29 @@ mutable struct MultiTypeSet{Backend} <: AbstractVector{Any}
     # genuinely expensive; MultiTypeSet's element-level updates are cheap
     # (one scalar GPU write) and pay no amortisation benefit from batching.
     static::StaticMultiTypeSet
+    # Bumped wherever a buffer of `static` (or a texture behind it) may have
+    # moved: a new slot, a grown slot, a reshaped texture, `free!`. A plan
+    # packed with `static`'s addresses is still right while this is unchanged,
+    # which is what an in-place `update!` leaves it.
+    layout::Int
 end
 
 Base.size(set::MultiTypeSet) = (length(set),)
+
+"Resolve a host set's texture reference to its owning array."
+function deref(set::MultiTypeSet, ref::TextureRef{AT}) where AT
+    index = 0
+    for array in set.texture_gpu_arrays
+        typeof(array) === AT || continue
+        index += 1
+        index == ref.idx && return array
+    end
+    error("GPU array not found for TextureRef(idx=$(ref.idx))")
+end
+deref(::MultiTypeSet, array::AbstractArray) = array
+
 function Base.length(set::MultiTypeSet)
-    return sum(length, values(set.data_vectors); init=0)
+    return sum(length, values(set.data_vectors); init=0) - sum(length, values(set.vacant); init=0)
 end
 
 function Base.show(io::IO, ::MIME"text/plain", set::MultiTypeSet)
@@ -253,9 +317,11 @@ function MultiTypeSet(backend)
         backend,
         Dict{DataType, Any}(),
         DataType[],
+        Dict{DataType, Vector{UInt32}}(),
         DataType[],
         Any[],
         StaticMultiTypeSet(),
+        0,
     )
 end
 
@@ -286,13 +352,21 @@ Convert a struct field value for GPU storage. Override this for custom types.
 
 Materials should use loose type parameters so fields can be either raw values OR
 TextureRef. This way constant values don't need texture indirection at all.
-This function should not be overloaded outside Raycore.
+
+This is the extension point a consumer overrides when it wants control over how
+its own items reach the device: Hikari overrides it for `Material` so every
+texture-carrying field lands on one uniform handle type instead of on whatever
+the caller happened to pass.
 """
 # Convert large arrays to TextureRef, but NOT StaticArrays (they're inline values, not textures)
 maybe_convert_field(dhv::MultiTypeSet, arr::A) where A<:AbstractArray = store_texture(dhv, arr)
 maybe_convert_field(::MultiTypeSet, arr::StaticArrays.StaticArray) = arr  # Keep StaticArrays inline
 # Don't re-convert already converted refs
 maybe_convert_field(::MultiTypeSet, ref::TextureRef) = ref
+# Tuples and named tuples element by element: neither is rebuilt from its fields by
+# its type's wrapper, as `convert_to_texturerefs` rebuilds a struct.
+maybe_convert_field(dhv::MultiTypeSet, item::Tuple) = map(x -> maybe_convert_field(dhv, x), item)
+maybe_convert_field(dhv::MultiTypeSet, item::NamedTuple) = map(x -> maybe_convert_field(dhv, x), item)
 # Default: recurse into structs, pass through primitives
 function maybe_convert_field(dhv::MultiTypeSet, item::T) where T
     # Recurse into struct types to convert nested arrays
@@ -355,6 +429,7 @@ function store_texture(dhv::MultiTypeSet, arr::AbstractArray{T}) where T
         @allowscalar slot[old_len + 1] = isbits_ptr
         vec_idx = old_len + 1
     end
+    dhv.layout += 1
     return TextureRef{AT, eltype(AT), ndims(AT), type_idx}(vec_idx)
 end
 
@@ -371,7 +446,13 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
     CT = typeof(converted_item)
 
     type_idx = findfirst(==(CT), dhv.data_order)
-    if type_idx === nothing
+    vacant = get(dhv.vacant, CT, nothing)
+    if vacant !== nothing && !isempty(vacant)
+        # A slot `delete!` vacated: written where it lies, so no buffer moves.
+        key = SetKey(UInt32(type_idx), pop!(vacant))
+        write_slot!(dhv, key, converted_item)
+        return key
+    elseif type_idx === nothing
         # New material type: extend `static.data` by one slot.
         dhv.data_vectors[CT] = [converted_item]
         push!(dhv.data_order, CT)
@@ -381,14 +462,82 @@ function Base.push!(dhv::MultiTypeSet, item::T)::SetKey where T
         vec_idx = 1
     else
         # Existing material type: surgical one-element append into the GPU slot.
-        push!(dhv.data_vectors[CT], converted_item)
+        #
+        # `old_len` is read BEFORE the host mirror grows, and the device write
+        # is skipped when the two alias. On a GPU backend `Adapt.adapt` builds a
+        # separate device array, but on `KA.CPU()` it is the identity, so
+        # `data_vectors[CT]` and this slot are the SAME `Vector` — the `push!`
+        # below already stores the item, and resizing again would store it a
+        # second time. That is how a two-quad area light ended up with six
+        # emissive triangles instead of four on the CPU backend.
         slot = dhv.static.data[type_idx]
         old_len = length(slot)
-        resize!(slot, old_len + 1)
-        @allowscalar slot[old_len + 1] = converted_item
+        push!(dhv.data_vectors[CT], converted_item)
+        if slot !== dhv.data_vectors[CT]
+            resize!(slot, old_len + 1)
+            @allowscalar slot[old_len + 1] = converted_item
+        end
         vec_idx = old_len + 1
     end
+    dhv.layout += 1
     return SetKey(UInt32(type_idx), UInt32(vec_idx))
+end
+
+"""
+    append!(dhv::MultiTypeSet, items) -> Vector{SetKey}
+
+Append every element of `items` in one pass, returning their keys in order.
+
+`push!` resizes the GPU slot and writes one element per call, so a loop over N
+items costs N `vkAllocateMemory`/`vkFreeMemory` pairs and N host→device copies.
+That is fine for the handful of materials a scene declares and catastrophic for
+anything per-face: registering the area lights of a mesh whose emissive surface
+is a tessellated sphere (261 120 faces) took ~150 s per mesh, which was ~95 % of
+the time to build `RayDemo/Materials/materials.pbrt`.
+
+Here each type slot is resized ONCE and filled with a single `copyto!`.
+"""
+function Base.append!(dhv::MultiTypeSet, items)::Vector{SetKey}
+    keys = Vector{SetKey}(undef, length(items))
+    isempty(items) && return keys
+
+    # Convert first: `maybe_convert_field` can store textures, and the stored
+    # type decides which slot an item lands in.
+    converted = map(item -> maybe_convert_field(dhv, item), items)
+
+    # Group by stored type, preserving order within each group.
+    order = Dict{DataType, Vector{Int}}()
+    for (i, item) in enumerate(converted)
+        push!(get!(() -> Int[], order, typeof(item)), i)
+    end
+
+    for (CT, positions) in order
+        chunk = CT[converted[i] for i in positions]
+        type_idx = findfirst(==(CT), dhv.data_order)
+        if type_idx === nothing
+            dhv.data_vectors[CT] = chunk
+            push!(dhv.data_order, CT)
+            type_idx = length(dhv.data_order)
+            new_slot = Adapt.adapt(dhv.backend, chunk)
+            dhv.static = StaticMultiTypeSet((dhv.static.data..., new_slot), dhv.static.textures)
+            base = 0
+        else
+            # `base` before the host mirror grows, and no device write when the
+            # two alias — see the note in `push!` above.
+            slot = dhv.static.data[type_idx]
+            base = length(slot)
+            append!(dhv.data_vectors[CT], chunk)
+            if slot !== dhv.data_vectors[CT]
+                resize!(slot, base + length(chunk))
+                copyto!(slot, base + 1, chunk, 1, length(chunk))
+            end
+        end
+        for (k, i) in enumerate(positions)
+            keys[i] = SetKey(UInt32(type_idx), UInt32(base + k))
+        end
+    end
+    dhv.layout += 1
+    return keys
 end
 
 # ============================================================================
@@ -417,18 +566,71 @@ function update!(dhv::MultiTypeSet, key::SetKey, new_item)
     # no-op, not an error — the caller's intent ("refresh what's stored")
     # is vacuously satisfied.
     is_invalid(key) && return nothing
-    CT = dhv.data_order[key.type_idx]
-    old_converted = dhv.data_vectors[CT][key.vec_idx]
-    updated = update_item(dhv, old_converted, new_item)
-    if updated !== old_converted
-        # Keep CPU and GPU consistent in one go — surgical single-element write.
-        dhv.data_vectors[CT][key.vec_idx] = updated
-        @allowscalar dhv.static.data[key.type_idx][key.vec_idx] = updated
-    end
+    old = dhv[key]
+    updated = update_item(dhv, old, new_item)
+    updated isa typeof(old) || throw(ArgumentError(
+        "update!: a $(typeof(new_item)) is stored as another type than the $(typeof(old)) under the key; " *
+        "`store!` it to move it to a slot of its own type"))
+    updated === old || write_slot!(dhv, key, updated)
     return nothing
 end
 
-public update_item, copyto_texture!
+"""
+    store!(dhv::MultiTypeSet, key::SetKey, item) -> SetKey
+
+Store `item` in place of the item under `key` and return the key it is stored under now: `key`
+when `item` updates that item in place (`update_item` gives a value of its stored type, see
+[`update!`](@ref)), else a slot of `item`'s own type, `push!`ed, with `key` vacated (`delete!`).
+An invalid `key` (nothing stored) is a `push!`.
+
+A material swapped for another kind of material is the second case: its type is not the slot's,
+so it cannot be written there.
+"""
+function store!(dhv::MultiTypeSet, key::SetKey, item)
+    is_invalid(key) && return push!(dhv, item)
+    old = dhv[key]
+    updated = update_item(dhv, old, item)
+    if updated isa typeof(old)
+        updated === old || write_slot!(dhv, key, updated)
+        return key
+    end
+    delete!(dhv, key)
+    return push!(dhv, item)
+end
+
+"""
+    delete!(dhv::MultiTypeSet, key::SetKey)
+
+Vacate the slot under `key`: the next `push!` of an item of its stored type takes it. The item
+stays where it is until then, so no buffer moves and plans packed with the set stay valid; the
+caller makes sure nothing reads `key` any more. An invalid key is a no-op.
+"""
+function Base.delete!(dhv::MultiTypeSet, key::SetKey)
+    is_invalid(key) && return dhv
+    push!(get!(Vector{UInt32}, dhv.vacant, dhv.data_order[key.type_idx]), key.vec_idx)
+    return dhv
+end
+
+# The item under `key`, host mirror and device slot in one go: a surgical single-element write.
+function write_slot!(dhv::MultiTypeSet, key::SetKey, item)
+    host = dhv.data_vectors[dhv.data_order[key.type_idx]]
+    slot = dhv.static.data[key.type_idx]
+    host[key.vec_idx] = item
+    # On `KA.CPU()` the slot IS the host mirror (see `push!`).
+    slot === host || @allowscalar slot[key.vec_idx] = item
+    return nothing
+end
+
+"""
+    getindex(dhv::MultiTypeSet, key::SetKey)
+
+The item stored under `key`, as the set holds it: its arrays as the `TextureRef`
+slots they were uploaded to. Handing parts of it back to [`update!`](@ref) keeps
+those slots instead of uploading the arrays again.
+"""
+Base.getindex(dhv::MultiTypeSet, key::SetKey) = dhv.data_vectors[dhv.data_order[key.type_idx]][key.vec_idx]
+
+public update_item, copyto_texture!, store!
 
 """
     update_item(dhv::MultiTypeSet, old, new)
@@ -449,6 +651,10 @@ update_item(::MultiTypeSet, old::TextureRef, ::TextureRef) = old
 
 # Nothing/Nothing: no-op.
 update_item(::MultiTypeSet, ::Nothing, ::Nothing) = nothing
+
+"Whether a value of type `T` holds a texture slot anywhere inside it."
+holds_texture(::Type{<:TextureRef}) = true
+holds_texture(::Type{T}) where {T} = isstructtype(T) && any(holds_texture, fieldtypes(T))
 
 # Generic fallback: walk field-by-field when field names match, otherwise
 # replace `old` with `new` (leaf case — isbits values, identically-typed
@@ -483,8 +689,18 @@ function update_item(dhv::MultiTypeSet, old::NamedTuple{K}, new::NamedTuple{K}) 
     return NamedTuple{K}(new_fields)
 end
 
-function update_item(dhv::MultiTypeSet, old, new)
+# This is a host-side reflective walk. Inferring every combination of nested
+# stored/unstored field types (two NanoVDB grids per air term, for example)
+# costs minutes on the first update. Keep a dynamic barrier at this fallback;
+# the typed texture-copy methods and device kernels remain specialized.
+Base.@nospecializeinfer function update_item(dhv::MultiTypeSet, @nospecialize(old), @nospecialize(new))
     T_old = typeof(old)
+    # A value of the stored type with no texture slot in it is already in
+    # stored form: it IS the update. Rebuilding it field by field went through
+    # `T.name.wrapper(fields...)`, which a type with an inner constructor
+    # (every light) or a static array (its one field is a tuple) cannot take,
+    # so moving a point light threw.
+    typeof(new) === T_old && isbitstype(T_old) && !holds_texture(T_old) && return new
     fnames = fieldnames(T_old)
     isempty(fnames) && return new  # leaf — swap in the new value
     # Only recurse if new exposes the same field names (types of individual
@@ -506,12 +722,12 @@ end
     copyto_texture!(dhv, ref, data)
 
 Write `data` into the GPU texture addressed by `ref`.  Same-size is a plain
-`copyto!` (device pointer unchanged — no other state needs updating).  Size
-mismatch goes through `Base.resize!(::LavaArray)` which is capacity-aware:
-the VkBuffer is only re-allocated on genuine growth beyond current capacity,
-and the old buffer is retired via the deferred-free path (`bq.deferred_frees`
-gated on the batch timeline — safe w.r.t. in-flight GPU work without any
-CPU-side `synchronize`).
+`copyto!` (device pointer unchanged — no other state needs updating).  A vector
+of another length goes through `Base.resize!`, which a backend may make
+capacity-aware (no reallocation within capacity, the old buffer retired once the
+GPU is past it). Any other shape gets a fresh array of the new shape in the old
+one's place: Base has no `resize!` for more than one dimension, and a backend that
+adds one is not something every backend does.
 
 If the device pointer actually moved (pool-alloc returned a fresh buffer),
 the one affected slot of `static.textures[AT_slot]` is updated via a single
@@ -522,34 +738,64 @@ function copyto_texture!(dhv::MultiTypeSet, ref::TextureRef{AT}, new_data::Abstr
     AT_slot === nothing && error("MultiTypeSet has no texture type slot for $AT (TextureRef broken?)")
 
     count = 0
-    for arr in dhv.texture_gpu_arrays
+    for (k, arr) in enumerate(dhv.texture_gpu_arrays)
         typeof(arr) === AT || continue
         count += 1
         count == ref.idx || continue
 
+        # A producer that owns the slot's storage and wrote it in place hands
+        # the same array back: there is nothing to copy (and a buffer copied
+        # onto itself is an overlapping copy, which Vulkan leaves undefined).
+        arr === new_data && return
         if size(arr) == size(new_data)
             # Same shape: pointer cannot move — one copyto!, done.
             copyto!(arr, new_data)
         else
-            # Capacity-aware grow: zero-alloc within capacity, deferred-free
-            # on true growth.  Compare the device pointer before/after to see
-            # whether the surrounding isbits table needs one slot refreshed.
+            # Compare the device pointer before/after to see whether the
+            # surrounding isbits table needs one slot refreshed.
+            old_array = arr
             old_ptr = get_isbits_ptr(dhv.backend, arr)
-            resize!(arr, size(new_data))
-            copyto!(arr, new_data)
+            arr = resized(arr, size(new_data))
+            dhv.texture_gpu_arrays[k] = arr
             new_ptr = get_isbits_ptr(dhv.backend, arr)
             if new_ptr != old_ptr
                 # Pointer moved (grow past capacity).  Refresh just this one
                 # slot of the shader-visible isbits buffer — no rebuild, no
                 # dirty flag, no sync.  A later `get_static` that finds
                 # `dirty == false` sees a tuple that's already consistent.
-                @allowscalar dhv.static.textures[AT_slot][ref.idx] = new_ptr
+                if arr === old_array
+                    # Adapt may retain the same array for multiple texture
+                    # slots. Resizing that object changes every alias, so all
+                    # their shader descriptors must follow its new storage.
+                    index = 0
+                    for candidate in dhv.texture_gpu_arrays
+                        typeof(candidate) === AT || continue
+                        index += 1
+                        candidate === arr || continue
+                        @allowscalar dhv.static.textures[AT_slot][index] = new_ptr
+                    end
+                else
+                    @allowscalar dhv.static.textures[AT_slot][ref.idx] = new_ptr
+                end
+                dhv.layout += 1
             end
+            # Keep the table consistent even when the payload copy throws.
+            # A retry may have the same shape and therefore skip this branch.
+            copyto!(arr, new_data)
         end
         return
     end
     error("GPU array not found for TextureRef(idx=$(ref.idx))")
 end
+
+"""
+    resized(arr, dims) -> array
+
+`arr` at the new shape: the same array, resized in place, for a vector; a fresh
+array of `arr`'s type for any other shape, whose contents the caller writes.
+"""
+resized(arr::AbstractVector, dims::Dims{1}) = resize!(arr, dims[1])
+resized(arr::AbstractArray, dims::Dims) = similar(arr, dims)
 
 # No `update!` / `resize_and_overwrite!` hook: call sites use `Base.resize!` +
 # `Base.copyto!` directly.  Lava's `Base.resize!(::LavaArray)` is capacity-aware
@@ -652,5 +898,6 @@ function free!(set::MultiTypeSet)
         finalize(arr)
     end
     set.static = StaticMultiTypeSet()
+    set.layout += 1
     return nothing
 end

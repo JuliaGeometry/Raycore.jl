@@ -68,12 +68,12 @@ end
 
     meshes = [make_gb_mesh(Vec3f(i*3, i*3, 0)) for i in 0:3]
 
-    tlas = Raycore.TLAS(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+    tlas = Raycore.TLAS(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx); backend = test_backend())
     @test !isnothing(Raycore.world_bound(tlas))
 
     # Simple intersection test
     ray = Raycore.Ray(o = Point3f(0.5, 0.5, -1), d = Vec3f(0, 0, 1))
-    hit, tri, dist, bary, inst_id = Raycore.closest_hit(tlas, ray)
+    hit, tri, dist, bary, inst_id = traced(Raycore.closest_hit, tlas, ray)
     @test hit
     @test tri isa Raycore.Triangle
 end
@@ -91,13 +91,13 @@ end
 
     meshes = [make_gb_mesh_at_z(Float32(z)) for z in [0, 4, 8]]
 
-    tlas = Raycore.TLAS(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+    tlas = Raycore.TLAS(meshes, (mesh_idx, tri_idx) -> UInt32(mesh_idx); backend = test_backend())
     bound = Raycore.world_bound(tlas)
     @test !isnothing(bound)
 
     # Test intersection with the first triangle
     ray = Raycore.Ray(o = Point3f(0, 0, -2), d = Vec3f(0, 0, 1))
-    hit, tri, dist, bary, inst_id = Raycore.closest_hit(tlas, ray)
+    hit, tri, dist, bary, inst_id = traced(Raycore.closest_hit, tlas, ray)
     @test hit
     @test tri isa Raycore.Triangle
 end
@@ -127,11 +127,11 @@ end
         GeometryBasics.mesh(verts, faces; normal=normals)
     end
 
-    tlas = Raycore.TLAS([make_unit_mesh()], (mesh_idx, tri_idx) -> UInt32(mesh_idx))
+    tlas = Raycore.TLAS([make_unit_mesh()], (mesh_idx, tri_idx) -> UInt32(mesh_idx); backend = test_backend())
 
     # Ray clearly misses: origin far away, direction pointing further away
     ray = Raycore.Ray(o = Point3f(100, 100, 100), d = Vec3f(1, 0, 0))
-    hit, tri, _, _, _ = Raycore.closest_hit(tlas, ray)
+    hit, tri, _, _, _ = traced(Raycore.closest_hit, tlas, ray)
 
     @test !hit
     @test tri isa Raycore.Triangle

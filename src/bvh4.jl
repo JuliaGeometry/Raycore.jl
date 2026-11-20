@@ -220,7 +220,7 @@ Returns: (child_indices, child_aabbs, child_count, is_leaf_flags)
     if is_leaf(root)
         # Root is already a leaf - single child
         children[1] = root_idx
-        aabbs[1] = get_node_aabb(root, false)
+        aabbs[1] = leaf_aabb(TriangleLeaves(), root)
         child_is_leaf[1] = true
         return (children, aabbs, Int32(1), child_is_leaf)
     end
@@ -262,16 +262,7 @@ Returns: (child_indices, child_aabbs, child_count, is_leaf_flags)
             # Add this node as a child
             child_count += 1
             @inbounds children[child_count] = node_idx
-            @inbounds aabbs[child_count] = if is_node_interior
-                # Interior node - union of child AABBs
-                Bounds3(
-                    min.(node.aabb0_min, node.aabb1_min),
-                    max.(node.aabb0_max, node.aabb1_max)
-                )
-            else
-                # Leaf node - compute from triangle vertices
-                get_node_aabb(node, false)
-            end
+            @inbounds aabbs[child_count] = node_aabb(TriangleLeaves(), node, is_node_interior)
             @inbounds child_is_leaf[child_count] = !is_node_interior
         end
     end
@@ -285,14 +276,7 @@ Returns: (child_indices, child_aabbs, child_count, is_leaf_flags)
         @inbounds children[child_count] = node_idx
         @inbounds node = nodes2[node_idx]
         is_node_interior = is_interior(node)
-        @inbounds aabbs[child_count] = if is_node_interior
-            Bounds3(
-                min.(node.aabb0_min, node.aabb1_min),
-                max.(node.aabb0_max, node.aabb1_max)
-            )
-        else
-            get_node_aabb(node, false)
-        end
+        @inbounds aabbs[child_count] = node_aabb(TriangleLeaves(), node, is_node_interior)
         @inbounds child_is_leaf[child_count] = !is_node_interior
     end
 
@@ -544,11 +528,12 @@ Test ray against one child AABB of a BVH4 node.
     f = aabb.p_max .* ray_inv_d .+ oxinvdir
     n = aabb.p_min .* ray_inv_d .+ oxinvdir
 
-    tmax_vec = max.(f, n)
-    tmin_vec = min.(f, n)
+    # see `fast_intersect_bbox`
+    tmax_vec = max_fast.(f, n)
+    tmin_vec = min_fast.(f, n)
 
-    max_t = min(minimum(tmax_vec), t_max)
-    min_t = max(maximum(tmin_vec), t_min)
+    max_t = min_fast(min_fast(min_fast(tmax_vec[1], tmax_vec[2]), tmax_vec[3]), t_max)
+    min_t = max_fast(max_fast(max_fast(tmin_vec[1], tmin_vec[2]), tmin_vec[3]), t_min)
 
     return (min_t <= max_t, min_t)
 end

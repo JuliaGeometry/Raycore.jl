@@ -8,6 +8,8 @@ import GeometryBasics as GB
 using Statistics
 using Adapt
 using GPUArraysCore: @allowscalar
+# the slab tests' min/max: native minNum on every backend, see `fast_intersect_bbox`
+using Base.FastMath: min_fast, max_fast
 
 abstract type AbstractRay end
 abstract type Primitive end
@@ -18,12 +20,16 @@ Mutable acceleration structure for ray/geometry intersection queries.
 
 Concrete implementations:
 - `Raycore.TLAS` — software BVH/TLAS, runs on any KernelAbstractions backend.
-- `Lava.HWTLAS` — hardware ray tracing via `VK_KHR_ray_tracing_pipeline`.
+- `Mantle.HWTLAS` — the GPU's hardware acceleration structure, on Vulkan and Metal.
 
 # Mutation API
 - `push!(accel, mesh, transform)`: add geometry, return a `TLASHandle`.
-- `delete!(accel, handle)`, `update_transform!(accel, handle, transform)`,
-  `update_transforms!(accel, handle, transforms)`.
+- `delete!(accel, handle)`, `update_transforms!(accel, handle, transforms)`,
+  `set_visible!(accel, handle, visible)`, `set_opaque!(accel, handle, opaque)`.
+- `instancecount(accel, handle)` and `instanceranges(accel)`, on which
+  `update_transform!(accel, handle, transform)` and
+  `update_instance_transforms!(accel, transforms, n, first)` are written once.
+  An unknown or deleted handle is an `ArgumentError` everywhere.
 
 # Lifecycle
 - `sync!(accel)` — sole owner of `accel.static_tlas`. Rebuilds in place
@@ -36,9 +42,31 @@ Concrete implementations:
   violation.
 
 # Query
-- `closest_hit(adapted, ray) -> (hit, tri, t, bary, instance_override)`
-- `any_hit(adapted, ray) -> Bool`
+- `closest_hit_record(adapted, ray, mask = 0xff) -> HitRecord` and
+  `any_hit_record(adapted, ray, mask = 0xff) -> HitRecord`: what every adapted
+  structure implements, with `hit_primitive(adapted, rec)` and
+  `miss_primitive(adapted)`. A [`HitRecord`](@ref) is small enough to queue and
+  expand later.
+- `transparent_hits(adapted, ray, mask, Val(N), limit) -> TransparentHits{N}`: the
+  nearest `N` hits on instances that are not opaque, until an opaque one blocks the
+  ray. Closest and any hits take every instance as opaque.
+- `closest_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_id)`
+- `any_hit(adapted, ray, mask = 0xff) -> (hit, tri, t, bary, instance_id)` — the SAME
+  shape as `closest_hit`, not a `Bool`. Only the traversal differs: it stops at
+  the first accepted hit, so `t`/`tri` are *an* intersection, not the nearest.
+  Both are derived from the records once, for every structure.
+- `mask` is the ray's cull mask: an instance is seen only when its mask
+  (`instance_mask` at `push!`, or the record's `mask`) shares a bit with it. Low
+  8 bits, on every implementation.
+- The hit means the same on every implementation: `tri` is the hit triangle in
+  world space (moved by its instance's transform), `instance_id` the instance's
+  custom index (`instance_id` at `push!`, or the record's `id`), low 24 bits;
+  the empty triangle and `0` on a miss.
 - `world_bound(accel)`, `n_instances(accel)`, `n_geometries(accel)`.
+
+# Instances a kernel writes
+- `instance_buffer(accel, handle)` — the batch's [`InstanceRecord`](@ref)s, a
+  device array a kernel may write; `refit!(accel)` commits what it wrote.
 
 # Flush
 - `wait_for_gpu!(accel)` — block CPU until all pending GPU work on this
@@ -84,6 +112,7 @@ include("kernels.jl")
 include("collision.jl")
 include("soa.jl")
 include("multitypeset.jl")
+include("setview.jl")
 include("unrolled.jl")
 include("rt_transport.jl")
 
@@ -94,12 +123,12 @@ export @_inbounds
 export Ray, RayDifferentials, Triangle, Bounds3, Normal3f, empty_triangle
 
 # Instanced BVH types
-export BLAS, BLASDescriptor, TLAS, InstanceDescriptor, BVHNode2, build_blas, build_tlas, INVALID_NODE
+export BLAS, BLASDescriptor, TLAS, InstanceDescriptor, InstanceRecord, BVHNode2, build_blas, build_tlas, INVALID_NODE
 export build_triangle, is_degenerate_face
 
 # TLAS (GPU two-level acceleration structure)
 export TLASHandle, StaticTLAS, INVALID_HANDLE
-export sync!, update!, n_total_instances
+export sync!, update!, n_total_instances, set_visible!, set_opaque!
 
 # BVH4 types (HIPRT-style 4-wide nodes)
 export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
@@ -107,27 +136,59 @@ export BVHNode4, BLAS4, TLAS4, build_blas4, closest_hit4, any_hit4
 # Ray intersection functions
 export AbstractAccel, AbstractAdaptedAccel
 export closest_hit, any_hit, world_bound, trace_rays
+export HitRecord, closest_hit_record, any_hit_record, hit_primitive, TransparentHits, transparent_hits
 export n_instances, n_geometries, wait_for_gpu!
 
-# RT transport types (used by Lava.HWTLAS and consumers)
+# RT transport types (used by Mantle.HWTLAS and consumers)
 export RTRay, RTHitResult
 
 # Stubs for Lava/Makie extensions
 function trace_rays end
 
 """
-    instance_buffer(tlas, handle::TLASHandle)
+    instance_buffer(tlas, handle::TLASHandle) -> device vector of InstanceRecord
 
-Return the underlying GPU instance buffer (a `Lava.LavaArray{LavaInstanceRecord, 1}`)
-that the named batch is using. The caller can write into this buffer (e.g.,
-via a compute kernel) and then call `refit_tlas!(tlas)` to commit the changes.
+The device array holding the [`InstanceRecord`](@ref)s of the batch `handle`
+names, in the order of its instances: the array the batch was pushed with when
+it was pushed with one, else the one `push!` made. A kernel may write it — new
+transforms, ids or masks — and [`refit!`](@ref)`(tlas)` is what makes the
+structure take what was written.
 
-Errors loudly if the handle does not refer to an instance batch (e.g., it
-refers to a per-mesh push! instance, which has no GPU instance buffer).
+The array can be longer than the batch: only its first `n_instances` records
+are instances. Throws an `ArgumentError` for a handle that names no batch.
 """
 function instance_buffer end
 
 export instance_buffer
+
+"""
+    refit!(tlas) -> tlas
+    refit!(blas, vertices) -> blas
+
+Bring an acceleration structure up to date with geometry that moved, keeping
+its topology.
+
+`refit!(tlas)` takes every instance record as it is now — a kernel may have
+written them through [`instance_buffer`](@ref) — and refits the structure over
+them in place. A structure that cannot be refit (its batches changed since it
+was built) is rebuilt instead. The adapted form a kernel traces stays the same
+object across a refit, so a plan holding it sees the new instances.
+
+`refit!(blas, vertices)` moves the vertices of a bottom-level structure built
+with `allow_update = true` and refits it in place: same vertex count, same
+triangles. A structure built without `allow_update`, or a different vertex
+count, is an `ArgumentError`. A top-level structure stores the bounds of what it
+instances, so `refit!` every TLAS that instances the BLAS afterwards.
+
+A refit keeps the tree the structure was built with, so traversal slows as the
+geometry moves away from that pose; rebuild a structure that moves far.
+
+Not exported: `Mantle` exports a `refit!` of its own, for plans, and the two
+would make the bare name ambiguous wherever both packages are `using`ed.
+"""
+function refit! end
+
+public refit!
 
 # Math utilities
 export reflect
@@ -145,8 +206,8 @@ export @get, @set, similar_soa
 export FastClosure, for_unrolled, map_unrolled, reduce_unrolled, sum_unrolled, getindex_unrolled
 
 # MultiTypeSet - type-stable heterogeneous collections
-export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef
-export is_invalid, is_valid, with_index, n_slots, deref, get_static, to_tuple
+export SetKey, MultiTypeSet, StaticMultiTypeSet, TextureRef, SetView, setview
+export is_invalid, is_valid, with_index, with_texture, n_slots, deref, get_static, to_tuple
 export maybe_convert_field, store_texture
 export free!
 

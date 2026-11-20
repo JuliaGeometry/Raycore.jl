@@ -2,10 +2,10 @@ using Test
 using Raycore: MultiTypeSet, StaticMultiTypeSet, SetKey, TextureRef
 using Raycore: with_index, deref, is_valid, is_invalid, n_slots, update!
 using KernelAbstractions
+const KA = KernelAbstractions
 using Adapt
-using Lava
 
-backend = Lava.LavaBackend()
+backend = test_backend()
 
 # Test structs - used for both CPU and GPU tests
 struct SimpleMaterial{T}
@@ -82,10 +82,10 @@ end
     # static field is already GPU-ready
     smv = dhv.static
 
-    # Check structure
-    @test smv.data[1] isa Lava.LavaArray
-    @test smv.textures[1] isa Lava.LavaArray
-    @test smv.textures[2] isa Lava.LavaArray
+    # The slots kernels read live on the backend the set was made for.
+    @test KA.get_backend(smv.data[1]) == backend
+    @test KA.get_backend(smv.textures[1]) == backend
+    @test KA.get_backend(smv.textures[2]) == backend
 
     # Kernel that accesses both texture fields via deref
     @kernel function mat2_kernel(out, smv, idxs)
@@ -98,8 +98,8 @@ end
         out[i] = with_index(get_sum, smv, idxs[i], smv)
     end
 
-    indices = LavaArray([idx1, idx2])
-    output = LavaArray(zeros(Float32, 2))
+    indices = Adapt.adapt(backend, [idx1, idx2])
+    output = KA.zeros(backend, Float32, 2)
 
     kernel = mat2_kernel(backend)
     kernel(output, smv, indices; ndrange=2)
@@ -117,9 +117,9 @@ end
 
     smv = dhv.static
 
-    # Check that inner arrays are LavaArrays
-    @test smv.data[1] isa Lava.LavaArray
-    @test smv.data[2] isa Lava.LavaArray
+    # The slots kernels read live on the backend the set was made for.
+    @test KA.get_backend(smv.data[1]) == backend
+    @test KA.get_backend(smv.data[2]) == backend
 
     # Run kernel
     @kernel function simple_kernel(output, hvec, indices)
@@ -129,8 +129,8 @@ end
         output[i] = with_index(get_val, hvec, indices[i])
     end
 
-    indices = LavaArray([idx1, idx2, idx3])
-    output = LavaArray(zeros(Float32, 3))
+    indices = Adapt.adapt(backend, [idx1, idx2, idx3])
+    output = KA.zeros(backend, Float32, 3)
 
     kernel = simple_kernel(backend)
     kernel(output, smv, indices; ndrange=3)
@@ -138,4 +138,120 @@ end
 
     result = Array(output)
     @test result ≈ [0.5f0, 1.5f0, 0.8f0]
+end
+
+# `push!` resizes the GPU slot and writes one element per call, so registering
+# anything per-face (Hikari's area lights: 261 120 of them for one tessellated
+# sphere) cost that many vkAllocateMemory/vkFreeMemory pairs — ~150 s per mesh.
+# `append!` resizes each slot once and fills it with a single copyto!. It has to
+# agree with a push! loop exactly, including the order of the returned keys,
+# because callers derive flat indices from them.
+@testset "MultiTypeSet append! matches a push! loop" begin
+    items = [SimpleMaterial(Float32(i)) for i in 1:64]
+
+    pushed = MultiTypeSet(backend)
+    push_keys = [push!(pushed, m) for m in items]
+
+    appended = MultiTypeSet(backend)
+    append_keys = append!(appended, items)
+
+    @test append_keys == push_keys
+    @test length(appended) == length(pushed) == 64
+    @test Array(Raycore.get_static(appended).data[1]) == Array(Raycore.get_static(pushed).data[1])
+
+    @testset "into a slot that already has items" begin
+        set = MultiTypeSet(backend)
+        first_key = push!(set, SimpleMaterial(1f0))
+        keys = append!(set, [SimpleMaterial(Float32(i)) for i in 2:10])
+        @test first_key.vec_idx == 1
+        @test [k.vec_idx for k in keys] == 2:10
+        @test all(k -> k.type_idx == first_key.type_idx, keys)
+        @test Array(Raycore.get_static(set).data[1]) == [SimpleMaterial(Float32(i)) for i in 1:10]
+    end
+
+    @testset "mixed types keep per-item order" begin
+        set = MultiTypeSet(backend)
+        mixed = Any[SimpleMaterial(1f0), GlassMaterial(1.5f0), SimpleMaterial(2f0),
+                    GlassMaterial(1.6f0), SimpleMaterial(3f0)]
+        keys = append!(set, mixed)
+        @test length(set) == 5
+        # Same type => same slot, in the order they appeared.
+        @test keys[1].type_idx == keys[3].type_idx == keys[5].type_idx
+        @test keys[2].type_idx == keys[4].type_idx
+        @test keys[1].type_idx != keys[2].type_idx
+        @test [keys[i].vec_idx for i in (1, 3, 5)] == [1, 2, 3]
+        @test [keys[i].vec_idx for i in (2, 4)] == [1, 2]
+        # And every key round-trips to the item it was made from. `with_index`
+        # indexes the GPU slot, so read the slots back to the host once.
+        slots = map(Array, Raycore.get_static(set).data)
+        for (i, item) in enumerate(mixed)
+            @test slots[keys[i].type_idx][keys[i].vec_idx] == item
+        end
+    end
+
+    @testset "empty append! is a no-op" begin
+        set = MultiTypeSet(backend)
+        @test isempty(append!(set, SimpleMaterial{Float32}[]))
+        @test isempty(set)
+    end
+end
+
+@testset "layout moves only where a buffer may have" begin
+    set = MultiTypeSet(backend)
+    l0 = set.layout
+    key = push!(set, MaterialWith2(0.5f0, rand(Float32, 4, 4)))
+    l1 = set.layout
+    @test l1 > l0
+    # Same type and texture shape: written into the buffers a plan was packed
+    # with, so nothing moved.
+    update!(set, key, MaterialWith2(0.9f0, rand(Float32, 4, 4)))
+    @test set.layout == l1
+    # A texture of another shape is a new allocation.
+    update!(set, key, MaterialWith2(0.9f0, rand(Float32, 64, 64)))
+    @test set.layout > l1
+    l2 = set.layout
+    push!(set, MaterialWith2(0.1f0, rand(Float32, 4, 4)))
+    @test set.layout > l2
+end
+
+# A material swapped for another kind of material cannot be written into its slot: the slot holds
+# items of one stored type. `update!` refused it with a `convert` error deep in `setindex!`, so
+# RayMakie could not change a plot's material to another kind at all. `store!` moves it to a slot
+# of its own type and vacates the old one, which the next item of that type takes.
+@testset "store! moves an item of another type, and a vacated slot is reused" begin
+    set = MultiTypeSet(backend)
+    a = push!(set, SimpleMaterial(0.5f0))
+    b = push!(set, SimpleMaterial(0.6f0))
+    @test_throws ArgumentError update!(set, a, GlassMaterial(1.5f0))
+    @test set[a] == SimpleMaterial(0.5f0)
+
+    # Same stored type: in place, the key stays.
+    @test Raycore.store!(set, a, SimpleMaterial(0.7f0)) == a
+    @test set[a] == SimpleMaterial(0.7f0)
+
+    # Another type: a slot of its own, and `a`'s is vacant.
+    l = set.layout
+    g = Raycore.store!(set, a, GlassMaterial(1.5f0))
+    @test g != a && set[g] == GlassMaterial(1.5f0)
+    @test set.layout > l               # a new type is a new buffer
+    @test length(set) == 2
+
+    # The vacancy is filled before the slot grows, and nothing moves.
+    l = set.layout
+    c = push!(set, SimpleMaterial(0.9f0))
+    @test c == a
+    @test set.layout == l
+    @test length(set) == 3
+    @test Array(Raycore.get_static(set).data[a.type_idx]) == [SimpleMaterial(0.9f0), SimpleMaterial(0.6f0)]
+
+    # Back to the first type: `g`'s slot is vacated, and the item lands in a fresh one.
+    s = Raycore.store!(set, g, SimpleMaterial(0.1f0))
+    @test s.type_idx == a.type_idx && s.vec_idx == 3
+    @test length(set) == 3
+    @test set[b] == SimpleMaterial(0.6f0)
+
+    # An invalid key holds nothing: storing there is a push, deleting it a no-op.
+    @test Raycore.store!(set, SetKey(), GlassMaterial(1.2f0)) == g
+    delete!(set, SetKey())
+    @test length(set) == 4
 end

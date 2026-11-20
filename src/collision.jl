@@ -52,17 +52,10 @@ end
     all(a_max .>= b_min) && all(a_min .<= b_max)
 end
 
-"""Get the AABB of a TLAS node (internal: union of children, leaf: stored AABB)."""
+"""The box of TLAS node `node`, as `(min, max)`."""
 @inline function tlas_node_aabb(node::BVHNode2)
-    if is_interior(node)
-        # Interior: union of children AABBs
-        p_min = min.(node.aabb0_min, node.aabb1_min)
-        p_max = max.(node.aabb0_max, node.aabb1_max)
-        return (p_min, p_max)
-    else
-        # Leaf: instance AABB stored in aabb0
-        return (node.aabb0_min, node.aabb0_max)
-    end
+    b = node_aabb(BoxLeaves(), node, is_interior(node))
+    return (b.p_min, b.p_max)
 end
 
 # ==============================================================================

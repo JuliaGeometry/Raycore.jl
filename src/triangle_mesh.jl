@@ -21,7 +21,7 @@ normals(t::Triangle) = t.normals
 tangents(t::Triangle) = t.tangents
 uvs(t::Triangle) = t.uv
 
-@inline function _edge_function(vs)
+@inline function edge_function(vs)
     @_inbounds Point3f(
         vs[2][1] * vs[3][2] - vs[2][2] * vs[3][1],
         vs[3][1] * vs[1][2] - vs[3][2] * vs[1][1],
@@ -52,30 +52,30 @@ function empty_triangle(::Type{Triangle{TMeta}}) where TMeta
         SVector{3,Normal3f}(Normal3f(0,0,0), Normal3f(0,0,0), Normal3f(0,0,0)),
         SVector{3,Vec3f}(Vec3f(0,0,0), Vec3f(0,0,0), Vec3f(0,0,0)),
         SVector{3,Point2f}(Point2f(0,0), Point2f(0,0), Point2f(0,0)),
-        _zero_struct(TMeta),
+        zero_struct(TMeta),
     )
 end
 
 """
-    _zero_struct(::Type{T}) -> T
+    zero_struct(::Type{T}) -> T
 
 Field-wise zero-initialise a POD struct `T`.  Recursive over `fieldtype(T, i)`
 so nested structs (e.g. `Triangle{TriangleMeta}` where `TriangleMeta` has
 `UInt32` fields) work without requiring `zero(T)` to be defined on the outer
 type.  Falls back to `zero(T)` for primitive leaves.
 """
-@generated function _zero_struct(::Type{T}) where T
+@generated function zero_struct(::Type{T}) where T
     nf = fieldcount(T)
     if nf == 0
         # Primitive leaf — use Base.zero.
         return :(zero(T))
     else
-        fields = [:(_zero_struct($(fieldtype(T, i)))) for i in 1:nf]
+        fields = [:(zero_struct($(fieldtype(T, i)))) for i in 1:nf]
         return Expr(:call, T, fields...)
     end
 end
 
-function _argmax(vec::Vec3)
+function maxaxis(vec::Vec3)
     max_val = vec[1]
     max_idx = Int32(1)
     Base.Cartesian.@nexprs 3 i -> begin
@@ -87,11 +87,11 @@ function _argmax(vec::Vec3)
     return max_idx
 end
 
-@inline function _to_ray_coordinate_space(
+@inline function to_ray_coordinate_space(
         vertices::AbstractVector{Point3f}, ray::AbstractRay,
     )
     # Compute permutation.
-    kz = _argmax(map(abs, ray.d))
+    kz = maxaxis(map(abs, ray.d))
     kx = kz + Int32(1)
     kx == Int32(4) && (kx = Int32(1))
     ky = kx + Int32(1)
@@ -116,46 +116,6 @@ end
     return SVector{3, Point3f}(tvs), shear
 end
 
-@inline function partial_derivatives(
-        ::Triangle, vs::AbstractVector{Point3f}, uv::AbstractVector{Point2f},
-    )::Tuple{Vec3f,Vec3f,Vec3f,Vec3f}
-
-    # Compute deltas for partial derivative matrix.
-    δuv_13, δuv_23 = uv[1] - uv[3], uv[2] - uv[3]
-    δp_13, δp_23 = Vec3f(vs[1] - vs[3]), Vec3f(vs[2] - vs[3])
-    det = δuv_13[1] * δuv_23[2] - δuv_13[2] * δuv_23[1]
-    if det ≈ 0f0
-        v = normalize((vs[3] - vs[1]) × (vs[2] - vs[1]))
-        _, ∂p∂u, ∂p∂v = coordinate_system(Vec3f(v))
-        return ∂p∂u, ∂p∂v, δp_13, δp_23
-    end
-    inv_det = 1f0 / det
-    ∂p∂u = Vec3f(δuv_23[2] * δp_13 - δuv_13[2] * δp_23) * inv_det
-    ∂p∂v = Vec3f(-δuv_23[1] * δp_13 + δuv_13[1] * δp_23) * inv_det
-    ∂p∂u, ∂p∂v, δp_13, δp_23
-end
-
-@inline function _all(f, x::StaticVector{3})
-    f(x[1]) && f(x[2]) && f(x[3])
-end
-
-@inline function normal_derivatives(
-        t::Triangle, uv::AbstractVector{Point2f},
-    )::Tuple{Normal3f,Normal3f}
-    t_normals = normals(t)
-    _all(x -> _all(isnan, x), t_normals) && return Normal3f(0), Normal3f(0)
-    # Compute deltas for partial detivatives of normal.
-    δuv_13, δuv_23 = uv[1] - uv[3], uv[2] - uv[3]
-    δn_13, δn_23 = t_normals[1] - t_normals[3], t_normals[2] - t_normals[3]
-    det = δuv_13[1] * δuv_23[2] - δuv_13[2] * δuv_23[1]
-    det ≈ 0f0 && return Normal3f(0), Normal3f(0)
-
-    inv_det = 1f0 / det
-    ∂n∂u = (δuv_23[2] * δn_13 - δuv_13[2] * δn_23) * inv_det
-    ∂n∂v = (-δuv_23[1] * δn_13 + δuv_13[1] * δn_23) * inv_det
-    ∂n∂u, ∂n∂v
-end
-
 @inline function intersect(triangle::Triangle, ray::AbstractRay)::Tuple{Bool,Float32,Point3f}
     verts = vertices(triangle)
     return intersect_triangle(verts, ray)
@@ -171,9 +131,9 @@ end
     barycentric = Point3f(0)
     t_hit = 0f0
     is_degenerate(vs) && return false, t_hit, barycentric
-    t_vs, shear = _to_ray_coordinate_space(vs, ray)
+    t_vs, shear = to_ray_coordinate_space(vs, ray)
     # Compute edge function coefficients.
-    edges = _edge_function(t_vs)
+    edges = edge_function(t_vs)
     if iszero(edges)
         return false, t_hit, barycentric
     end
